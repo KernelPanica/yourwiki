@@ -1,0 +1,1 @@
+{% extends 'wiki/base.html' %}{% block content %}<div class="page-heading"><h1>{{ person.label }}</h1><p>Account membership and invitation privileges.</p></div><form method="post" class="settings-card">{% csrf_token %}{{ form.as_p }}<button class="button primary">Save member</button></form>{% endblock %}

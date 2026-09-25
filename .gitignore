@@ -1,5 +1,6 @@
 # Byte-compiled / optimized / DLL files
 __pycache__/
+data/
 *.py[codz]
 *$py.class
 
@@ -216,3 +217,39 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Playwright
+node_modules/
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
+/playwright/.auth/
+
+# Django deployment state
+instance/
+staticfiles/
+*.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm
+setup-private.json
+storage-test-private.json
+wiki/static/wiki/dist/
+wiki/static/drawio/
+
+# Local deployment secrets and mounted data (never commit these).
+/documents/
+/secrets/
+*.key
+*.pem
+*.p12
+*.pfx
+runtime.json
+encryption.key
+
+# Local environment and editor metadata.
+.env.*
+!.env.example
+.DS_Store
+.idea/
+.vscode/

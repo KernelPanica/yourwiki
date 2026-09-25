@@ -1,0 +1,11 @@
+# Disposable integration fixtures; never deploy these example credentials.
+services:
+  sftp:
+    image: atmoz/sftp:alpine
+    command: ["wiki:IntegrationPassword123:::upload"]
+    ports: ["127.0.0.1:2222:22"]
+  smb:
+    image: dperson/samba:latest
+    command: ["-u", "wiki;IntegrationPassword123", "-s", "docs;/share;yes;no;no;wiki", "-p"]
+    ports: ["127.0.0.1:1445:445"]
+    tmpfs: ["/share"]

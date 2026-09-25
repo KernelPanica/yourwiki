@@ -1,0 +1,24 @@
+{% load static wiki_ui %}<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f3f6f5"><title>{% block title %}{{ site_name }} — Yourwiki{% endblock %}</title><link rel="stylesheet" href="{% static 'wiki/style.css' %}"><script src="{% static 'wiki/theme.js' %}"></script><script src="{% static 'wiki/app.js' %}" defer></script></head>
+<body><a class="skip-link" href="#main-content">Skip to main content</a>
+<aside class="sidebar" id="workspace-sidebar" aria-label="File explorer">
+<div class="sidebar-head"><a class="brand" href="{% url 'folders' %}"><span class="brand-mark" aria-hidden="true">{% icon 'book' %}</span>{{ site_name }}</a><button class="sidebar-close icon-button" type="button" data-sidebar-close aria-label="Close file explorer">{% icon 'close' %}</button></div>
+<div class="explorer-caption"><span>EXPLORER</span><div class="explorer-actions">
+<a class="icon-button" href="{% url 'new' %}{% if folder %}?folder={{ folder.pk }}{% endif %}" aria-label="New file" title="New file">{% icon 'plus' %}</a>
+<a class="icon-button" href="{% url 'new-directory' %}{% if current_path %}?path={{ current_path|urlencode }}{% elif folder %}?folder={{ folder.pk }}{% endif %}" aria-label="New directory" title="New directory">{% icon 'folder' %}</a>
+<a class="icon-button" href="{% url 'upload' %}{% if current_path %}?path={{ current_path|urlencode }}{% elif folder %}?folder={{ folder.pk }}{% endif %}" aria-label="Upload file" title="Upload file">{% icon 'upload' %}</a>
+</div></div>
+<nav aria-label="Files and directories"><a class="nav-item root-directory" data-drop-folder="" data-drop-path="/" href="{% url 'folders' %}">{% icon 'cloud' %}<span>/</span><small>Root</small></a>
+{% include 'wiki/explorer_tree.html' with nodes=folder_tree %}{% include 'wiki/explorer_files.html' with files=root_files %}
+</nav><div class="explorer-footer"><span>{{ document_count }} file{{ document_count|pluralize }} · {{ mount_count }} mount{{ mount_count|pluralize }}</span><small>Drag to move. Use the move action on touch or keyboard.</small></div>
+</aside><button class="sidebar-scrim" type="button" data-sidebar-close aria-label="Close file explorer"></button>
+<form id="explorer-move-form" hidden>{% csrf_token %}</form><p id="explorer-status" role="status" aria-live="polite"></p>
+<div class="main-shell"><header class="topbar"><div class="topbar-start"><button class="menu-button icon-button" type="button" data-sidebar-open aria-controls="workspace-sidebar" aria-expanded="false" aria-label="Open file explorer">{% icon 'list' %}</button><a class="workspace-home" href="{% url 'folders' %}">Workspace</a><span class="header-divider">/</span><span>{{ section|default:'Files' }}</span></div>
+<details class="workspace-menu"><summary class="icon-button" aria-label="Workspace menu" title="Workspace menu">{% icon 'grid' %}</summary><div class="workspace-menu-panel">
+<strong>{{ user.label }}</strong><small>{{ site_name }}</small>
+<nav aria-label="Workspace"><a class="nav-item" href="{% url 'folders' %}">{% icon 'folder' %}Files</a><a class="nav-item" href="{% url 'library' %}">{% icon 'grid' %}All documents</a><a class="nav-item" href="/?section=Recent">{% icon 'clock' %}Recent</a><a class="nav-item" href="/?section=Starred">{% icon 'star' %}Starred</a><a class="nav-item" href="{% url 'import' %}">{% icon 'upload' %}Import wiki</a></nav>
+<nav aria-label="Administration">{% if user.is_superuser or user.can_invite %}<a class="nav-item" href="{% url 'invitations' %}">Invitations</a>{% endif %}{% if user.is_superuser %}<a class="nav-item" href="{% url 'mountpoints' %}">{% icon 'cloud' %}Mountpoints</a><a class="nav-item" href="{% url 'members' %}">Members</a><a class="nav-item" href="{% url 'groups' %}">Groups</a><a class="nav-item" href="{% url 'settings' %}">{% icon 'settings' %}Site administration</a>{% endif %}<a class="nav-item" href="{% url 'account' %}">Account</a></nav>
+<form method="post" action="{% url 'logout' %}">{% csrf_token %}<button class="button">Sign out</button></form>
+<button class="button theme-toggle" type="button" data-theme-toggle aria-label="Use dark theme">Dark theme</button>
+</div></details></header><main id="main-content" tabindex="-1">{% for message in messages %}<div class="info-strip" role="status">{% icon 'check' %}{{ message }}</div>{% endfor %}{% block content %}{% endblock %}</main>
+<footer><span>Yourwiki / {{ site_name }}</span><span>Private by design</span></footer></div></body></html>

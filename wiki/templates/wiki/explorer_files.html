@@ -1,0 +1,1 @@
+{% load wiki_ui %}{% for file in files %}<a class="explorer-file{% if doc.pk == file.pk %} active{% endif %}" {% if file.can_move %}draggable="true" data-move-url="{% url 'move' 'document' file.pk %}"{% endif %} href="{% url 'document' file.pk %}" title="{{ file.title }}">{% icon file.kind %}<span>{{ file.title }}</span></a>{% endfor %}

@@ -1,0 +1,6 @@
+{% load wiki_ui %}{% for node in nodes %}
+<details class="explorer-branch" data-folder-id="{{ node.folder.pk }}" open>
+<summary {% if node.folder.explorer_write %}data-drop-folder="{{ node.folder.pk }}" data-drop-path="{{ node.folder.explorer_path|default:'' }}"{% endif %}>
+<a {% if node.folder.explorer_move %}draggable="true" data-move-url="{% url 'move' 'folder' node.folder.pk %}" data-folder-id="{{ node.folder.pk }}"{% endif %} class="{% if folder.pk == node.folder.pk %}active{% endif %}" href="{% url 'folder' node.folder.pk %}" title="{{ node.folder.explorer_path|default:node.folder.name }}{% if node.folder.is_mount %} · Mountpoint{% endif %}">{% if node.folder.is_mount %}{% icon 'cloud' %}{% else %}{% icon 'folder' %}{% endif %}<span>{{ node.folder.name }}</span></a>
+</summary><div class="explorer-children">{% include 'wiki/explorer_tree.html' with nodes=node.children %}{% include 'wiki/explorer_files.html' with files=node.documents %}</div>
+</details>{% endfor %}

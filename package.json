@@ -1,0 +1,26 @@
+{
+  "name": "yourwiki-editors",
+  "private": true,
+  "type": "module",
+  "overrides": {
+    "nanoid": "5.1.16"
+  },
+  "scripts": {
+    "build": "node frontend/build.mjs"
+  },
+  "dependencies": {
+    "@tiptap/core": "3.31.3",
+    "@tiptap/extension-collaboration": "3.31.3",
+    "@tiptap/extension-highlight": "3.31.3",
+    "@tiptap/extension-image": "3.31.3",
+    "@tiptap/extension-table": "3.31.3",
+    "@tiptap/extension-text-align": "3.31.3",
+    "@tiptap/extension-text-style": "3.31.3",
+    "@tiptap/pm": "3.31.3",
+    "@tiptap/starter-kit": "3.31.3",
+    "@univerjs/preset-sheets-core": "0.25.1",
+    "@univerjs/preset-sheets-filter": "0.25.1",
+    "esbuild": "0.28.2",
+    "yjs": "13.6.32"
+  }
+}

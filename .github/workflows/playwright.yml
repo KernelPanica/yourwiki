@@ -1,0 +1,50 @@
+name: Python and Docker acceptance
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+permissions:
+  contents: read
+jobs:
+  application:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+      - run: pip install -r requirements-dev.txt
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci --ignore-scripts && npm run build
+      - run: python docker/fetch_drawio.py
+      - run: python -m playwright install --with-deps chromium
+      - run: python manage.py collectstatic --noinput
+        env:
+          DJANGO_SECRET_KEY: ci-static-build-only
+      - run: python -m pytest -q
+        env:
+          RUN_BROWSER: '1'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: browser-screenshots
+          path: test-results/
+          if-no-files-found: ignore
+  containers:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+      - run: pip install -r requirements-dev.txt
+      - run: docker compose config --quiet
+      - run: python tests/run_container_checks.py
