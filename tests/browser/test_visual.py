@@ -121,3 +121,36 @@ def test_localized_canvas_preview(realtime_server, workspace, language, add_text
         expect(page.get_by_role('button', name=add_text, exact=True)).to_be_visible()
         expect(page.locator('.canvas-node').first).to_contain_text('Visible card')
         browser.close()
+
+
+def test_image_view_and_delete(realtime_server, workspace):
+    from io import BytesIO
+    from PIL import Image
+    from wiki.services import save_document
+    from wiki.models import Document
+
+    stream = BytesIO()
+    Image.new('RGB', (800, 400), 'blue').save(stream, format='PNG')
+    doc = save_document(workspace['admin'], 'picture.png', 'file', 'Images', stream.getvalue(), workspace['team'])
+    with sync_playwright() as p:
+        browser = p.chromium.launch()
+        page = browser.new_page(viewport={'width': 390, 'height': 844})
+        login(page, realtime_server)
+        page.context.add_cookies([{'name': 'django_language', 'value': 'ru', 'url': realtime_server}])
+        page.goto(realtime_server + f'/documents/{doc.pk}/')
+        picture = page.get_by_role('img', name='picture.png')
+        expect(picture).to_be_visible()
+        assert picture.evaluate('(img) => img.complete && img.naturalWidth === 800')
+        assert picture.bounding_box()['width'] <= 390
+        for route in ('/', '/?view=grid', '/folders/'):
+            page.goto(realtime_server + route)
+            button = page.locator(f'a[href="/documents/{doc.pk}/delete/"]')
+            expect(button).to_be_visible()
+            box = button.bounding_box()
+            assert box['x'] >= 0 and box['x'] + box['width'] <= 390
+        button.click()
+        expect(page.get_by_role('heading', name='Удалить «picture.png»?')).to_be_visible()
+        page.get_by_role('button', name='Удалить документ', exact=True).click()
+        expect(page).to_have_url(realtime_server + '/')
+        browser.close()
+    assert not Document.objects.filter(pk=doc.pk).exists()

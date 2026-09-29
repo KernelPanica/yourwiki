@@ -17,7 +17,7 @@ from django.views.decorators.http import require_http_methods, require_POST
 from .forms import DocumentForm, InviteForm, MemberForm, RegistrationForm
 from .middleware import deny
 from .models import Document, Invitation, LoginAttempt, User, Workspace
-from .previews import preview
+from .previews import preview, image_type
 from .services import Conflict, EXTENSIONS, redeem_invitation, require, save_document, validate_policy, delete_document
 from .storage import StorageError, active_storage
 
@@ -119,7 +119,8 @@ def library(request):
     from .folders import directory_path
     for doc in docs:
         doc.location = directory_path(doc.folder, request.user) or ('Shared file' if doc.folder_id else '/')
-        doc.can_move = doc.allows(request.user, 'write') and (not doc.folder or doc.folder.allows(request.user, 'write'))
+        doc.can_write = doc.allows(request.user, 'write')
+        doc.can_move = doc.can_write and (not doc.folder or doc.folder.allows(request.user, 'write'))
     section = request.GET.get('section', 'All documents')
     if section == 'Shared':
         section = 'All documents'
@@ -139,7 +140,7 @@ def detail(request, id):
         return render(request, 'wiki/pdf.html', {'doc': doc, 'can_write': doc.allows(request.user, 'write'),
             'pdf_bootstrap': {'id': str(doc.pk), 'title': doc.title, 'revision': doc.revision, 'write': doc.allows(request.user, 'write')}})
     if doc.kind == 'file':
-        return render(request, 'wiki/file.html', {'doc':doc, 'is_pdf':doc.title.lower().endswith('.pdf'), 'can_write':doc.allows(request.user,'write'), 'can_policy':request.user.is_superuser})
+        return render(request, 'wiki/file.html', {'doc':doc, 'is_image':bool(image_type(active_storage().read(doc.reference))), 'can_write':doc.allows(request.user,'write'), 'can_policy':request.user.is_superuser})
     from .collaboration import current_content
     content = current_content(doc)
     try:
@@ -278,8 +279,9 @@ def export_document(request,id):
         from django.utils.http import content_disposition_header
         content = active_storage().read(doc.reference)
         is_pdf = doc.title.lower().endswith('.pdf') and content.startswith(b'%PDF-')
-        response = HttpResponse(content, content_type='application/pdf' if is_pdf else 'application/octet-stream')
-        response['Content-Disposition'] = content_disposition_header(not (is_pdf and request.GET.get('inline') == '1'), doc.title)
+        mime = 'application/pdf' if is_pdf else image_type(content)
+        response = HttpResponse(content, content_type=mime or 'application/octet-stream')
+        response['Content-Disposition'] = content_disposition_header(not (mime and request.GET.get('inline') == '1'), doc.title)
         response['X-Content-Type-Options'] = 'nosniff'
         return response
     if request.GET.get('format') == 'bundle':

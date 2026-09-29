@@ -254,7 +254,8 @@ def folder_page(request, id=None):
         child.can_drop = child.allows(request.user, 'write')
         child.drop_path = directory_path(child, request.user)
     for doc in docs:
-        doc.can_move = doc.allows(request.user, 'write') and (not folder or folder.allows(request.user, 'write'))
+        doc.can_write = doc.allows(request.user, 'write')
+        doc.can_move = doc.can_write and (not folder or folder.allows(request.user, 'write'))
     current = '/' + storage_path(folder)
     current_mount = max((m for m in mounts if m.path == '/' or current == m.path or current.startswith(m.path + '/')), key=lambda m:len(m.path), default=None)
     mount_locked = any(m.path == current or m.path.startswith(current + '/') for m in mounts)

@@ -101,3 +101,18 @@ def preview(kind, text):
         elif cell.get('edge') == '1':
             edges.append({'from':cell.get('source'),'to':cell.get('target'),'label':cell.get('value','')})
     return graph(nodes,edges)
+
+
+def image_type(content):
+    """Only verified raster images may be served inline."""
+    from PIL import Image
+    try:
+        with Image.open(io.BytesIO(content)) as image:
+            mime = {'PNG': 'image/png', 'JPEG': 'image/jpeg', 'GIF': 'image/gif',
+                    'WEBP': 'image/webp', 'BMP': 'image/bmp'}.get(image.format)
+            if not mime:
+                return None
+            image.verify()
+            return mime
+    except (OSError, ValueError, SyntaxError, Image.DecompressionBombError):
+        return None
