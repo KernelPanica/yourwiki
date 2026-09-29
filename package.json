@@ -21,6 +21,7 @@
     "@univerjs/preset-sheets-core": "0.25.1",
     "@univerjs/preset-sheets-filter": "0.25.1",
     "esbuild": "0.28.2",
+    "pdfjs-dist": "6.3.289",
     "yjs": "13.6.32"
   }
 }

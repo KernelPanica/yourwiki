@@ -1,4 +1,5 @@
 (() => {
+  const t = window.gettext;
   const root = document.documentElement;
   const controls = () => document.querySelectorAll('[data-theme-toggle]');
   const apply = theme => {
@@ -6,9 +7,9 @@
     try { localStorage.setItem('yourwiki-theme', root.dataset.theme); } catch {}
     controls().forEach(control => {
       const dark = root.dataset.theme === 'dark';
-      control.setAttribute('aria-label', dark ? 'Use light theme' : 'Use dark theme');
+      control.setAttribute('aria-label', dark ? t('Use light theme') : t('Use dark theme'));
       if (control.matches('input')) control.checked = dark;
-      else control.textContent = dark ? 'Light theme' : 'Dark theme';
+      else control.textContent = dark ? t('Light theme') : t('Dark theme');
     });
   };
   let saved = 'light';

@@ -1,4 +1,5 @@
 """Copy current legacy revisions into the provider's directory tree."""
+import secrets
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 from wiki.folders import storage_path
@@ -17,7 +18,8 @@ class Command(BaseCommand):
             for folder in Folder.objects.select_related('parent'):
                 adapter.ensure_dir(storage_path(folder))
             for doc in Document.objects.filter(path_synced=False).select_related('folder'):
-                key = storage_key(doc)
+                # Legacy records still need a new provider object; new records use readable names.
+                key = storage_key(doc) + f'.legacy-{secrets.token_hex(4)}'
                 if doc.folder:
                     adapter.ensure_dir(key.rpartition('/')[0])
                 reference = adapter.write(key, adapter.read(doc.reference))

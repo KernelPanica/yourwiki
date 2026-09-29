@@ -1,5 +1,7 @@
 import * as Y from 'yjs';
 export { Y };
+export const t = window.gettext;
+export const format = (message, values) => window.interpolate(t(message), values, true);
 export const boot = JSON.parse(document.getElementById('editor-bootstrap').textContent);
 export const ydoc = new Y.Doc();
 export const unb64 = value => Uint8Array.from(atob(value), c => c.charCodeAt(0));
@@ -12,14 +14,15 @@ let holding=false,reviewUpdates=[];
 export function holdUpdates(value){holding=value;if(!value)reviewUpdates=[];}
 export function heldUpdate(){return Y.mergeUpdates(reviewUpdates);}
 export function queueReviewUpdate(update){if(!holding)return false;reviewUpdates.push(update);return true;}
-export function error(message) {const box=document.getElementById('editor-error'); box.textContent=message;box.hidden=false;}
+export function error(message) {const box=document.getElementById('editor-error'); box.textContent=t(message);box.hidden=false;}
 export async function api(path, options={}) {
   const csrf = document.cookie.split('; ').find(v=>v.startsWith('csrftoken='))?.split('=')[1] || '';
   const response=await fetch(path,{...options,headers:{'X-CSRFToken':decodeURIComponent(csrf),...(options.body instanceof FormData?{}:{'Content-Type':'application/json'}),...options.headers}});
-  if(!response.ok) {let value;try{value=await response.json();}catch{} throw new Error(value?.error || `Request failed (${response.status}).`);}
+  if(!response.ok) {let value;try{value=await response.json();}catch{} throw new Error(value?.error || format('Request failed (%(status)s).', {status:response.status}));}
   return response.json();
 }
 export function button(label, action, {write=true, parent=toolbar}={}) {
+  label=t(label);
   const el=document.createElement('button'); el.type='button';el.className='button';el.textContent=label;el.title=label;el.setAttribute('aria-label',label);
   if(write) {el.dataset.write='';el.disabled=!boot.write;}
   el.addEventListener('mousedown',e=>e.preventDefault());
@@ -27,15 +30,16 @@ export function button(label, action, {write=true, parent=toolbar}={}) {
   parent.append(el);return el;
 }
 export function select(label, values, action) {
+  label=t(label);
   const wrap=document.createElement('label');wrap.className='toolbar-label';wrap.textContent=label;
   const el=document.createElement('select');el.setAttribute('aria-label',label);el.dataset.write='';el.disabled=!boot.write;
-  for(const [value,text] of values){const option=new Option(text,value);el.add(option);}
+  for(const [value,text] of values){const option=new Option(t(text),value);el.add(option);}
   el.onchange=()=>action(el.value);wrap.append(el);toolbar.append(wrap);return el;
 }
 export function dialog(title, fields) {
   const el=document.getElementById('editor-dialog'), container=document.getElementById('dialog-fields');
-  document.getElementById('dialog-title').textContent=title;container.replaceChildren();
-  for(const [name,label,value='',type='text'] of fields){const row=document.createElement('label');row.textContent=label;const input=document.createElement(type==='textarea'?'textarea':'input');input.name=name;input.value=value;if(type!=='textarea')input.type=type;row.append(input);container.append(row);}
+  document.getElementById('dialog-title').textContent=t(title);container.replaceChildren();
+  for(const [name,label,value='',type='text'] of fields){const row=document.createElement('label');row.textContent=t(label);const input=document.createElement(type==='textarea'?'textarea':'input');input.name=name;input.value=value;if(type!=='textarea')input.type=type;row.append(input);container.append(row);}
   el.returnValue='cancel';el.showModal();
   return new Promise(resolve=>el.addEventListener('close',()=>resolve(el.returnValue==='ok'?Object.fromEntries(new FormData(el.querySelector('form'))):null),{once:true}));
 }

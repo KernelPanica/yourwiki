@@ -1,0 +1,15 @@
+{% extends 'wiki/base.html' %}{% load static i18n %}{% block content %}
+<link rel="stylesheet" href="{% static 'wiki/dist/pdf.css' %}">
+<div class="page-heading"><h1>{{ doc.title }}</h1><p>{% translate 'View PDF pages, add text, highlight, draw, and fill forms without changing the original layout.' %}</p></div>
+<div class="form-actions"><a class="button" href="{% url 'export' doc.pk %}">{% translate 'Download saved PDF' %}</a><a class="button" href="{% url 'summary' doc.pk %}">{% translate 'AI summary' %}</a>{% if can_write %}<a class="button" href="{% url 'move' 'document' doc.pk %}">{% translate 'Move' %}</a><a class="button danger" href="{% url 'delete' doc.pk %}">{% translate 'Delete' %}</a>{% endif %}</div>
+<form id="pdf-save-form" hidden>{% csrf_token %}</form>
+<fieldset id="pdf-controls" class="pdf-controls" disabled><legend>{% translate 'PDF controls' %}</legend>
+<label>{% translate 'Page' %} <input id="pdf-page" type="number" min="1" value="1"> / <span id="pdf-pages"></span></label>
+<label>{% translate 'Zoom' %}<select id="pdf-zoom"><option value="page-width">{% translate 'Page width' %}</option><option value="page-fit">{% translate 'Fit page' %}</option><option value="1">100%</option><option value="1.5">150%</option><option value="2">200%</option></select></label>
+{% if can_write %}<label>{% translate 'Tool' %}<select id="pdf-tool"><option value="0">{% translate 'Select / fill forms' %}</option><option value="3">{% translate 'Add text' %}</option><option value="9">{% translate 'Highlight' %}</option><option value="15">{% translate 'Draw' %}</option></select></label><button type="button" class="button primary" id="pdf-save">{% translate 'Save PDF' %}</button>{% endif %}
+<button type="button" class="button" id="pdf-download">{% translate 'Download current PDF' %}</button>
+</fieldset><p id="pdf-status" role="status" aria-live="polite">{% translate 'Loading PDF…' %}</p>
+{% if can_write %}<p class="muted">{% translate 'Changes stay in this tab until you save. Use Download current PDF to keep a local copy of unsaved edits.' %}</p>{% endif %}
+<div class="pdf-frame"><div id="pdf-container" tabindex="0" aria-label="{% translate 'PDF pages' %}"><div class="pdfViewer"></div></div></div>
+{{ pdf_bootstrap|json_script:'pdf-bootstrap' }}<script type="module" src="{% static 'wiki/dist/pdf.js' %}"></script>
+{% endblock %}

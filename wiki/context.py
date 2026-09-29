@@ -1,4 +1,5 @@
 from .models import Document
+from django.utils.translation import gettext
 
 def workspace(request):
     if not getattr(request, 'user', None) or not request.user.is_authenticated:
@@ -33,4 +34,4 @@ def workspace(request):
         parent = nodes.get(node['folder'].parent_id)
         (parent['children'] if parent else tree).append(node)
     return {'site_name':site.name, 'site_description':site.description, 'folder_tree': tree, 'root_files':root_files,
-        'mount_count':len(mount_paths) or 1, 'document_count':len(visible), 'provider_label':'Mounted filesystem'}
+        'mount_count':len(mount_paths) or 1, 'document_count':len(visible), 'provider_label':gettext('Mounted filesystem')}

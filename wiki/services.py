@@ -1,6 +1,5 @@
 import json
 import logging
-import secrets
 import re
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
@@ -15,9 +14,9 @@ EXTENSIONS = {'document': 'md', 'table': 'csv', 'drawio': 'drawio', 'canvas': 'c
 def storage_key(doc, directory=None, title=None, extension=None):
     from .folders import storage_path
     path = storage_path(doc.folder) if directory is None else directory
-    # Revision keys stay unique even when two files have the same display name.
     name = re.sub(r'[\\/<>:"|?*\x00-\x1f]', '_', title if title is not None else doc.title).rstrip(' .')[:160] or 'file'
-    return f'{path + "/" if path else ""}{doc.pk}-{secrets.token_hex(8)}-{name}' + ('' if doc.kind == 'file' else '.' + (extension or ('wiki.json' if doc.format_version else EXTENSIONS[doc.kind])))
+    suffix = '' if doc.kind == 'file' else '.' + (extension or ('wiki.json' if doc.format_version else EXTENSIONS[doc.kind]))
+    return f'{path + "/" if path else ""}{name}{suffix}'
 
 class Conflict(Exception):
     pass
@@ -99,7 +98,8 @@ def save_document(user, title, kind, collection, content, group, doc=None, revis
     key = storage_key(doc, title=title, extension='wiki.json' if kind != 'file' and unpack(content) else None)
     if doc.folder:
         adapter.ensure_dir(key.rpartition('/')[0])
-    reference = adapter.write(key, content if isinstance(content, bytes) else content.encode())
+    same_object = doc if doc and not doc._state.adding and title == doc.title and (folder is None or folder.pk == doc.folder_id) else None
+    reference = adapter.write(key, content if isinstance(content, bytes) else content.encode(), same_object.reference if same_object else None)
     try:
         with transaction.atomic():
             if doc._state.adding:

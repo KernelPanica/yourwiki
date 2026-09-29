@@ -1,10 +1,16 @@
-from django.urls import path
+from django.urls import include, path
+from django.views.i18n import JavaScriptCatalog
 from wiki import views
 from wiki import folders
 from wiki import editor_views
 from wiki import administration
 from wiki import mounts
+from wiki import ai
 urlpatterns = [
+    path('settings/ai/', ai.settings, name='ai-settings'),
+    path('documents/<uuid:id>/summary/', ai.summary, name='summary'),
+    path('jsi18n/', JavaScriptCatalog.as_view(domain='django'), name='javascript-catalog'),
+    path('i18n/setlang/', views.set_language, name='set_language'),
     path('documents/<uuid:id>/live/', editor_views.live, name='live'),
     path('api/docs/<uuid:id>/status', editor_views.status),
     path('api/docs/<uuid:id>/metadata', editor_views.metadata),
@@ -27,6 +33,7 @@ urlpatterns = [
     path('files/upload/', views.upload_file, name='upload'),
     path('documents/import/', views.import_document, name='import'),
     path('documents/<uuid:id>/', views.detail, name='document'),
+    path('documents/<uuid:id>/pdf/', views.save_pdf, name='save-pdf'),
     path('documents/<uuid:id>/edit/', views.editor, name='edit'),
     path('documents/<uuid:id>/export/', views.export_document, name='export'),
     path('documents/<uuid:id>/delete/', views.remove, name='delete'),

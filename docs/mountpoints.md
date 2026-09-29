@@ -20,8 +20,9 @@ Matching respects directory boundaries, so `/projects-other` stays on root.
 
 The explorer shows directories and wiki-managed files. Create, upload, or
 import files to add them; pre-existing external files are not automatically
-indexed, and external changes are not watched. Current revisions are written
-under their directory paths with unique revision names to prevent collisions.
+indexed, and external changes are not watched. Current files use readable names
+under their directory paths; collaborative snapshots add a visible revision
+suffix when a new immutable snapshot is written.
 
 ## Local directories in Docker
 

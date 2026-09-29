@@ -20,14 +20,14 @@ class AccessMiddleware:
         self.get_response = get_response
 
     def __call__(self, request):
-        public = request.path in ('/login', '/login/', '/health/') or request.path.startswith('/invite/')
+        public = request.path in ('/login', '/login/', '/health/', '/i18n/setlang/', '/jsi18n/') or request.path.startswith('/invite/')
         if not public and not request.user.is_authenticated:
             return deny(request, 'session_required')
         try:
             initialized = Workspace.objects.filter(pk=1, initialized=True).exists()
         except OperationalError:
             initialized = False
-        if not initialized and request.path != '/health/':
+        if not initialized and request.path not in ('/health/', '/login', '/login/', '/i18n/setlang/', '/jsi18n/'):
             return deny(request, 'not_initialized')
         response = self.get_response(request)
         response['Cache-Control'] = 'no-store'

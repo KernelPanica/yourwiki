@@ -1,0 +1,7 @@
+{% extends 'wiki/base.html' %}{% load i18n %}{% block content %}
+<div class="page-heading"><h1>{% translate 'AI summary' %}</h1><p>{{ doc.title }}</p></div>
+<a class="button" href="{% url 'document' doc.pk %}">{% translate 'Back to document' %}</a>
+{% if configured %}<form method="post" class="settings-card">{% csrf_token %}{{ form.as_p }}<p>{% translate 'Only extracted text is sent to the selected provider when you generate a summary. PDF pages and images are not uploaded to the API.' %}</p><p class="muted">{% translate 'Scanned PDFs need OCR first. Documents over 100,000 text characters must be split; content is never silently truncated.' %}</p><button class="button primary">{% translate 'Generate summary' %}</button></form>
+{% else %}<p>{% translate 'An administrator must configure an AI provider before summaries can be generated.' %}</p>{% if user.is_superuser %}<a class="button" href="{% url 'ai-settings' %}">{% translate 'AI settings' %}</a>{% endif %}{% endif %}
+{% if summary %}<section class="settings-card"><h2>{% translate 'Summary' %}</h2><p class="muted">{{ provider_name }} · {% blocktranslate %}{{ character_count }} text characters sent{% endblocktranslate %}</p>{% if limited %}<p role="status">{% translate 'The provider reached its output limit; this summary may be incomplete.' %}</p>{% endif %}<div class="ai-summary">{{ summary }}</div><p class="muted">{% translate 'AI-generated. Check important details against the original document.' %}</p></section>{% endif %}
+{% endblock %}

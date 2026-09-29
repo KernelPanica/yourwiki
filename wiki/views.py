@@ -26,6 +26,20 @@ def denied(request, *args, **kwargs):
     return deny(request)
 
 
+@require_POST
+def set_language(request):
+    from django.conf import settings
+    language = request.POST.get('language', '')
+    if language not in dict(settings.LANGUAGES):
+        return deny(request, 'invalid_language')
+    next_url = request.POST.get('next', '/')
+    if not next_url.startswith('/') or next_url.startswith('//'):
+        next_url = '/'
+    response = redirect(next_url)
+    response.set_cookie(settings.LANGUAGE_COOKIE_NAME, language, max_age=settings.LANGUAGE_COOKIE_AGE, path=settings.LANGUAGE_COOKIE_PATH)
+    return response
+
+
 def guarded(view):
     @wraps(view)
     def wrapped(request, *args, **kwargs):
@@ -121,8 +135,11 @@ def library(request):
 @guarded
 def detail(request, id):
     doc = document_for(request.user, id)
+    if doc.kind == 'file' and doc.title.lower().endswith('.pdf'):
+        return render(request, 'wiki/pdf.html', {'doc': doc, 'can_write': doc.allows(request.user, 'write'),
+            'pdf_bootstrap': {'id': str(doc.pk), 'title': doc.title, 'revision': doc.revision, 'write': doc.allows(request.user, 'write')}})
     if doc.kind == 'file':
-        return render(request, 'wiki/file.html', {'doc':doc, 'can_write':doc.allows(request.user,'write'), 'can_policy':request.user.is_superuser})
+        return render(request, 'wiki/file.html', {'doc':doc, 'is_pdf':doc.title.lower().endswith('.pdf'), 'can_write':doc.allows(request.user,'write'), 'can_policy':request.user.is_superuser})
     from .collaboration import current_content
     content = current_content(doc)
     try:
@@ -201,7 +218,15 @@ def upload_file(request):
                 folder = target_folder(request.user, form.cleaned_data['folder']) if form.cleaned_data['folder'] else resolve_path(request.user, form.cleaned_data['path'])
                 group = request.user.groups.first() or (Group.objects.first() if request.user.is_superuser else None)
                 if not group: raise PermissionDenied
-                doc = save_document(request.user, upload.name, 'file', 'Uploads', upload.read(limit+1), group, folder=folder)
+                if upload.name.lower().endswith('.docx'):
+                    from .docx import to_native
+                    doc = save_document(request.user, upload.name[:-5], 'document', 'Uploads', to_native(upload), group, folder=folder)
+                else:
+                    content = upload.read(limit+1)
+                    if upload.name.lower().endswith('.pdf'):
+                        from .pdf import process_pdf
+                        process_pdf(content)
+                    doc = save_document(request.user, upload.name, 'file', 'Uploads', content, group, folder=folder)
             return redirect('document', id=doc.pk)
     return render(request, 'wiki/upload.html', {'form':form, 'section':'Upload file'}, status=400 if form.errors else 200)
 
@@ -215,21 +240,33 @@ def import_document(request):
         if not upload or upload.size > (50 if is_bundle else 5)*1024*1024:
             raise ValidationError('Choose a file smaller than 5 MB.')
         ext = upload.name.rsplit('.',1)[-1].lower()
-        kind = {'md':'document','txt':'document','csv':'table','canvas':'canvas','drawio':'drawio','xml':'drawio'}.get(ext)
+        kind = {'md':'document','txt':'document','csv':'table','canvas':'canvas','drawio':'drawio','xml':'drawio','doc':'file','docx':'file','pdf':'file'}.get(ext)
         group = request.user.groups.first() or (Group.objects.first() if request.user.is_superuser else None)
         if not group: raise ValidationError('Ask an administrator to add you to a group first.')
         if is_bundle:
             from .bundles import import_bundle
             doc=import_bundle(request.user,group,upload)
             return redirect('document',id=doc.pk)
-        try: content = upload.read().decode('utf-8-sig')
-        except UnicodeDecodeError: raise ValidationError('File must contain UTF-8 text.')
+        if ext == 'docx':
+            from .docx import to_native
+            content = to_native(upload)
+            kind = 'document'
+        elif ext == 'pdf':
+            from .pdf import process_pdf
+            content = upload.read()
+            process_pdf(content)
+        elif kind == 'file':
+            content = upload.read()
+        else:
+            try: content = upload.read().decode('utf-8-sig')
+            except UnicodeDecodeError: raise ValidationError('File must contain UTF-8 text.')
         if ext == 'json':
             from .native import unpack
             native = unpack(content)
             kind = native.get('kind') if native else None
         if not kind: raise ValidationError('Unsupported file type.')
-        doc = save_document(request.user, upload.name.rsplit('.',1)[0], kind, 'Imported', content, group)
+        title = upload.name if kind == 'file' else upload.name.rsplit('.',1)[0]
+        doc = save_document(request.user, title, kind, 'Imported', content, group)
         return redirect('document', id=doc.pk)
     return render(request,'wiki/import.html',{'section':'Import'})
 
@@ -239,8 +276,10 @@ def export_document(request,id):
     doc=document_for(request.user,id)
     if doc.kind == 'file':
         from django.utils.http import content_disposition_header
-        response = HttpResponse(active_storage().read(doc.reference), content_type='application/octet-stream')
-        response['Content-Disposition'] = content_disposition_header(True, doc.title)
+        content = active_storage().read(doc.reference)
+        is_pdf = doc.title.lower().endswith('.pdf') and content.startswith(b'%PDF-')
+        response = HttpResponse(content, content_type='application/pdf' if is_pdf else 'application/octet-stream')
+        response['Content-Disposition'] = content_disposition_header(not (is_pdf and request.GET.get('inline') == '1'), doc.title)
         response['X-Content-Type-Options'] = 'nosniff'
         return response
     if request.GET.get('format') == 'bundle':
@@ -252,13 +291,23 @@ def export_document(request,id):
     from .collaboration import current_content
     from .native import unpack, markdown_export, csv_export
     content = current_content(doc)
+    from django.utils.http import content_disposition_header
+    if request.GET.get('format') == 'docx' and doc.kind == 'document':
+        from .docx import to_docx
+        response = HttpResponse(to_docx(content), content_type='application/vnd.openxmlformats-officedocument.wordprocessingml.document')
+        response['Content-Disposition'] = content_disposition_header(True, doc.title + '.docx')
+        return response
+    if request.GET.get('format') == 'pdf' and doc.kind == 'document':
+        from .pdf import to_pdf
+        response = HttpResponse(to_pdf(content, doc.title), content_type='application/pdf')
+        response['Content-Disposition'] = content_disposition_header(True, doc.title + '.pdf')
+        return response
     native = unpack(content)
     extension = 'wiki.json' if native else EXTENSIONS[doc.kind]
     if native and request.GET.get('format') == 'plain':
         content = markdown_export(native['data']) if doc.kind == 'document' else csv_export(native['data'])
         extension = 'md' if doc.kind == 'document' else 'csv'
     response=HttpResponse(content.encode(), content_type='application/octet-stream')
-    from django.utils.http import content_disposition_header
     response['Content-Disposition']=content_disposition_header(True, doc.title+'.'+extension)
     return response
 
@@ -484,3 +533,26 @@ def api_document(request,id):
                 doc.starred=data['starred']
             doc.save(update_fields=['policy','group','starred'])
     return JsonResponse(serialized(doc,request.user))
+
+
+@guarded
+@require_POST
+def save_pdf(request, id):
+    from .pdf import process_pdf
+    from .models import SiteConfiguration
+    doc = document_for(request.user, id, 'write')
+    require(doc, request.user, 'read')
+    if doc.kind != 'file' or not doc.title.lower().endswith('.pdf'):
+        raise ValidationError('Choose a PDF file.')
+    upload = request.FILES.get('file')
+    if not upload or upload.size > min(5, SiteConfiguration.current().document_limit_mb) * 1024 * 1024:
+        raise ValidationError('Use a PDF file no larger than 5 MB.')
+    content = upload.read()
+    process_pdf(content)
+    # Serialize revision checking and writes, so stale PDF tabs cannot overwrite a save.
+    with transaction.atomic():
+        doc = document_for(request.user, id, 'write')
+        require(doc, request.user, 'read')
+        saved = save_document(request.user, doc.title, 'file', doc.collection, content,
+                              doc.group, doc, int(request.POST.get('revision', '0')))
+    return JsonResponse({'revision': saved.revision})

@@ -12,7 +12,7 @@ from .views import guarded
 class SiteForm(forms.ModelForm):
     class Meta:
         model = SiteConfiguration
-        exclude = ['id', 'default_document_policy', 'default_collection']
+        exclude = ['id', 'default_document_policy', 'default_collection', 'encrypted_ai_config']
         labels = {'name':'Workspace name','description':'Workspace description','session_hours':'Session lifetime (hours)',
             'invite_days':'Default invitation lifetime (days; 0 = no expiry)','invite_uses':'Default invitation uses (0 = unlimited)',
             'login_attempts':'Login attempts per window','login_window_minutes':'Login rate-limit window (minutes)',

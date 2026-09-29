@@ -67,6 +67,10 @@ class Local(Adapter):
 
     def write(self, key, data, reference=None):
         path = self.path(reference or key)
+        if reference is None and path.exists():
+            if path.is_file() and path.read_bytes() == bounded(data):
+                return key
+            raise StorageError('A file with that name already exists.')
         path.parent.mkdir(parents=True, exist_ok=True)
         temp = path.with_name(path.name + '.tmp-' + secrets.token_hex(8))
         try:
@@ -84,6 +88,12 @@ class Local(Adapter):
 
     def ensure_dir(self, key):
         self.path(key).mkdir(parents=True, exist_ok=True)
+
+    def scan(self):
+        root = Path(self.config['root']).resolve()
+        for path in root.rglob('*'):
+            if path.is_file() and not any(part.startswith('.yourwiki-') for part in path.parts):
+                yield path.relative_to(root).as_posix(), path.relative_to(root).as_posix()
 
 class HTTP(Adapter):
     def request(self, method, url, **kwargs):
@@ -167,6 +177,19 @@ class GoogleDrive(OAuthHTTP):
     def ensure_dir(self, key):
         safe_key(key)
         self.directory(key)
+
+    def scan(self):
+        def walk(parent, prefix=''):
+            response = self.request('GET', self.base, headers=self.headers(), params={
+                'q': f"'{parent}' in parents and trashed = false",
+                'fields': 'files(id,name,mimeType)', 'pageSize': 1000}).json()
+            for item in response.get('files', []):
+                key = f'{prefix}/{item["name"]}' if prefix else item['name']
+                if item['mimeType'] == 'application/vnd.google-apps.folder':
+                    yield from walk(item['id'], key)
+                else:
+                    yield key, item['id']
+        yield from walk(self.config['root'])
 
 class OneDrive(OAuthHTTP):
     base = 'https://graph.microsoft.com/v1.0/me/drive'
@@ -437,6 +460,15 @@ class MountedStorage:
         root_mount()
         for mount in MountPoint.objects.all():
             mount_adapter(mount).probe()
+
+    def scan(self):
+        from .models import MountPoint
+        mount = root_mount()
+        adapter = mount_adapter(mount)
+        if not hasattr(adapter.adapter, 'scan'):
+            raise StorageError('Root scanning is not supported by this provider.')
+        for key, reference in adapter.scan():
+            yield key, reference if mount.path == '/' else f'mount:{mount.pk}:{reference}'
 
 
 def active_storage():

@@ -4,9 +4,11 @@ import {UniverSheetsCorePreset} from '@univerjs/preset-sheets-core';
 import {UniverSheetsFilterPreset} from '@univerjs/preset-sheets-filter';
 import coreEn from '@univerjs/preset-sheets-core/locales/en-US';
 import filterEn from '@univerjs/preset-sheets-filter/locales/en-US';
+import coreRu from '@univerjs/preset-sheets-core/locales/ru-RU';
+import filterRu from '@univerjs/preset-sheets-filter/locales/ru-RU';
 import '@univerjs/preset-sheets-core/lib/index.css';
 import '@univerjs/preset-sheets-filter/lib/index.css';
-import {boot,host,objects,readObjects,writeObjects,graphUndo,error} from './shared.js';
+import {format,boot,host,objects,readObjects,writeObjects,graphUndo,error} from './shared.js';
 
 const sorted=axis=>Object.keys(axis||{}).sort((a,b)=>axis[a]-axis[b]||a.localeCompare(b));
 function createUniver({presets,...options}){const univer=new Univer({...options,logLevel:LogLevel.WARN});const plugins=new Map();for(const preset of presets)for(const entry of preset.plugins){const [plugin,config]=Array.isArray(entry)?entry:[entry];plugins.set(plugin.pluginName,[plugin,config]);}for(const [plugin,config] of plugins.values())univer.registerPlugin(plugin,config);return {univer,univerAPI:FUniver.newAPI(univer)};}
@@ -15,7 +17,7 @@ function dehydrate(workbook,layout){const out=structuredClone(workbook);out._lay
 
 export function sheetEditor(){
   graphUndo();const container=document.createElement('div');container.className='sheet-host';host.append(container);
-  const {univerAPI}=createUniver({locale:LocaleType.EN_US,locales:{[LocaleType.EN_US]:mergeLocales(coreEn,filterEn)},presets:[UniverSheetsCorePreset({container}),UniverSheetsFilterPreset()]});
+  const {univerAPI}=createUniver({locale:document.documentElement.lang==='ru'?LocaleType.RU_RU:LocaleType.EN_US,locales:{[LocaleType.EN_US]:mergeLocales(coreEn,filterEn),[LocaleType.RU_RU]:mergeLocales(coreRu,filterRu)},presets:[UniverSheetsCorePreset({container}),UniverSheetsFilterPreset()]});
   let applying=true,last=readObjects(),layout=structuredClone(last._layout||{}),workbook=univerAPI.createWorkbook(hydrate(last));workbook.setEditable(boot.write);applying=false;let timer;
   function capture(){if(applying||!boot.write)return;const next=dehydrate(workbook.save(),layout);layout=structuredClone(next._layout);writeObjects(next,last);last=structuredClone(next);}
   univerAPI.addEvent(univerAPI.Event.CommandExecuted,event=>{
@@ -32,7 +34,7 @@ export function sheetEditor(){
     if(event.transaction.origin==='local')return;
     // Commit local command results before rebuilding from the merged shared state.
     clearTimeout(timer);capture();const next=readObjects();last=structuredClone(next);layout=structuredClone(next._layout||{});applying=true;
-    try{const active=workbook.getActiveSheet()?.getSheetId();const snapshot=hydrate(next);univerAPI.disposeUnit(workbook.getId());workbook=univerAPI.createWorkbook(snapshot);if(active&&snapshot.sheets[active])workbook.setActiveSheet(active);workbook.setEditable(boot.write);}catch(e){error(`Spreadsheet refresh failed: ${e.message}`);}finally{applying=false;}
+    try{const active=workbook.getActiveSheet()?.getSheetId();const snapshot=hydrate(next);univerAPI.disposeUnit(workbook.getId());workbook=univerAPI.createWorkbook(snapshot);if(active&&snapshot.sheets[active])workbook.setActiveSheet(active);workbook.setEditable(boot.write);}catch(e){error(format('Spreadsheet refresh failed: %(message)s', {message:e.message}));}finally{applying=false;}
   });
   return {setEditable:value=>workbook.setEditable(value)};
 }

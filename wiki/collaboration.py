@@ -282,6 +282,8 @@ def flush_room(document_id):
     adapter = active_storage()
     from .services import storage_key
     key = storage_key(room.document, extension='wiki.json' if unpack(room.snapshot) else None)
+    stem, dot, suffix = key.rpartition('.')
+    key = f'{stem} (revision-{room.document.revision}){dot}{suffix}' if dot else f'{key} (revision-{room.document.revision})'
     if room.document.folder:
         adapter.ensure_dir(key.rpartition('/')[0])
     reference = adapter.write(key, room.snapshot.encode())

@@ -1,0 +1,1556 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: yourwiki\n"
+"PO-Revision-Date: 2026-09-27 00:00+0000\n"
+"Last-Translator: Yourwiki\n"
+"Language-Team: Russian\n"
+"Language: ru\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"MIME-Version: 1.0\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=3; plural=(n%10==1 && n%100!=11 ? 0 : n%10>=2 && n%10<=4 && (n%100<10 || n%100>=20) ? 1 : 2);\n"
+
+msgid "Files"
+msgstr "Файлы"
+
+msgid "All documents"
+msgstr "Все документы"
+
+msgid "Recent"
+msgstr "Недавние"
+
+msgid "Starred"
+msgstr "Избранное"
+
+msgid "Import wiki"
+msgstr "Импортировать"
+
+msgid "Sign out"
+msgstr "Выйти"
+
+msgid "Language"
+msgstr "Язык"
+
+msgid "Apply"
+msgstr "Применить"
+
+msgid "Your account"
+msgstr "Ваш аккаунт"
+
+msgid "Manage your session and view your workspace access."
+msgstr "Управляйте сеансом и просматривайте доступ к рабочему пространству."
+
+msgid "Signed in as"
+msgstr "Вы вошли как"
+
+msgid "Filesystem"
+msgstr "Файловая система"
+
+msgid "Database"
+msgstr "База данных"
+
+msgid "Groups"
+msgstr "Группы"
+
+msgid "None"
+msgstr "Нет"
+
+msgid "Appearance"
+msgstr "Внешний вид"
+
+msgid "Dark theme"
+msgstr "Тёмная тема"
+
+msgid "Use a dark workspace with the blue accent."
+msgstr "Использовать тёмное рабочее пространство с синим акцентом."
+
+msgid "Welcome back."
+msgstr "С возвращением."
+
+msgid "Your knowledge is right where you left it."
+msgstr "Ваши знания там, где вы их оставили."
+
+msgid "Username"
+msgstr "Имя пользователя"
+
+msgid "Password"
+msgstr "Пароль"
+
+msgid "Sign in"
+msgstr "Войти"
+
+msgid "New here? Ask a workspace member for an invitation."
+msgstr "Впервые здесь? Попросите участника рабочего пространства прислать приглашение."
+msgid "Explorer"
+msgstr "Проводник"
+msgid "Mount"
+msgstr "Подключение"
+msgid "directories"
+msgstr "каталогов"
+msgid "files"
+msgstr "файлов"
+msgid "Document"
+msgstr "Документ"
+msgid "Table"
+msgstr "Таблица"
+msgid "Draw.io"
+msgstr "Draw.io"
+msgid "Canvas"
+msgstr "Холст"
+msgid "File"
+msgstr "Файл"
+
+msgid "Skip to main content"
+msgstr "Перейти к основному содержимому"
+
+msgid "File explorer"
+msgstr "Проводник файлов"
+
+msgid "Close file explorer"
+msgstr "Закрыть проводник"
+
+msgid "EXPLORER"
+msgstr "ПРОВОДНИК"
+
+msgid "New file"
+msgstr "Новый файл"
+
+msgid "New directory"
+msgstr "Новый каталог"
+
+msgid "Upload file"
+msgstr "Загрузить файл"
+
+msgid "Files and directories"
+msgstr "Файлы и каталоги"
+
+msgid "Root"
+msgstr "Корень"
+
+msgid "Drag to move. Use the move action on touch or keyboard."
+msgstr "Перетащите для перемещения. На сенсорном экране или с клавиатуры используйте действие «Переместить»."
+
+msgid "Open file explorer"
+msgstr "Открыть проводник"
+
+msgid "Workspace"
+msgstr "Рабочее пространство"
+
+msgid "Workspace menu"
+msgstr "Меню рабочего пространства"
+
+msgid "Administration"
+msgstr "Администрирование"
+
+msgid "Invitations"
+msgstr "Приглашения"
+
+msgid "Mountpoints"
+msgstr "Точки подключения"
+
+msgid "Members"
+msgstr "Участники"
+
+msgid "Site administration"
+msgstr "Администрирование сайта"
+
+msgid "Account"
+msgstr "Аккаунт"
+
+msgid "Use dark theme"
+msgstr "Включить тёмную тему"
+
+msgid "Use light theme"
+msgstr "Включить светлую тему"
+
+msgid "Light theme"
+msgstr "Светлая тема"
+
+msgid "Private by design"
+msgstr "Конфиденциальность по умолчанию"
+
+msgid "ACROSS YOUR MOUNTS"
+msgstr "ВО ВСЕХ ХРАНИЛИЩАХ"
+
+msgid "New document"
+msgstr "Новый документ"
+
+msgid "All files"
+msgstr "Все файлы"
+
+msgid "List view"
+msgstr "Список"
+
+msgid "Grid view"
+msgstr "Плитки"
+
+msgid "Search documents"
+msgstr "Поиск документов"
+
+msgid "Search files…"
+msgstr "Поиск файлов…"
+
+msgid "Search"
+msgstr "Поиск"
+
+msgid "No files found"
+msgstr "Файлы не найдены"
+
+msgid "Create a document or change your search."
+msgstr "Создайте документ или измените поисковый запрос."
+
+msgid "Name"
+msgstr "Название"
+
+msgid "Path"
+msgstr "Путь"
+
+msgid "Updated"
+msgstr "Обновлено"
+
+msgid "Actions"
+msgstr "Действия"
+
+msgid "Move"
+msgstr "Переместить"
+
+msgid "Star"
+msgstr "В избранное"
+
+msgid "Directory path"
+msgstr "Путь каталога"
+
+msgid "New file here"
+msgstr "Новый файл в этом каталоге"
+
+msgid "Upload file here"
+msgstr "Загрузить файл в этот каталог"
+
+msgid "Directory actions"
+msgstr "Действия с каталогом"
+
+msgid "Permissions"
+msgstr "Права доступа"
+
+msgid "Move directory"
+msgstr "Переместить каталог"
+
+msgid "Directory name"
+msgstr "Название каталога"
+
+msgid "Rename"
+msgstr "Переименовать"
+
+msgid "Delete empty directory"
+msgstr "Удалить пустой каталог"
+
+msgid "Type"
+msgstr "Тип"
+
+msgid "Mountpoint"
+msgstr "Точка подключения"
+
+msgid "Directory"
+msgstr "Каталог"
+
+msgid "This directory is empty"
+msgstr "Этот каталог пуст"
+
+msgid "Create a file or drop uploads here."
+msgstr "Создайте файл или перетащите файлы сюда для загрузки."
+
+msgid "Files will appear here when they are shared with you."
+msgstr "Здесь появятся файлы, к которым вам предоставят доступ."
+
+msgid "CREATE"
+msgstr "СОЗДАНИЕ"
+
+msgid "Edit source"
+msgstr "Изменить исходный код"
+
+msgid "Choose a type, title, and parent path. Leave initial content blank to create an empty file."
+msgstr "Выберите тип, название и родительский каталог. Оставьте содержимое пустым для создания пустого файла."
+
+msgid "Advanced: initial content / source"
+msgstr "Дополнительно: начальное содержимое / исходный код"
+
+msgid "Content"
+msgstr "Содержимое"
+
+msgid "Save source"
+msgstr "Сохранить исходный код"
+
+msgid "Create and open editor"
+msgstr "Создать и открыть редактор"
+
+msgid "Cancel source session"
+msgstr "Отменить редактирование исходного кода"
+
+msgid "Cancel"
+msgstr "Отмена"
+
+msgid "Delete document"
+msgstr "Удалить документ"
+
+msgid "Open visual editor"
+msgstr "Открыть визуальный редактор"
+
+msgid "/ review"
+msgstr "/ рецензирование"
+
+msgid "Back to documents"
+msgstr "К документам"
+
+msgid "Export"
+msgstr "Экспорт"
+
+msgid "Edit source (exclusive)"
+msgstr "Изменить исходный код (монопольно)"
+
+msgid "Edit document"
+msgstr "Редактировать документ"
+
+msgid "Zoom out"
+msgstr "Уменьшить"
+
+msgid "Zoom in"
+msgstr "Увеличить"
+
+msgid "Diagram preview"
+msgstr "Предпросмотр диаграммы"
+
+msgid "First-page structure preview · Export to draw.io for full styling."
+msgstr "Предпросмотр структуры первой страницы · Для полного оформления экспортируйте в draw.io."
+
+msgid "Canvas preview · File and link nodes show references only."
+msgstr "Предпросмотр холста · Узлы файлов и ссылок показывают только ссылки."
+
+msgid "This document is empty."
+msgstr "Этот документ пуст."
+
+msgid "Connecting…"
+msgstr "Подключение…"
+
+msgid "Active collaborators"
+msgstr "Активные соавторы"
+
+msgid "Save now"
+msgstr "Сохранить сейчас"
+
+msgid "Print"
+msgstr "Печать"
+
+msgid "Portable export"
+msgstr "Переносимый экспорт"
+
+msgid "Download a wiki bundle to preserve formatting, formulas, reviews, collaboration state, and uploaded images. Markdown/CSV exports lose formatting; CSV exports the first sheet’s values."
+msgstr "Скачайте архив вики, чтобы сохранить форматирование, формулы, рецензии, состояние совместного редактирования и загруженные изображения. При экспорте в Markdown/CSV форматирование теряется; CSV содержит значения первого листа."
+
+msgid "Download wiki bundle"
+msgstr "Скачать архив вики"
+
+msgid "Export Markdown"
+msgstr "Экспорт в Markdown"
+
+msgid "Export CSV"
+msgstr "Экспорт в CSV"
+
+msgid "Visual editor"
+msgstr "Визуальный редактор"
+
+msgid "Formatting"
+msgstr "Форматирование"
+
+msgid "Comments and suggestions"
+msgstr "Комментарии и предложения"
+
+msgid "Review"
+msgstr "Рецензирование"
+
+msgid "Select text to anchor a comment or suggestion."
+msgstr "Выделите текст, к которому хотите добавить комментарий или предложение."
+
+msgid "Comment or suggested replacement"
+msgstr "Комментарий или предлагаемый текст замены"
+
+msgid "Comment"
+msgstr "Комментировать"
+
+msgid "Suggest"
+msgstr "Предложить"
+
+msgid "Download file"
+msgstr "Скачать файл"
+
+msgid "Delete"
+msgstr "Удалить"
+
+msgid "Choose a path to store the file on its mount. Maximum 5 MB per file."
+msgstr "Выберите путь для сохранения файла в хранилище. Максимальный размер файла — 5 МБ."
+
+msgid "Import a document"
+msgstr "Импорт документа"
+
+msgid "Import Markdown, text, CSV, Word, draw.io, or Obsidian Canvas, or native .wiki.json files, or portable .wiki.zip bundles."
+msgstr "Импортируйте Markdown, текст, CSV, Word, draw.io, Obsidian Canvas, файлы .wiki.json или переносимые архивы .wiki.zip."
+
+msgid "Choose a file (UTF-8 up to 5 MB; .docx files become editable wiki documents; .doc files remain downloadable; .wiki.zip bundles up to 50 MB)"
+msgstr "Выберите файл (UTF-8 до 5 МБ; .docx преобразуются в редактируемые документы вики; .doc остаются доступными для скачивания; архивы .wiki.zip — до 50 МБ)"
+
+msgid "The file will be added at /. You can move it to another mount after importing. External changes to the original file are not synchronized."
+msgstr "Файл будет добавлен в /. После импорта его можно переместить в другое хранилище. Внешние изменения исходного файла не синхронизируются."
+
+msgid "Import file"
+msgstr "Импортировать файл"
+
+msgid "Give it a name and choose where it belongs."
+msgstr "Укажите название и выберите расположение."
+
+msgid "Use / for the workspace root. A new directory inherits its parent’s permissions."
+msgstr "Используйте / для корня рабочего пространства. Новый каталог наследует права родительского каталога."
+
+msgid "Create directory"
+msgstr "Создать каталог"
+
+msgid "Destination"
+msgstr "Место назначения"
+
+msgid "Workspace root (/)"
+msgstr "Корень рабочего пространства (/)"
+
+msgid "This item inherits permissions. Moving it changes access to match the destination’s rules. Its ownership stays the same."
+msgstr "Этот объект наследует права доступа. После перемещения права будут соответствовать правилам каталога назначения. Владелец останется прежним."
+
+msgid "This item keeps its explicit permissions."
+msgstr "Этот объект сохраняет явно заданные права доступа."
+
+msgid "Confirm move"
+msgstr "Подтвердить перемещение"
+
+msgid "This removes the document from the wiki and its current file from storage. Older revision files retained for recovery are not removed."
+msgstr "Документ будет удалён из вики, а его текущий файл — из хранилища. Старые версии, сохранённые для восстановления, не удаляются."
+
+msgid "You’re invited."
+msgstr "Вас пригласили."
+
+msgid "Create your account and make yourself at home."
+msgstr "Создайте аккаунт и присоединяйтесь к рабочему пространству."
+
+msgid "Join workspace"
+msgstr "Присоединиться"
+
+msgid "ADMINISTRATION"
+msgstr "АДМИНИСТРИРОВАНИЕ"
+
+msgid "Organize people and assign separate directory capabilities."
+msgstr "Объединяйте участников в группы и назначайте права для каталогов."
+
+msgid "No groups yet."
+msgstr "Групп пока нет."
+
+msgid "New group"
+msgstr "Новая группа"
+
+msgid "Create group"
+msgstr "Создать группу"
+
+msgid "Create a registration link and send it to someone you trust."
+msgstr "Создайте ссылку для регистрации и отправьте тому, кому доверяете."
+
+msgid "Your invitation is ready"
+msgstr "Ваше приглашение готово"
+
+msgid "Copy this link now. Only its hash is stored, so it will not be shown again."
+msgstr "Скопируйте ссылку сейчас. Сохраняется только её хеш, поэтому повторно она не будет показана."
+
+msgid "Invitation link"
+msgstr "Ссылка-приглашение"
+
+msgid "Copy link"
+msgstr "Скопировать ссылку"
+
+msgid "Create invitation"
+msgstr "Создать приглашение"
+
+msgid "Registration links"
+msgstr "Ссылки для регистрации"
+
+msgid "Invitation #"
+msgstr "Приглашение №"
+
+msgid "By"
+msgstr "Автор:"
+
+msgid "unlimited"
+msgstr "неограниченно"
+
+msgid "uses"
+msgstr "использований"
+
+msgid "Expires:"
+msgstr "Срок действия:"
+
+msgid "Revoked"
+msgstr "Отозвано"
+
+msgid "Active"
+msgstr "Активно"
+
+msgid "Expired or exhausted"
+msgstr "Срок истёк или лимит исчерпан"
+
+msgid "Groups:"
+msgstr "Группы:"
+
+msgid "Revoke"
+msgstr "Отозвать"
+
+msgid "No invitations created yet."
+msgstr "Приглашений пока нет."
+
+msgid "Account membership and invitation privileges."
+msgstr "Членство в группах и права на приглашение участников."
+
+msgid "Save member"
+msgstr "Сохранить участника"
+
+msgid "People & groups"
+msgstr "Участники и группы"
+
+msgid "Manage membership and who can invite others."
+msgstr "Управляйте участниками и правами на отправку приглашений."
+
+msgid "· Admin"
+msgstr "· Администратор"
+
+msgid "Manage"
+msgstr "Управление"
+
+msgid "New group name"
+msgstr "Название новой группы"
+
+msgid "Independent visibility, read, and write permissions."
+msgstr "Независимые права видимости, чтения и записи."
+
+msgid "Visible"
+msgstr "Видимость"
+
+msgid "Discover a document in the library."
+msgstr "Отображение документа в библиотеке."
+
+msgid "Read"
+msgstr "Чтение"
+
+msgid "Open and export its contents."
+msgstr "Открытие и экспорт содержимого."
+
+msgid "Write"
+msgstr "Запись"
+
+msgid "Edit or delete a visible document."
+msgstr "Редактирование или удаление видимого документа."
+
+msgid "No documents yet."
+msgstr "Документов пока нет."
+
+msgid "ACCESS CONTROL"
+msgstr "УПРАВЛЕНИЕ ДОСТУПОМ"
+
+msgid "Build access by group."
+msgstr "Настройте доступ для групп."
+
+msgid "Each group can have its own visibility, read, and write capabilities. If a member belongs to several groups, the most permissive checked capability applies. Administrators always have access."
+msgstr "Каждой группе можно назначить права видимости, чтения и записи. Если участник состоит в нескольких группах, применяется наиболее разрешающее из отмеченных прав. У администраторов доступ есть всегда."
+
+msgid "Inherit permissions from the parent directory"
+msgstr "Наследовать права родительского каталога"
+
+msgid "Use the rows below to grant the minimum access each group needs."
+msgstr "Предоставьте каждой группе минимально необходимые права в таблице ниже."
+
+msgid "Primary group"
+msgstr "Основная группа"
+
+msgid "Group"
+msgstr "Группа"
+
+msgid "Find"
+msgstr "Найти"
+
+msgid "Open"
+msgstr "Открыть"
+
+msgid "Edit"
+msgstr "Редактировать"
+
+msgid "Everyone and owner defaults"
+msgstr "Права владельца и остальных участников"
+
+msgid "Visible controls discovery, Read controls opening, and Write controls changes. Group access never exposes a hidden parent directory name."
+msgstr "Видимость определяет отображение, чтение — открытие, запись — изменение. Групповой доступ не раскрывает название скрытого родительского каталога."
+
+msgid "Save permissions"
+msgstr "Сохранить права"
+
+msgid "FILESYSTEM"
+msgstr "ФАЙЛОВАЯ СИСТЕМА"
+
+msgid "One directory tree. Connect each location to the provider it belongs to."
+msgstr "Единое дерево каталогов. Подключите каждый каталог к нужному провайдеру."
+
+msgid "Connected mounts"
+msgstr "Подключённые хранилища"
+
+msgid "· Root filesystem"
+msgstr "· Корневая файловая система"
+
+msgid "Test connection"
+msgstr "Проверить подключение"
+
+msgid "Unmount"
+msgstr "Отключить"
+
+msgid "Credentials"
+msgstr "Учётные данные"
+
+msgid "Credentials for"
+msgstr "Учётные данные для"
+
+msgid "Connect a mount"
+msgstr "Подключить хранилище"
+
+msgid "Provider"
+msgstr "Провайдер"
+
+msgid "Choose provider"
+msgstr "Выбрать провайдера"
+
+msgid "Update credentials"
+msgstr "Обновить учётные данные"
+
+msgid "Connect mount"
+msgstr "Подключить хранилище"
+
+msgid "Mount onto an empty directory. Provider files already on disk are retained; upload or import files to add them to the wiki. Credentials are encrypted locally. Local directories must be writable inside the Docker container."
+msgstr "Подключайте хранилище к пустому каталогу. Существующие файлы сохраняются; загрузите или импортируйте их для добавления в вики. Учётные данные шифруются локально. Локальные каталоги должны быть доступны для записи внутри контейнера Docker."
+
+msgid "Manage workspace settings, access, mountpoints, and operation."
+msgstr "Управляйте настройками рабочего пространства, доступом, подключениями и работой сайта."
+
+msgid "Members and groups"
+msgstr "Участники и группы"
+
+msgid "Registration invitations"
+msgstr "Приглашения для регистрации"
+
+msgid "Document permissions"
+msgstr "Права доступа к документам"
+
+msgid "Directories"
+msgstr "Каталоги"
+
+msgid "Mountpoints and connections"
+msgstr "Хранилища и подключения"
+
+msgid "Site configuration"
+msgstr "Настройки сайта"
+
+msgid "Default permissions for new documents"
+msgstr "Права по умолчанию для новых документов"
+
+msgid "Documents created inside a directory inherit its permissions. Existing explicit permissions remain unchanged."
+msgstr "Документы, созданные в каталоге, наследуют его права. Существующие явно заданные права не изменяются."
+
+msgid "Who"
+msgstr "Кто"
+
+msgid "Save site settings"
+msgstr "Сохранить настройки сайта"
+
+msgid "Deployment and service status"
+msgstr "Развёртывание и состояние сервиса"
+
+msgid "Public URL"
+msgstr "Публичный URL"
+
+msgid "Allowed hosts"
+msgstr "Разрешённые хосты"
+
+msgid "Secure cookies"
+msgstr "Защищённые cookie"
+
+msgid "Documents awaiting synchronization"
+msgstr "Документы, ожидающие синхронизации"
+
+msgid "Pending storage deletions"
+msgstr "Ожидающие удаления файлы"
+
+msgid "Registration"
+msgstr "Регистрация"
+
+msgid "Invitation only"
+msgstr "Только по приглашению"
+
+msgid "Unauthorized access"
+msgstr "Несанкционированный доступ"
+
+msgid "Generic HTTP 500"
+msgstr "Общий ответ HTTP 500"
+
+msgid "Deployment settings and credentials are managed by the Docker installer. To reconnect credentials, stop the web container and run"
+msgstr "Настройками развёртывания и учётными данными управляет установщик Docker. Для обновления учётных данных остановите веб-контейнер и выполните"
+
+msgid ", then start it again. For local HTTP, append"
+msgstr ", затем запустите его снова. Для локального HTTP добавьте"
+
+msgid "Back up the database with"
+msgstr "Создайте резервную копию базы данных командой"
+
+msgid ". Also back up your documents and secrets volumes."
+msgstr ". Также создайте резервные копии томов документов и секретов."
+
+msgid "· Revision"
+msgstr "· Версия"
+
+msgid "Title"
+msgstr "Название"
+
+msgid "Kind"
+msgstr "Тип"
+
+msgid "Display name"
+msgstr "Отображаемое имя"
+
+msgid "Parent path"
+msgstr "Родительский путь"
+
+msgid "Existing parent directory, e.g. /Projects/Notes. Use / for workspace root."
+msgstr "Существующий родительский каталог, например /Projects/Notes. Используйте / для корня рабочего пространства."
+
+msgid "Expires in days (0 = never)"
+msgstr "Срок действия в днях (0 = бессрочно)"
+
+msgid "Maximum uses (0 = unlimited)"
+msgstr "Максимум использований (0 = без ограничений)"
+
+msgid "Account enabled"
+msgstr "Аккаунт включён"
+
+msgid "Can create invitations"
+msgstr "Может создавать приглашения"
+
+msgid "Groups this member may assign through invitations"
+msgstr "Группы, в которые участник может приглашать"
+
+msgid "Mounted filesystem"
+msgstr "Подключённая файловая система"
+
+msgid "Never"
+msgstr "Бессрочно"
+
+msgid "Owner"
+msgstr "Владелец"
+
+msgid "Everyone"
+msgstr "Все остальные"
+
+msgid "Server error"
+msgstr "Ошибка сервера"
+
+msgid "Unable to complete request"
+msgstr "Не удалось выполнить запрос"
+
+msgid "The request could not be completed."
+msgstr "Не удалось выполнить запрос."
+
+msgid "Enabled"
+msgstr "Включено"
+
+msgid "Disabled (local HTTP)"
+msgstr "Отключено (локальный HTTP)"
+
+
+msgid "%(count)s file"
+msgid_plural "%(count)s files"
+msgstr[0] "%(count)s файл"
+msgstr[1] "%(count)s файла"
+msgstr[2] "%(count)s файлов"
+
+msgid "%(count)s file in your workspace"
+msgid_plural "%(count)s files in your workspace"
+msgstr[0] "%(count)s файл в рабочем пространстве"
+msgstr[1] "%(count)s файла в рабочем пространстве"
+msgstr[2] "%(count)s файлов в рабочем пространстве"
+
+msgid "%(count)s mount"
+msgid_plural "%(count)s mounts"
+msgstr[0] "%(count)s подключение"
+msgstr[1] "%(count)s подключения"
+msgstr[2] "%(count)s подключений"
+
+msgid "%(count)s directory"
+msgid_plural "%(count)s directories"
+msgstr[0] "%(count)s каталог"
+msgstr[1] "%(count)s каталога"
+msgstr[2] "%(count)s каталогов"
+
+msgid "Used by %(count)s directory"
+msgid_plural "Used by %(count)s directories"
+msgstr[0] "Используется в %(count)s каталоге"
+msgstr[1] "Используется в %(count)s каталогах"
+msgstr[2] "Используется в %(count)s каталогах"
+
+msgid "%(count)s member"
+msgid_plural "%(count)s members"
+msgstr[0] "%(count)s участник"
+msgstr[1] "%(count)s участника"
+msgstr[2] "%(count)s участников"
+
+msgid "Stored in %(provider)s. Download to open this file."
+msgstr "Хранится в %(provider)s. Скачайте файл, чтобы открыть его."
+
+msgid "Delete %(title)s?"
+msgstr "Удалить «%(title)s»?"
+
+msgid "Move %(name)s"
+msgstr "Переместить %(name)s"
+
+msgid "Toggle star for %(name)s"
+msgstr "Добавить в избранное или убрать из него: %(name)s"
+
+msgid "Rename %(name)s"
+msgstr "Переименовать %(name)s"
+
+msgid "Undo"
+msgstr "Отменить"
+
+msgid "Redo"
+msgstr "Повторить"
+
+msgid "Style"
+msgstr "Стиль"
+
+msgid "Paragraph"
+msgstr "Абзац"
+
+msgid "Heading 1"
+msgstr "Заголовок 1"
+
+msgid "Heading 2"
+msgstr "Заголовок 2"
+
+msgid "Heading 3"
+msgstr "Заголовок 3"
+
+msgid "Font"
+msgstr "Шрифт"
+
+msgid "Size"
+msgstr "Размер"
+
+msgid "Bold"
+msgstr "Полужирный"
+
+msgid "Italic"
+msgstr "Курсив"
+
+msgid "Underline"
+msgstr "Подчёркнутый"
+
+msgid "Strike"
+msgstr "Зачёркнутый"
+
+msgid "Text color"
+msgstr "Цвет текста"
+
+msgid "Highlight"
+msgstr "Выделение цветом"
+
+msgid "Align"
+msgstr "Выравнивание"
+
+msgid "left"
+msgstr "По левому краю"
+
+msgid "center"
+msgstr "По центру"
+
+msgid "right"
+msgstr "По правому краю"
+
+msgid "justify"
+msgstr "По ширине"
+
+msgid "Bullet list"
+msgstr "Маркированный список"
+
+msgid "Numbered list"
+msgstr "Нумерованный список"
+
+msgid "Link"
+msgstr "Ссылка"
+
+msgid "Insert link"
+msgstr "Вставить ссылку"
+
+msgid "Table actions"
+msgstr "Действия с таблицей"
+
+msgid "Choose…"
+msgstr "Выберите…"
+
+msgid "Add row"
+msgstr "Добавить строку"
+
+msgid "Add column"
+msgstr "Добавить столбец"
+
+msgid "Delete row"
+msgstr "Удалить строку"
+
+msgid "Delete column"
+msgstr "Удалить столбец"
+
+msgid "Merge cells"
+msgstr "Объединить ячейки"
+
+msgid "Split cell"
+msgstr "Разделить ячейку"
+
+msgid "Delete table"
+msgstr "Удалить таблицу"
+
+msgid "Image"
+msgstr "Изображение"
+
+msgid "Image description"
+msgstr "Описание изображения"
+
+msgid "Alternative text"
+msgstr "Альтернативный текст"
+
+msgid "Resize image"
+msgstr "Изменить размер изображения"
+
+msgid "Select an image first."
+msgstr "Сначала выберите изображение."
+
+msgid "Image width"
+msgstr "Ширина изображения"
+
+msgid "Width in pixels"
+msgstr "Ширина в пикселях"
+
+msgid "Use a width between 16 and 2000 pixels."
+msgstr "Укажите ширину от 16 до 2000 пикселей."
+
+msgid "Find / replace"
+msgstr "Найти / заменить"
+
+msgid "Find and replace"
+msgstr "Поиск и замена"
+
+msgid "Replace with"
+msgstr "Заменить на"
+
+msgid "No matching text."
+msgstr "Текст не найден."
+
+msgid "Document content"
+msgstr "Содержимое документа"
+
+msgid "(Delete selected text)"
+msgstr "(Удалить выделенный текст)"
+
+msgid "Show text"
+msgstr "Показать текст"
+
+msgid "The original text no longer exists."
+msgstr "Исходный текст больше не существует."
+
+msgid "The selected text changed. Review the current text before making a new suggestion."
+msgstr "Выделенный текст изменился. Прочитайте текущий текст перед новым предложением."
+
+msgid "accept"
+msgstr "Принять"
+
+msgid "reject"
+msgstr "Отклонить"
+
+msgid "resolve"
+msgstr "Завершить"
+
+msgid "comment"
+msgstr "Комментарий"
+
+msgid "suggestion"
+msgstr "Предложение"
+
+msgid "open"
+msgstr "Открыто"
+
+msgid "accepted"
+msgstr "Принято"
+
+msgid "rejected"
+msgstr "Отклонено"
+
+msgid "resolved"
+msgstr "Завершено"
+
+msgid "Saving locally…"
+msgstr "Локальное сохранение…"
+
+msgid "Reconnecting… Your edits are kept in this tab"
+msgstr "Повторное подключение… Ваши изменения сохранены в этой вкладке"
+
+msgid "Connected · saving…"
+msgstr "Подключено · сохранение…"
+
+msgid "Synced to storage"
+msgstr "Синхронизировано с хранилищем"
+
+msgid "Saved locally · syncing to storage…"
+msgstr "Сохранено локально · синхронизация с хранилищем…"
+
+msgid "Saved to storage"
+msgstr "Сохранено в хранилище"
+
+msgid "Not saved"
+msgstr "Не сохранено"
+
+msgid "Disconnected · edits kept locally"
+msgstr "Соединение потеряно · изменения сохранены локально"
+
+msgid "Reconnecting…"
+msgstr "Повторное подключение…"
+
+msgid "Saving to storage…"
+msgstr "Сохранение в хранилище…"
+
+msgid "Rename file"
+msgstr "Переименовать файл"
+
+msgid "Changes were not saved: %(message)s Copy your changes before reloading."
+msgstr "Изменения не сохранены: %(message)s Скопируйте изменения перед перезагрузкой."
+
+msgid "Editor could not start: %(message)s"
+msgstr "Не удалось запустить редактор: %(message)s"
+
+msgid "Request failed (%(status)s)."
+msgstr "Ошибка запроса (%(status)s)."
+
+msgid "Spreadsheet refresh failed: %(message)s"
+msgstr "Не удалось обновить таблицу: %(message)s"
+
+msgid "Diagram synchronization failed: %(message)s"
+msgstr "Не удалось синхронизировать диаграмму: %(message)s"
+
+msgid "draw.io diagram editor"
+msgstr "Редактор диаграмм draw.io"
+
+msgid "Canvas. Select cards, use arrow keys to move, Delete to remove."
+msgstr "Холст. Выделяйте карточки, перемещайте стрелками, удаляйте клавишей Delete."
+
+msgid "Text"
+msgstr "Текст"
+
+msgid "Wiki document UUID or external file reference"
+msgstr "UUID документа вики или ссылка на внешний файл"
+
+msgid "Group name"
+msgstr "Название группы"
+
+msgid "Add text"
+msgstr "Добавить текст"
+
+msgid "Add group"
+msgstr "Добавить группу"
+
+msgid "Add link"
+msgstr "Добавить ссылку"
+
+msgid "Add file"
+msgstr "Добавить файл"
+
+msgid "Add text card"
+msgstr "Добавить текстовую карточку"
+
+msgid "Add group card"
+msgstr "Добавить группу карточек"
+
+msgid "Add link card"
+msgstr "Добавить карточку ссылки"
+
+msgid "Add file card"
+msgstr "Добавить карточку файла"
+
+msgid "Connect cards"
+msgstr "Соединить карточки"
+
+msgid "Select the source card, then the destination card."
+msgstr "Выберите исходную карточку, затем карточку назначения."
+
+msgid "Connection mode ended."
+msgstr "Режим соединения завершён."
+
+msgid "This imported card type is preserved but not editable."
+msgstr "Этот тип импортированной карточки сохраняется, но не поддерживает редактирование."
+
+msgid "Edit card"
+msgstr "Редактировать карточку"
+
+msgid "Color (1–6 or #hex)"
+msgstr "Цвет (1–6 или #hex)"
+
+msgid "Edit selected"
+msgstr "Редактировать выделенное"
+
+msgid "Select one card."
+msgstr "Выберите одну карточку."
+
+msgid "Delete selected"
+msgstr "Удалить выделенное"
+
+msgid "Edit connections"
+msgstr "Редактировать соединения"
+
+msgid "No connections for this selection."
+msgstr "Для выделенных карточек нет соединений."
+
+msgid "Edit connection"
+msgstr "Редактировать соединение"
+
+msgid "Label"
+msgstr "Подпись"
+
+msgid "Type DELETE to remove"
+msgstr "Введите DELETE для удаления"
+
+msgid "Fit"
+msgstr "Вписать в экран"
+
+msgid "Card"
+msgstr "Карточка"
+
+msgid "Open link ↗"
+msgstr "Открыть ссылку ↗"
+
+msgid "Open document ↗"
+msgstr "Открыть документ ↗"
+
+msgid "Resize card"
+msgstr "Изменить размер карточки"
+
+msgid "text"
+msgstr "Текст"
+
+msgid "group"
+msgstr "Группа"
+
+msgid "link"
+msgstr "Ссылка"
+
+msgid "file"
+msgstr "Файл"
+
+msgid "label"
+msgstr "Подпись"
+
+msgid "url"
+msgstr "URL"
+
+msgid "owner"
+msgstr "Владелец"
+
+msgid "everyone"
+msgstr "Все остальные"
+
+msgid "visible"
+msgstr "Видимость"
+
+msgid "read"
+msgstr "Чтение"
+
+msgid "write"
+msgstr "Запись"
+
+msgid "Copied"
+msgstr "Скопировано"
+
+msgid "Select and copy the link above."
+msgstr "Выделите и скопируйте ссылку выше."
+
+msgid "Destination group: "
+msgstr "Группа назначения: "
+
+msgid "no access"
+msgstr "нет доступа"
+
+msgid "Release to move into %(path)s"
+msgstr "Отпустите, чтобы переместить в %(path)s"
+
+msgid "Release to upload into %(path)s"
+msgstr "Отпустите, чтобы загрузить в %(path)s"
+
+msgid "this directory"
+msgstr "этот каталог"
+
+msgid "Moving…"
+msgstr "Перемещение…"
+
+msgid "Could not move this item. Check directory access and destination."
+msgstr "Не удалось переместить объект. Проверьте доступ и каталог назначения."
+
+msgid "Uploading %(index)s of %(total)s…"
+msgstr "Загрузка %(index)s из %(total)s…"
+
+msgid "Could not upload %(name)s. Files must be under 5 MB and you need write access."
+msgstr "Не удалось загрузить %(name)s. Размер файла должен быть меньше 5 МБ, и у вас должны быть права записи."
+
+msgid "Action failed. Please retry."
+msgstr "Не удалось выполнить действие. Повторите попытку."
+
+msgid "Move failed. Please retry."
+msgstr "Не удалось переместить. Повторите попытку."
+
+msgid "Create file"
+msgstr "Создать файл"
+
+msgid "Workspace name"
+msgstr "Название рабочего пространства"
+
+msgid "Workspace description"
+msgstr "Описание рабочего пространства"
+
+msgid "Session lifetime (hours)"
+msgstr "Продолжительность сеанса (часы)"
+
+msgid "Default invitation lifetime (days; 0 = no expiry)"
+msgstr "Срок приглашений по умолчанию (дни; 0 = бессрочно)"
+
+msgid "Default invitation uses (0 = unlimited)"
+msgstr "Лимит использований приглашения (0 = без ограничений)"
+
+msgid "Login attempts per window"
+msgstr "Число попыток входа за интервал"
+
+msgid "Login rate-limit window (minutes)"
+msgstr "Интервал ограничения попыток входа (минуты)"
+
+msgid "Document size limit (MB)"
+msgstr "Максимальный размер документа (МБ)"
+
+msgid "Image upload limit (MB)"
+msgstr "Максимальный размер загружаемого изображения (МБ)"
+
+msgid "Maximum image size (megapixels)"
+msgstr "Максимальное разрешение изображения (мегапиксели)"
+
+msgid "Storage synchronization interval (seconds)"
+msgstr "Интервал синхронизации хранилища (секунды)"
+
+msgid "Mount path"
+msgstr "Путь подключения"
+
+msgid "Absolute path, for example /projects/archive. Missing parent directories are created."
+msgstr "Абсолютный путь, например /projects/archive. Отсутствующие родительские каталоги будут созданы."
+
+msgid "Leave blank to retain the current credential."
+msgstr "Оставьте пустым, чтобы сохранить текущие учётные данные."
+
+msgid "Directory inside the Docker container"
+msgstr "Каталог внутри контейнера Docker"
+
+msgid "Drive folder ID"
+msgstr "ID папки Google Drive"
+
+msgid "OneDrive folder ID"
+msgstr "ID папки OneDrive"
+
+msgid "Provider directory"
+msgstr "Каталог провайдера"
+
+msgid "This is the provider location attached at the mount path."
+msgstr "Это расположение у провайдера, подключённое по указанному пути."
+
+msgid "Verified SSH host key: key type followed by its base64 value."
+msgstr "Проверенный ключ хоста SSH: тип ключа и его значение в base64."
+
+msgid "Local directory"
+msgstr "Локальный каталог"
+
+msgid "Client id"
+msgstr "ID клиента"
+
+msgid "Client secret"
+msgstr "Секрет клиента"
+
+msgid "Refresh token"
+msgstr "Токен обновления"
+
+msgid "Tenant"
+msgstr "Арендатор"
+
+msgid "Repository"
+msgstr "Репозиторий"
+
+msgid "Branch"
+msgstr "Ветка"
+
+msgid "Token"
+msgstr "Токен"
+
+msgid "Host"
+msgstr "Хост"
+
+msgid "Port"
+msgstr "Порт"
+
+msgid "Share"
+msgstr "Общий ресурс"
+
+msgid "Domain"
+msgstr "Домен"
+
+msgid "Host key"
+msgstr "Ключ хоста"
+
+msgid "Private key"
+msgstr "Закрытый ключ"
+
+msgid "Key passphrase"
+msgstr "Пароль ключа"
+
+
+
+msgid "Document saved."
+msgstr "Документ сохранён."
+
+msgid "Document removed from the wiki. Storage cleanup will retry automatically."
+msgstr "Документ удалён из вики. Очистка хранилища будет повторена автоматически."
+
+msgid "Permissions saved."
+msgstr "Права доступа сохранены."
+
+msgid "Moved. Inherited permissions now follow the destination."
+msgstr "Перемещено. Наследуемые права теперь соответствуют каталогу назначения."
+
+msgid "Unmounted. The empty directory and provider files are retained."
+msgstr "Хранилище отключено. Пустой каталог и файлы провайдера сохранены."
+
+msgid "Mount credentials updated and connection verified."
+msgstr "Учётные данные хранилища обновлены, подключение проверено."
+
+msgid "Mount connected. Create or upload files in its directory."
+msgstr "Хранилище подключено. Создавайте или загружайте файлы в его каталог."
+
+msgid "Site settings saved. Session lifetime applies at the next sign-in; defaults apply to new documents."
+msgstr "Настройки сайта сохранены. Продолжительность сеанса изменится при следующем входе; настройки по умолчанию применяются к новым документам."
+
+msgid "Invalid request."
+msgstr "Недопустимый запрос."
+
+msgid "Storage or database is temporarily unavailable. Please try again."
+msgstr "Хранилище или база данных временно недоступны. Повторите попытку."
+
+msgid "AI settings"
+msgstr "Настройки ИИ"
+
+msgid "AI summary"
+msgstr "Краткое содержание с ИИ"
+
+msgid "AI provider"
+msgstr "Провайдер ИИ"
+
+msgid "Summary"
+msgstr "Краткое содержание"
+
+msgid "Configure workspace API providers. Keys are encrypted and never sent to the browser."
+msgstr "Настройте API-провайдеров рабочего пространства. Ключи шифруются и не передаются в браузер."
+
+msgid "API base URL"
+msgstr "Базовый URL API"
+
+msgid "API key"
+msgstr "Ключ API"
+
+msgid "Model"
+msgstr "Модель"
+
+msgid "Leave blank for the provider default. Qwen endpoints must match your API key region."
+msgstr "Оставьте пустым для стандартного адреса провайдера. Адрес Qwen должен соответствовать региону ключа API."
+
+msgid "Leave blank to keep the saved key for this provider."
+msgstr "Оставьте пустым, чтобы сохранить текущий ключ этого провайдера."
+
+msgid "Enable summaries with this provider"
+msgstr "Включить создание краткого содержания через этого провайдера"
+
+msgid "An API key is saved for this provider."
+msgstr "Ключ API этого провайдера сохранён."
+
+msgid "Use the exact model ID from your API provider. A chat subscription is not an API key."
+msgstr "Укажите точный идентификатор модели у провайдера API. Подписка на чат не заменяет ключ API."
+
+msgid "Save AI settings"
+msgstr "Сохранить настройки ИИ"
+
+msgid "Back to document"
+msgstr "К документу"
+
+msgid "Only extracted text is sent to the selected provider when you generate a summary. PDF pages and images are not uploaded to the API."
+msgstr "При создании краткого содержания выбранному провайдеру отправляется только извлечённый текст. Страницы PDF и изображения в API не загружаются."
+
+msgid "Scanned PDFs need OCR first. Documents over 100,000 text characters must be split; content is never silently truncated."
+msgstr "Сканированные PDF требуют предварительного распознавания текста (OCR). Документы с текстом более 100 000 символов необходимо разделить; содержимое не обрезается без предупреждения."
+
+msgid "Generate summary"
+msgstr "Создать краткое содержание"
+
+msgid "An administrator must configure an AI provider before summaries can be generated."
+msgstr "Для создания краткого содержания администратор должен настроить провайдера ИИ."
+
+msgid "%(character_count)s text characters sent"
+msgstr "Отправлено символов текста: %(character_count)s"
+
+msgid "The provider reached its output limit; this summary may be incomplete."
+msgstr "Провайдер достиг лимита ответа; краткое содержание может быть неполным."
+
+msgid "AI-generated. Check important details against the original document."
+msgstr "Создано с помощью ИИ. Сверяйте важные сведения с исходным документом."
+
+msgid "Use an HTTPS API base URL without credentials, query parameters, or fragments."
+msgstr "Укажите базовый HTTPS URL API без учётных данных, параметров запроса и фрагментов."
+
+msgid "Enter the API key again when changing the API base URL."
+msgstr "При изменении базового URL API введите ключ API повторно."
+
+msgid "Enter an API key to enable this provider."
+msgstr "Введите ключ API, чтобы включить этого провайдера."
+
+msgid "Enter an API base URL."
+msgstr "Укажите базовый URL API."
+
+msgid "AI summaries support documents, tables, and PDF files."
+msgstr "Краткое содержание поддерживается для документов, таблиц и файлов PDF."
+
+msgid "This document has no text to summarize."
+msgstr "В этом документе нет текста для создания краткого содержания."
+
+msgid "The extracted text exceeds 100,000 characters. Split the document before summarizing."
+msgstr "Извлечённый текст превышает 100 000 символов. Разделите документ перед созданием краткого содержания."
+
+msgid "The AI provider rejected the request. Check the API key, model, quota, and endpoint."
+msgstr "Провайдер ИИ отклонил запрос. Проверьте ключ API, модель, квоту и адрес API."
+
+msgid "The AI provider returned an oversized response."
+msgstr "Провайдер ИИ вернул слишком большой ответ."
+
+msgid "The AI provider is unavailable or timed out. Please try again."
+msgstr "Провайдер ИИ недоступен или время ожидания истекло. Повторите попытку."
+
+msgid "The AI provider returned an invalid or empty summary."
+msgstr "Провайдер ИИ вернул некорректное или пустое краткое содержание."
+
+msgid "Use a PDF file no larger than 5 MB."
+msgstr "Используйте PDF размером не более 5 МБ."
+
+msgid "This PDF could not be processed within the supported limits."
+msgstr "Этот PDF не удалось обработать в пределах установленных ограничений."
+
+msgid "Unlock password-protected PDFs before uploading."
+msgstr "Снимите защиту паролем с PDF перед загрузкой."
+
+msgid "PDFs support between 1 and 200 pages."
+msgstr "Поддерживаются PDF от 1 до 200 страниц."
+
+msgid "The PDF contains too much text. Split it into smaller files."
+msgstr "В PDF слишком много текста. Разделите его на файлы меньшего размера."
+
+msgid "This PDF has no extractable text. Run OCR on scanned pages first."
+msgstr "В этом PDF нет извлекаемого текста. Сначала распознайте текст сканированных страниц с помощью OCR."
+
+msgid "The PDF is damaged or unsupported."
+msgstr "PDF повреждён или не поддерживается."
+
+msgid "Choose a PDF file."
+msgstr "Выберите файл PDF."
+
+msgid "View PDF pages, add text, highlight, draw, and fill forms without changing the original layout."
+msgstr "Просматривайте страницы PDF, добавляйте текст, выделения и рисунки, заполняйте формы с сохранением исходной вёрстки."
+
+msgid "Download saved PDF"
+msgstr "Скачать сохранённый PDF"
+
+msgid "PDF controls"
+msgstr "Управление PDF"
+
+msgid "Page"
+msgstr "Страница"
+
+msgid "Zoom"
+msgstr "Масштаб"
+
+msgid "Page width"
+msgstr "По ширине страницы"
+
+msgid "Fit page"
+msgstr "Страница целиком"
+
+msgid "Tool"
+msgstr "Инструмент"
+
+msgid "Select / fill forms"
+msgstr "Выделение / заполнение форм"
+
+msgid "Draw"
+msgstr "Рисование"
+
+msgid "Save PDF"
+msgstr "Сохранить PDF"
+
+msgid "Download current PDF"
+msgstr "Скачать текущий PDF"
+
+msgid "Loading PDF…"
+msgstr "Загрузка PDF…"
+
+msgid "Changes stay in this tab until you save. Use Download current PDF to keep a local copy of unsaved edits."
+msgstr "До сохранения изменения остаются в этой вкладке. Нажмите «Скачать текущий PDF», чтобы сохранить локальную копию несохранённых изменений."
+
+msgid "PDF pages"
+msgstr "Страницы PDF"
+
+msgid "Unsaved PDF changes"
+msgstr "Несохранённые изменения PDF"
+
+msgid "PDF editing is unavailable for this file."
+msgstr "Редактирование этого PDF недоступно."
+
+msgid "Saving PDF…"
+msgstr "Сохранение PDF…"
+
+msgid "This PDF changed in another tab. Download your edits before reloading."
+msgstr "Этот PDF изменён в другой вкладке. Скачайте свои изменения перед перезагрузкой."
+
+msgid "PDF save failed. Your edits are still in this tab; download them before leaving."
+msgstr "Не удалось сохранить PDF. Изменения остаются в этой вкладке; скачайте их перед выходом."
+
+msgid "PDF saved"
+msgstr "PDF сохранён"
+
+msgid "Could not download the PDF."
+msgstr "Не удалось скачать PDF."
+
+msgid "PDF ready"
+msgstr "PDF готов"
+
+msgid "Could not open the PDF. Download the original file to view it locally."
+msgstr "Не удалось открыть PDF. Скачайте исходный файл для локального просмотра."
+
+msgid "Import PDF, Markdown, text, CSV, Word, draw.io, Obsidian Canvas, native .wiki.json files, or portable .wiki.zip bundles."
+msgstr "Импортируйте PDF, Markdown, текст, CSV, Word, draw.io, Obsidian Canvas, файлы .wiki.json или переносимые архивы .wiki.zip."
+
+msgid "Choose a file (up to 5 MB; PDFs keep their layout; .docx files become editable wiki documents; .doc files remain downloadable; .wiki.zip bundles up to 50 MB)"
+msgstr "Выберите файл (до 5 МБ; PDF сохраняют исходную вёрстку; .docx преобразуются в редактируемые документы вики; .doc остаются доступными для скачивания; архивы .wiki.zip — до 50 МБ)"

@@ -28,6 +28,12 @@ Open **`https://your-wiki-host/login/`** explicitly to sign in. Opening protecte
 
 If setup fails, run it again. Completed installations cannot be overwritten by setup. Existing prototype data is left untouched and is not automatically migrated.
 
+## Interface language
+
+Choose **Русский** in the language selector on the login page or in the workspace menu, then select **Apply / Применить**. The selection is remembered in a browser cookie; new visitors use their browser language when supported. Switching languages changes the interface, not document contents.
+
+Translation sources and compiled catalogs are in `locale/` and included in the Docker image. After editing a `.po` file, run `python manage.py compilemessages` (requires GNU gettext) and commit the updated `.mo` file. Rebuild the frontend with `npm run build` after changing editor strings.
+
 ## Filesystem mountpoints
 
 Choose the root provider during installation; add further mounts from **Menu → Mountpoints**:
@@ -43,7 +49,9 @@ Choose the root provider during installation; add further mounts from **Menu →
 
 All six providers have direct Python adapters. No remote filesystem mount is required. See [provider setup](docs/storage.md) for credentials, OAuth scopes, and configuration examples.
 
-The wiki manages only files created or imported through it. It does not discover pre-existing provider files or synchronize external changes. New saves and moves write into the provider directory tree; uniquely named revisions prevent collisions. SQLite stores current references and permissions locally, even when documents live remotely. On upgrade, startup copies current legacy revisions into their directory paths and retains older references for recovery. If a provider is offline, run `docker compose exec web python manage.py sync_storage_tree` after reconnecting.
+The wiki manages files created or imported through it. It does not continuously synchronize external changes. New saves and moves write readable names into the provider directory tree. SQLite stores current references and permissions locally, even when documents live remotely. On upgrade, startup copies current legacy revisions into their directory paths and retains older references for recovery. If a provider is offline, run `docker compose exec web python manage.py sync_storage_tree` after reconnecting.
+
+To adopt files already below the root of a Local or Google Drive mount, run `docker compose exec web python manage.py scan_storage`. The scan creates folders and document records for supported text formats and ordinary files, skips files already catalogued, and never deletes or overwrites provider files. Other providers remain upload-only until an adapter scan is added.
 
 Visual editors merge live changes and acknowledge them after a durable SQLite commit. Provider snapshots synchronize in the background, with a visible local/synced status and automatic retries. Source edits remain exclusive and revision checked. Old revision files remain for recovery; there is no revision-history UI or automatic revision pruning yet.
 
@@ -81,13 +89,29 @@ Administrators choose which groups each permitted inviter may assign. Invitation
 
 The left panel displays a collapsible directory tree; file lists show the contents. Drag files from a list or directories from the tree onto a destination, or drop files from your computer to upload. Use the Move links for keyboard and touch navigation. New-directory and file forms accept existing absolute parent paths such as `/Projects/Notes`; `/` means workspace root. Leave initial content blank to create an empty document, table, diagram, or ordinary file.
 
-Upload any file type, including PDFs, images, and ZIPs, up to 5 MB (or the lower configured document limit). Uploads retain their original bytes and filenames, use the same access permissions, and are served as downloads. Use wiki import below when you want an editable document instead.
+Upload any file type, including PDFs, images, and ZIPs, up to 5 MB (or the lower configured document limit). Uploads retain their original bytes and filenames and use the same access permissions. PDFs open in a self-hosted viewer; other ordinary files are served as downloads. `.docx` uploads are converted into persistent editable documents; use wiki import below for other supported document formats.
 
-Import UTF-8 `.md`, `.txt`, `.csv`, `.drawio`, `.xml`, `.canvas`, and native `.wiki.json` files up to 5 MB. Rich documents and spreadsheets use versioned native formats to retain formatting and formulas; original imported revisions are retained. Export native JSON, Markdown, CSV, `.drawio`, or `.canvas` as appropriate.
+Import UTF-8 `.md`, `.txt`, `.csv`, `.drawio`, `.xml`, `.canvas`, native `.wiki.json`, and PDF files up to 5 MB. `.docx` files are converted into editable native documents (paragraphs, headings, basic emphasis, and tables); legacy `.doc` files remain downloadable with their original bytes. Rich documents and spreadsheets use versioned native formats to retain formatting and formulas; original imported revisions are retained. Export native JSON, Markdown, CSV, `.drawio`, or `.canvas` as appropriate.
 
 Rich documents provide font sizes/families, colors, lists, links, tables, images, find/replace, undo/redo, comments, text suggestions, and browser printing. Readers may review; writers accept or reject suggestions. Spreadsheets provide a visual grid, formulas, formatting, multiple sheets, sorting/filtering, and structural editing. Canvas supports editable cards, groups, references, and connectors; draw.io uses the full self-hosted editor. All four support live collaboration. Tables support up to 2,000 rows and 200 columns per sheet, and up to 20 sheets. Canvas limits remain 1,000 nodes and 5,000 edges.
 
-Word/Excel import/export and formatting suggestions are deferred. Markdown/CSV exports lose unsupported formatting; CSV exports the first sheet’s values. Portable `.wiki.zip` bundles include reviews, collaboration state, and uploaded images (up to 50 MB). Plain Markdown links still require wiki access. Older revisions remain in their original provider paths for recovery.
+Legacy `.doc` conversion, Word export, Excel import/export, and formatting suggestions are deferred. Markdown/CSV exports lose unsupported formatting; CSV exports the first sheet’s values. Portable `.wiki.zip` bundles include reviews, collaboration state, and uploaded images (up to 50 MB). Plain Markdown links still require wiki access. Older revisions remain in their original provider paths for recovery.
+
+## PDF viewing and editing
+
+Upload or import a PDF to view its pages, zoom, fill standard PDF forms, add text annotations, highlight, and draw. **Save PDF** persists edits without converting the page layout into a wiki document. **Download current PDF** also works for unsaved edits. Read-only members can view and download; saving requires both read and write access. Stale saves return a conflict and keep edits available for download in the tab.
+
+PDFs are limited to 5 MB (or the configured lower upload limit) and 200 pages. Unlock password-protected files before uploading. The editor uses Mozilla PDF.js with embedded PDF scripting disabled; XFA forms and digital-signature workflows are not supported. PDF parsing for validation and text extraction runs in a separate process with memory and time limits.
+
+## AI summaries
+
+Administrators configure each provider under **Site administration → AI settings**. Supported providers are **DeepSeek, Qwen, Gemini, OpenAI (ChatGPT models), Claude**, and custom OpenAI-compatible APIs. Enter an API key and an exact model ID available to your account. Qwen's base URL must match the key's region. Credentials are encrypted using the existing workspace encryption key and are never included in page HTML. Blank key fields retain the saved key; changing an endpoint requires re-entering it.
+
+Open **AI summary** on a document, table, or PDF, select a configured provider, and choose **Generate summary**. This explicitly sends the document's text to that provider. Summaries use the current interface language. PDF pages and images are never sent to the API: extraction includes page text, annotation text, and filled form values. Whitespace is compacted and output is capped at 1,500 tokens. There are no automatic retries that could duplicate paid requests.
+
+Scanned pages require OCR before their image content can be summarized. Documents over 100,000 extracted characters must be split; the application rejects them instead of silently omitting text. Summaries are displayed without modifying the source document, and model output is escaped as text.
+
+The integrations follow the providers' official APIs: [OpenAI chat completions](https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create), [DeepSeek](https://api-docs.deepseek.com/api/create-chat-completion/), [Qwen endpoints](https://www.alibabacloud.com/help/en/model-studio/base-url), [Gemini compatibility](https://ai.google.dev/gemini-api/docs/openai), and [Claude Messages](https://platform.claude.com/docs/en/api/messages/create).
 
 ## Development and checks
 

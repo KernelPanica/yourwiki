@@ -22,6 +22,7 @@ RUN groupadd --gid 10001 wiki && useradd --uid 10001 --gid wiki --no-create-home
     && chown -R wiki:wiki /data /secrets /documents /app
 COPY --chown=wiki:wiki config config
 COPY --chown=wiki:wiki wiki wiki
+COPY --chown=wiki:wiki locale locale
 COPY --from=editors --chown=wiki:wiki /build/wiki/static/wiki/dist wiki/static/wiki/dist
 COPY --from=diagrams --chown=wiki:wiki /build/wiki/static/drawio wiki/static/drawio
 COPY --chown=wiki:wiki docker docker

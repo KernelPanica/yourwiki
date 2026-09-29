@@ -16,6 +16,8 @@ Enter the client ID and secret when prompted. Open the installer-generated URL, 
 
 Your OAuth application's publishing/test-user configuration determines who can authorize and how long its credentials remain valid. Configure the consent screen for your intended deployment. See [Google's web-server OAuth documentation](https://developers.google.com/identity/protocols/oauth2/web-server).
 
+After connecting an existing Drive folder, adopt its files with `docker compose exec web python manage.py scan_storage`. This reads the root folder tree and creates Yourwiki records for supported files; it does not delete, rename, or rewrite Drive files. Files are assigned to the first administrator and first group, so review permissions after scanning.
+
 ## OneDrive
 
 Register a Web application in Microsoft Entra. Select account types appropriate for your Microsoft account/organization, add the same callback path on your public origin, and create a client secret. Enter its client ID, secret, and tenant (`common` by default). Authorize in the browser using the URL printed by setup.

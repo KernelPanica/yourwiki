@@ -1,3 +1,5 @@
+const t = window.gettext;
+const format = (message, values) => window.interpolate(t(message), values, true);
 // Small progressive enhancements; all data and access decisions stay in Django.
 const sidebar = document.querySelector('#workspace-sidebar');
 const sidebarToggle = document.querySelector('[data-sidebar-open]');
@@ -28,14 +30,14 @@ document.addEventListener('keydown', event => {
 });
 document.querySelector('[data-copy]')?.addEventListener('click', async () => {
   const input = document.querySelector('.invite-link');
-  try { await navigator.clipboard.writeText(input.value); document.querySelector('#copy-status').textContent = 'Copied'; }
-  catch { input.select(); document.querySelector('#copy-status').textContent = 'Select and copy the link above.'; }
+  try { await navigator.clipboard.writeText(input.value); document.querySelector('#copy-status').textContent = t('Copied'); }
+  catch { input.select(); document.querySelector('#copy-status').textContent = t('Select and copy the link above.'); }
 });
 let zoom = 1;
 const movePolicies=document.getElementById('move-policies');
 if(movePolicies){
   const values=JSON.parse(movePolicies.textContent),select=document.querySelector('select[name=destination]'),preview=document.getElementById('move-policy-preview');
-  const show=()=>{const value=values[select.value];preview.replaceChildren();const title=document.createElement('p');title.textContent='Destination group: '+value.group;preview.append(title);for(const [scope,actions] of Object.entries(value.policy)){const line=document.createElement('p');line.textContent=scope+': '+(Object.entries(actions).filter(([,allowed])=>allowed).map(([action])=>action).join(', ')||'no access');preview.append(line);}};
+  const show=()=>{const value=values[select.value];preview.replaceChildren();const title=document.createElement('p');title.textContent=t('Destination group: ')+value.group;preview.append(title);for(const [scope,actions] of Object.entries(value.policy)){const line=document.createElement('p');line.textContent=t(scope)+': '+(Object.entries(actions).filter(([,allowed])=>allowed).map(([action])=>t(action)).join(', ')||t('no access'));preview.append(line);}};
   select.addEventListener('change',show);show();
 }
 document.querySelectorAll('[data-zoom]').forEach(button => button.addEventListener('click', () => {
@@ -85,7 +87,8 @@ document.addEventListener('dragover', event => {
     clearDrop();
     hoverTarget = target;
     target.classList.add('drop-target');
-    document.getElementById('explorer-status').textContent = `Release to ${draggedItem ? 'move' : 'upload'} into ${target.dataset.dropPath || 'this directory'}`;
+    document.getElementById('explorer-status').textContent = format(draggedItem ? 'Release to move into %(path)s' : 'Release to upload into %(path)s', {path:target.dataset.dropPath || t('this directory')});
+    document.getElementById('explorer-status').dataset.dropHint = document.getElementById('explorer-status').textContent;
     const branch = target.closest('details.explorer-branch');
     if (branch && !branch.open) hoverTimer = setTimeout(() => { branch.open = true; }, 650);
   }
@@ -96,7 +99,7 @@ document.addEventListener('dragleave', event => {
 document.addEventListener('dragend', () => {
   draggedItem = null; clearDrop();
   const status = document.getElementById('explorer-status');
-  if (status?.textContent.startsWith('Release to ')) status.textContent = '';
+  if (status?.textContent === status?.dataset.dropHint) status.textContent = '';
 });
 document.addEventListener('drop', async event => {
   const target = event.target.closest('[data-drop-folder]');
@@ -110,25 +113,25 @@ document.addEventListener('drop', async event => {
   try {
     let destinationUrl = target.href || target.querySelector(':scope > a[href]')?.href || location.href;
     if (source) {
-      status.textContent = 'Moving…';
+      status.textContent = t('Moving…');
       token.set('destination', target.dataset.dropFolder);
       const response = await fetch(source.dataset.moveUrl, {method:'POST', body:token, headers:{Accept:'application/json'}});
-      if (!response.ok) throw new Error('Could not move this item. Check directory access and destination.');
+      if (!response.ok) throw new Error(t('Could not move this item. Check directory access and destination.'));
       destinationUrl = (await response.json()).url;
     } else {
       const files = [...event.dataTransfer.files];
       for (const [index, file] of files.entries()) {
-        status.textContent = `Uploading ${index + 1} of ${files.length}…`;
+        status.textContent = format('Uploading %(index)s of %(total)s…', {index:index+1,total:files.length});
         const body = new FormData(document.getElementById('explorer-move-form'));
         body.set('path', target.dataset.dropPath || '/');
         if (target.dataset.dropFolder) body.set('folder', target.dataset.dropFolder);
         body.set('file', file);
         const response = await fetch('/files/upload/', {method:'POST', body});
-        if (!response.ok) throw new Error(`Could not upload ${file.name}. Files must be under 5 MB and you need write access.`);
+        if (!response.ok) throw new Error(format('Could not upload %(name)s. Files must be under 5 MB and you need write access.', {name:file.name}));
       }
     }
     location.assign(destinationUrl);
-  } catch (error) { status.textContent = error.message || 'Action failed. Please retry.'; }
+  } catch (error) { status.textContent = error.message || t('Action failed. Please retry.'); }
 });
 
 // HTML drag events are not emitted reliably by iOS/Android browsers. Keep the
@@ -159,15 +162,15 @@ document.addEventListener('pointerup', async event => {
   const drag=touchDrag; touchDrag=null; drag.ghost?.remove(); clearDrop();
   if (!drag.target || !drag.ghost) return;
   const token=new FormData(document.getElementById('explorer-move-form'));token.set('destination',drag.target.dataset.dropFolder);
-  const status=document.getElementById('explorer-status');status.textContent='Moving…';
-  try { const response=await fetch(drag.source.dataset.moveUrl,{method:'POST',body:token,headers:{Accept:'application/json'}});if(!response.ok)throw Error('Could not move this item. Check directory access and destination.');location.assign((await response.json()).url); }
-  catch(error){status.textContent=error.message||'Move failed. Please retry.';}
+  const status=document.getElementById('explorer-status');status.textContent=t('Moving…');
+  try { const response=await fetch(drag.source.dataset.moveUrl,{method:'POST',body:token,headers:{Accept:'application/json'}});if(!response.ok)throw Error(t('Could not move this item. Check directory access and destination.'));location.assign((await response.json()).url); }
+  catch(error){status.textContent=error.message||t('Move failed. Please retry.');}
 });
 
 const createFile = document.querySelector('[data-create-file]');
 const fileKind = document.getElementById('id_kind');
 if (createFile && fileKind) {
-  const updateCreateLabel = () => { createFile.textContent = fileKind.value === 'file' ? 'Create file' : 'Create and open editor'; };
+  const updateCreateLabel = () => { createFile.textContent = fileKind.value === 'file' ? t('Create file') : t('Create and open editor'); };
   fileKind.addEventListener('change', updateCreateLabel);
   updateCreateLabel();
 }

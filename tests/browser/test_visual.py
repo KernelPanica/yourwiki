@@ -94,3 +94,30 @@ def test_visual_editor_loads(realtime_server,workspace,kind):
         page.screenshot(path=f'test-results/{kind}-editor.png',full_page=True)
         assert not errors,errors
         browser.close()
+
+
+@pytest.mark.parametrize('language,add_text', [('ru', 'Добавить текст'), ('es', 'Añadir texto')])
+def test_localized_canvas_preview(realtime_server, workspace, language, add_text):
+    from wiki.services import save_document
+
+    content = json.dumps({'nodes': [
+        {'id': 'a', 'type': 'text', 'text': 'Visible card', 'x': -12.5, 'y': 24.75, 'width': 240.5, 'height': 120.25},
+        {'id': 'b', 'type': 'text', 'text': 'Second card', 'x': 320.5, 'y': 240.75, 'width': 240.5, 'height': 120.25},
+    ], 'edges': [{'id': 'e', 'fromNode': 'a', 'toNode': 'b', 'label': 'Connection'}]})
+    doc = save_document(workspace['admin'], 'Localized canvas', 'canvas', 'Tests', content, workspace['team'])
+    with sync_playwright() as p:
+        browser = p.chromium.launch()
+        page = browser.new_page()
+        login(page, realtime_server)
+        page.context.add_cookies([{'name': 'django_language', 'value': language, 'url': realtime_server}])
+        page.goto(realtime_server + f'/documents/{doc.pk}/')
+        expect(page.locator('html')).to_have_attribute('lang', language)
+        expect(page.locator('.node-label').first).to_be_visible()
+        expect(page.locator('.node-label').first).to_have_text('Visible card')
+        assert page.locator('.graph rect').first.evaluate('(node) => node.width.baseVal.value') == 240.5
+        assert page.locator('.graph foreignObject').first.evaluate('(node) => node.width.baseVal.value') == 216.5
+        assert page.locator('.graph > text').evaluate('(node) => node.x.baseVal.getItem(0).value') == 274.25
+        page.goto(realtime_server + f'/documents/{doc.pk}/live/')
+        expect(page.get_by_role('button', name=add_text, exact=True)).to_be_visible()
+        expect(page.locator('.canvas-node').first).to_contain_text('Visible card')
+        browser.close()

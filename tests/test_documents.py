@@ -60,7 +60,38 @@ class TestDocuments:
         response=client.post('/documents/import/',{'file':SimpleUploadedFile('table.csv',b'Name,Status\nOne,Ready')})
         assert response.status_code==302
         assert Document.objects.get().kind=='table'
+        response = client.post('/documents/import/',{'file':SimpleUploadedFile('report.doc',b'legacy word')})
+        assert response.status_code==302
+        assert Document.objects.get(title='report.doc').kind=='file'
         assert client.post('/documents/import/',{'file':SimpleUploadedFile('bad.exe',b'bad')}).status_code==400
+
+    def test_docx_import_is_editable(self,client,workspace):
+        docx=pytest.importorskip('docx')
+        from io import BytesIO
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        source=docx.Document()
+        source.add_heading('Imported heading',level=1)
+        source.add_paragraph('Editable text')
+        stream=BytesIO();source.save(stream)
+        client.force_login(workspace['admin'])
+        response=client.post('/documents/import/',{'file':SimpleUploadedFile('report.docx',stream.getvalue())})
+        assert response.status_code==302
+        imported=Document.objects.get(title='report')
+        assert imported.kind=='document'
+        assert b'Imported heading' in client.get(reverse('document',args=[imported.pk])).content
+
+    def test_docx_upload_is_persistent_editable_document(self,client,workspace):
+        docx=pytest.importorskip('docx')
+        from io import BytesIO
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        source=docx.Document(); source.add_paragraph('Explorer upload')
+        stream=BytesIO(); source.save(stream)
+        client.force_login(workspace['admin'])
+        response=client.post('/documents/upload/',{'file':SimpleUploadedFile('uploaded.docx',stream.getvalue()),'path':'/'})
+        assert response.status_code==302
+        uploaded=Document.objects.get(title='uploaded')
+        assert uploaded.kind=='document'
+        assert b'Explorer upload' in client.get(reverse('document',args=[uploaded.pk])).content
 
     def test_delete_and_star(self,client,workspace,document):
         client.force_login(workspace['admin'])

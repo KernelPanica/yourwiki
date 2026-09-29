@@ -1,0 +1,1547 @@
+msgid ""
+msgstr "Project-Id-Version: yourwiki\nPO-Revision-Date: 2026-09-28 00:00+0000\nLast-Translator: Yourwiki\nLanguage-Team: Spanish\nLanguage: es\nContent-Type: text/plain; charset=UTF-8\nMIME-Version: 1.0\nContent-Transfer-Encoding: 8bit\nPlural-Forms: nplurals=2; plural=(n != 1);\n"
+
+msgid "All documents"
+msgstr "Todos los documentos"
+
+msgid "Appearance"
+msgstr "Apariencia"
+
+msgid "Apply"
+msgstr "Aplicar"
+
+msgid "Canvas"
+msgstr "Lienzo"
+
+msgid "Dark theme"
+msgstr "Tema oscuro"
+
+msgid "Database"
+msgstr "Base de datos"
+
+msgid "Document"
+msgstr "Documento"
+
+msgid "Draw.io"
+msgstr "Draw.io"
+
+msgid "Explorer"
+msgstr "Explorador"
+
+msgid "File"
+msgstr "Archivo"
+
+msgid "Files"
+msgstr "Archivos"
+
+msgid "Filesystem"
+msgstr "Sistema de archivos"
+
+msgid "Groups"
+msgstr "Grupos"
+
+msgid "Import wiki"
+msgstr "Importar wiki"
+
+msgid "Language"
+msgstr "Idioma"
+
+msgid "Manage your session and view your workspace access."
+msgstr "Administra tu sesión y consulta el acceso a tu espacio de trabajo."
+
+msgid "Mount"
+msgstr "Montaje"
+
+msgid "New here? Ask a workspace member for an invitation."
+msgstr "¿Eres nuevo? Pide una invitación a un miembro del espacio de trabajo."
+
+msgid "None"
+msgstr "Ninguno"
+
+msgid "Password"
+msgstr "Contraseña"
+
+msgid "Recent"
+msgstr "Recientes"
+
+msgid "Sign in"
+msgstr "Iniciar sesión"
+
+msgid "Sign out"
+msgstr "Cerrar sesión"
+
+msgid "Signed in as"
+msgstr "Sesión iniciada como"
+
+msgid "Starred"
+msgstr "Destacados"
+
+msgid "Table"
+msgstr "Tabla"
+
+msgid "Use a dark workspace with the blue accent."
+msgstr "Usa un espacio de trabajo oscuro con acento azul."
+
+msgid "Username"
+msgstr "Usuario"
+
+msgid "Welcome back."
+msgstr "Bienvenido de nuevo."
+
+msgid "Your account"
+msgstr "Tu cuenta"
+
+msgid "Your knowledge is right where you left it."
+msgstr "Tu conocimiento está donde lo dejaste."
+
+msgid "directories"
+msgstr "directorios"
+
+msgid "files"
+msgstr "archivos"
+
+msgid "Skip to main content"
+msgstr "Saltar al contenido principal"
+
+msgid "File explorer"
+msgstr "Explorador de archivos"
+
+msgid "Close file explorer"
+msgstr "Cerrar explorador de archivos"
+
+msgid "EXPLORER"
+msgstr "EXPLORADOR"
+
+msgid "New file"
+msgstr "Nuevo archivo"
+
+msgid "New directory"
+msgstr "Nuevo directorio"
+
+msgid "Upload file"
+msgstr "Subir archivo"
+
+msgid "Files and directories"
+msgstr "Archivos y directorios"
+
+msgid "Root"
+msgstr "Raíz"
+
+msgid "Drag to move. Use the move action on touch or keyboard."
+msgstr "Arrastra para mover. Usa la acción Mover con pantalla táctil o teclado."
+
+msgid "Open file explorer"
+msgstr "Abrir explorador de archivos"
+
+msgid "Workspace"
+msgstr "Espacio de trabajo"
+
+msgid "Workspace menu"
+msgstr "Menú del espacio de trabajo"
+
+msgid "Administration"
+msgstr "Administración"
+
+msgid "Invitations"
+msgstr "Invitaciones"
+
+msgid "Mountpoints"
+msgstr "Puntos de montaje"
+
+msgid "Members"
+msgstr "Miembros"
+
+msgid "Site administration"
+msgstr "Administración del sitio"
+
+msgid "Account"
+msgstr "Cuenta"
+
+msgid "Use dark theme"
+msgstr "Usar tema oscuro"
+
+msgid "Use light theme"
+msgstr "Usar tema claro"
+
+msgid "Light theme"
+msgstr "Tema claro"
+
+msgid "Private by design"
+msgstr "Privado por diseño"
+
+msgid "ACROSS YOUR MOUNTS"
+msgstr "EN TUS PUNTOS DE MONTAJE"
+
+msgid "New document"
+msgstr "Nuevo documento"
+
+msgid "All files"
+msgstr "Todos los archivos"
+
+msgid "List view"
+msgstr "Vista de lista"
+
+msgid "Grid view"
+msgstr "Vista de cuadrícula"
+
+msgid "Search documents"
+msgstr "Buscar documentos"
+
+msgid "Search files…"
+msgstr "Buscar archivos…"
+
+msgid "Search"
+msgstr "Buscar"
+
+msgid "No files found"
+msgstr "No se encontraron archivos"
+
+msgid "Create a document or change your search."
+msgstr "Crea un documento o modifica la búsqueda."
+
+msgid "Name"
+msgstr "Nombre"
+
+msgid "Path"
+msgstr "Ruta"
+
+msgid "Updated"
+msgstr "Actualizado"
+
+msgid "Actions"
+msgstr "Acciones"
+
+msgid "Move"
+msgstr "Mover"
+
+msgid "Star"
+msgstr "Destacar"
+
+msgid "Directory path"
+msgstr "Ruta del directorio"
+
+msgid "New file here"
+msgstr "Nuevo archivo aquí"
+
+msgid "Upload file here"
+msgstr "Subir archivo aquí"
+
+msgid "Directory actions"
+msgstr "Acciones del directorio"
+
+msgid "Permissions"
+msgstr "Permisos"
+
+msgid "Move directory"
+msgstr "Mover directorio"
+
+msgid "Directory name"
+msgstr "Nombre del directorio"
+
+msgid "Rename"
+msgstr "Cambiar nombre"
+
+msgid "Delete empty directory"
+msgstr "Eliminar directorio vacío"
+
+msgid "Type"
+msgstr "Tipo"
+
+msgid "Mountpoint"
+msgstr "Punto de montaje"
+
+msgid "Directory"
+msgstr "Directorio"
+
+msgid "This directory is empty"
+msgstr "Este directorio está vacío"
+
+msgid "Create a file or drop uploads here."
+msgstr "Crea un archivo o arrastra archivos aquí para subirlos."
+
+msgid "Files will appear here when they are shared with you."
+msgstr "Los archivos aparecerán aquí cuando los compartan contigo."
+
+msgid "CREATE"
+msgstr "CREAR"
+
+msgid "Edit source"
+msgstr "Editar código fuente"
+
+msgid "Choose a type, title, and parent path. Leave initial content blank to create an empty file."
+msgstr "Elige un tipo, un título y una ruta del directorio superior. Deja el contenido inicial en blanco para crear un archivo vacío."
+
+msgid "Advanced: initial content / source"
+msgstr "Avanzado: contenido inicial / código fuente"
+
+msgid "Content"
+msgstr "Contenido"
+
+msgid "Save source"
+msgstr "Guardar código fuente"
+
+msgid "Create and open editor"
+msgstr "Crear y abrir editor"
+
+msgid "Cancel source session"
+msgstr "Cancelar sesión de código fuente"
+
+msgid "Cancel"
+msgstr "Cancelar"
+
+msgid "Delete document"
+msgstr "Eliminar documento"
+
+msgid "Open visual editor"
+msgstr "Abrir editor visual"
+
+msgid "/ review"
+msgstr "/ revisar"
+
+msgid "Back to documents"
+msgstr "Volver a los documentos"
+
+msgid "Export"
+msgstr "Exportar"
+
+msgid "Edit source (exclusive)"
+msgstr "Editar código fuente (exclusivo)"
+
+msgid "Edit document"
+msgstr "Editar documento"
+
+msgid "Zoom out"
+msgstr "Alejar"
+
+msgid "Zoom in"
+msgstr "Acercar"
+
+msgid "Diagram preview"
+msgstr "Vista previa del diagrama"
+
+msgid "First-page structure preview · Export to draw.io for full styling."
+msgstr "Vista previa de la estructura de la primera página · Exporta a draw.io para ver todos los estilos."
+
+msgid "Canvas preview · File and link nodes show references only."
+msgstr "Vista previa del lienzo · Los nodos de archivo y enlace solo muestran referencias."
+
+msgid "This document is empty."
+msgstr "Este documento está vacío."
+
+msgid "Connecting…"
+msgstr "Conectando…"
+
+msgid "Active collaborators"
+msgstr "Colaboradores activos"
+
+msgid "Save now"
+msgstr "Guardar ahora"
+
+msgid "Print"
+msgstr "Imprimir"
+
+msgid "Portable export"
+msgstr "Exportación portátil"
+
+msgid "Download a wiki bundle to preserve formatting, formulas, reviews, collaboration state, and uploaded images. Markdown/CSV exports lose formatting; CSV exports the first sheet’s values."
+msgstr "Descarga un paquete wiki para conservar el formato, las fórmulas, las revisiones, el estado de colaboración y las imágenes subidas. Las exportaciones Markdown/CSV pierden el formato; CSV exporta los valores de la primera hoja."
+
+msgid "Download wiki bundle"
+msgstr "Descargar paquete wiki"
+
+msgid "Export Markdown"
+msgstr "Exportar Markdown"
+
+msgid "Export CSV"
+msgstr "Exportar CSV"
+
+msgid "Visual editor"
+msgstr "Editor visual"
+
+msgid "Formatting"
+msgstr "Formato"
+
+msgid "Comments and suggestions"
+msgstr "Comentarios y sugerencias"
+
+msgid "Review"
+msgstr "Revisión"
+
+msgid "Select text to anchor a comment or suggestion."
+msgstr "Selecciona texto para vincular un comentario o una sugerencia."
+
+msgid "Comment or suggested replacement"
+msgstr "Comentario o sustitución sugerida"
+
+msgid "Comment"
+msgstr "Comentar"
+
+msgid "Suggest"
+msgstr "Sugerir"
+
+msgid "Download file"
+msgstr "Descargar archivo"
+
+msgid "Delete"
+msgstr "Eliminar"
+
+msgid "Choose a path to store the file on its mount. Maximum 5 MB per file."
+msgstr "Elige una ruta para guardar el archivo en su punto de montaje. Máximo 5 MB por archivo."
+
+msgid "Import a document"
+msgstr "Importar un documento"
+
+msgid "Import Markdown, text, CSV, Word, draw.io, or Obsidian Canvas, or native .wiki.json files, or portable .wiki.zip bundles."
+msgstr "Importa Markdown, texto, CSV, Word, draw.io, Obsidian Canvas, archivos nativos .wiki.json o paquetes portátiles .wiki.zip."
+
+msgid "Choose a file (UTF-8 up to 5 MB; .docx files become editable wiki documents; .doc files remain downloadable; .wiki.zip bundles up to 50 MB)"
+msgstr "Elige un archivo (UTF-8 de hasta 5 MB; los archivos .docx se convierten en documentos wiki editables; los .doc siguen disponibles para descargar; paquetes .wiki.zip de hasta 50 MB)"
+
+msgid "The file will be added at /. You can move it to another mount after importing. External changes to the original file are not synchronized."
+msgstr "El archivo se añadirá en /. Puedes moverlo a otro punto de montaje después de importarlo. Los cambios externos en el archivo original no se sincronizan."
+
+msgid "Import file"
+msgstr "Importar archivo"
+
+msgid "Give it a name and choose where it belongs."
+msgstr "Dale un nombre y elige dónde guardarlo."
+
+msgid "Use / for the workspace root. A new directory inherits its parent’s permissions."
+msgstr "Usa / para la raíz del espacio de trabajo. Un directorio nuevo hereda los permisos del directorio superior."
+
+msgid "Create directory"
+msgstr "Crear directorio"
+
+msgid "Destination"
+msgstr "Destino"
+
+msgid "Workspace root (/)"
+msgstr "Raíz del espacio de trabajo (/)"
+
+msgid "This item inherits permissions. Moving it changes access to match the destination’s rules. Its ownership stays the same."
+msgstr "Este elemento hereda permisos. Al moverlo, el acceso se ajusta a las reglas del destino. Su propietario no cambia."
+
+msgid "This item keeps its explicit permissions."
+msgstr "Este elemento conserva sus permisos explícitos."
+
+msgid "Confirm move"
+msgstr "Confirmar traslado"
+
+msgid "This removes the document from the wiki and its current file from storage. Older revision files retained for recovery are not removed."
+msgstr "Esto elimina el documento de la wiki y su archivo actual del almacenamiento. No se eliminan los archivos de revisiones anteriores conservados para recuperación."
+
+msgid "You’re invited."
+msgstr "Te han invitado."
+
+msgid "Create your account and make yourself at home."
+msgstr "Crea tu cuenta y siéntete como en casa."
+
+msgid "Join workspace"
+msgstr "Unirse al espacio de trabajo"
+
+msgid "ADMINISTRATION"
+msgstr "ADMINISTRACIÓN"
+
+msgid "Organize people and assign separate directory capabilities."
+msgstr "Organiza a los usuarios y asigna permisos independientes para los directorios."
+
+msgid "No groups yet."
+msgstr "Todavía no hay grupos."
+
+msgid "New group"
+msgstr "Nuevo grupo"
+
+msgid "Create group"
+msgstr "Crear grupo"
+
+msgid "Create a registration link and send it to someone you trust."
+msgstr "Crea un enlace de registro y envíaselo a alguien de confianza."
+
+msgid "Your invitation is ready"
+msgstr "Tu invitación está lista"
+
+msgid "Copy this link now. Only its hash is stored, so it will not be shown again."
+msgstr "Copia este enlace ahora. Solo se almacena su hash, por lo que no se volverá a mostrar."
+
+msgid "Invitation link"
+msgstr "Enlace de invitación"
+
+msgid "Copy link"
+msgstr "Copiar enlace"
+
+msgid "Create invitation"
+msgstr "Crear invitación"
+
+msgid "Registration links"
+msgstr "Enlaces de registro"
+
+msgid "Invitation #"
+msgstr "Invitación n.º"
+
+msgid "By"
+msgstr "Por"
+
+msgid "unlimited"
+msgstr "ilimitados"
+
+msgid "uses"
+msgstr "usos"
+
+msgid "Expires:"
+msgstr "Caduca:"
+
+msgid "Revoked"
+msgstr "Revocada"
+
+msgid "Active"
+msgstr "Activa"
+
+msgid "Expired or exhausted"
+msgstr "Caducada o agotada"
+
+msgid "Groups:"
+msgstr "Grupos:"
+
+msgid "Revoke"
+msgstr "Revocar"
+
+msgid "No invitations created yet."
+msgstr "Todavía no se han creado invitaciones."
+
+msgid "Account membership and invitation privileges."
+msgstr "Pertenencia a grupos y permisos de invitación de la cuenta."
+
+msgid "Save member"
+msgstr "Guardar miembro"
+
+msgid "People & groups"
+msgstr "Personas y grupos"
+
+msgid "Manage membership and who can invite others."
+msgstr "Administra la pertenencia a grupos y quién puede invitar a otros."
+
+msgid "· Admin"
+msgstr "· Administrador"
+
+msgid "Manage"
+msgstr "Administrar"
+
+msgid "New group name"
+msgstr "Nombre del nuevo grupo"
+
+msgid "Independent visibility, read, and write permissions."
+msgstr "Permisos independientes de visibilidad, lectura y escritura."
+
+msgid "Visible"
+msgstr "Visible"
+
+msgid "Discover a document in the library."
+msgstr "Encontrar un documento en la biblioteca."
+
+msgid "Read"
+msgstr "Leer"
+
+msgid "Open and export its contents."
+msgstr "Abrir y exportar su contenido."
+
+msgid "Write"
+msgstr "Escribir"
+
+msgid "Edit or delete a visible document."
+msgstr "Editar o eliminar un documento visible."
+
+msgid "No documents yet."
+msgstr "Todavía no hay documentos."
+
+msgid "ACCESS CONTROL"
+msgstr "CONTROL DE ACCESO"
+
+msgid "Build access by group."
+msgstr "Configura el acceso por grupo."
+
+msgid "Each group can have its own visibility, read, and write capabilities. If a member belongs to several groups, the most permissive checked capability applies. Administrators always have access."
+msgstr "Cada grupo puede tener sus propios permisos de visibilidad, lectura y escritura. Si un miembro pertenece a varios grupos, se aplica el permiso marcado más amplio. Los administradores siempre tienen acceso."
+
+msgid "Inherit permissions from the parent directory"
+msgstr "Heredar permisos del directorio superior"
+
+msgid "Use the rows below to grant the minimum access each group needs."
+msgstr "Usa las filas siguientes para conceder el acceso mínimo que necesita cada grupo."
+
+msgid "Primary group"
+msgstr "Grupo principal"
+
+msgid "Group"
+msgstr "Grupo"
+
+msgid "Find"
+msgstr "Encontrar"
+
+msgid "Open"
+msgstr "Abrir"
+
+msgid "Edit"
+msgstr "Editar"
+
+msgid "Everyone and owner defaults"
+msgstr "Permisos predeterminados para todos y para el propietario"
+
+msgid "Visible controls discovery, Read controls opening, and Write controls changes. Group access never exposes a hidden parent directory name."
+msgstr "Visible controla la búsqueda, Leer controla la apertura y Escribir controla los cambios. El acceso de grupo nunca revela el nombre de un directorio superior oculto."
+
+msgid "Save permissions"
+msgstr "Guardar permisos"
+
+msgid "FILESYSTEM"
+msgstr "SISTEMA DE ARCHIVOS"
+
+msgid "One directory tree. Connect each location to the provider it belongs to."
+msgstr "Un solo árbol de directorios. Conecta cada ubicación con su proveedor."
+
+msgid "Connected mounts"
+msgstr "Puntos de montaje conectados"
+
+msgid "· Root filesystem"
+msgstr "· Sistema de archivos raíz"
+
+msgid "Test connection"
+msgstr "Probar conexión"
+
+msgid "Unmount"
+msgstr "Desmontar"
+
+msgid "Credentials"
+msgstr "Credenciales"
+
+msgid "Credentials for"
+msgstr "Credenciales de"
+
+msgid "Connect a mount"
+msgstr "Conectar un punto de montaje"
+
+msgid "Provider"
+msgstr "Proveedor"
+
+msgid "Choose provider"
+msgstr "Elegir proveedor"
+
+msgid "Update credentials"
+msgstr "Actualizar credenciales"
+
+msgid "Connect mount"
+msgstr "Conectar punto de montaje"
+
+msgid "Mount onto an empty directory. Provider files already on disk are retained; upload or import files to add them to the wiki. Credentials are encrypted locally. Local directories must be writable inside the Docker container."
+msgstr "Monta en un directorio vacío. Se conservan los archivos del proveedor que ya están en disco; sube o importa archivos para añadirlos a la wiki. Las credenciales se cifran localmente. Los directorios locales deben permitir escritura dentro del contenedor Docker."
+
+msgid "Manage workspace settings, access, mountpoints, and operation."
+msgstr "Administra los ajustes, el acceso, los puntos de montaje y el funcionamiento del espacio de trabajo."
+
+msgid "Members and groups"
+msgstr "Miembros y grupos"
+
+msgid "Registration invitations"
+msgstr "Invitaciones de registro"
+
+msgid "Document permissions"
+msgstr "Permisos de documentos"
+
+msgid "Directories"
+msgstr "Directorios"
+
+msgid "Mountpoints and connections"
+msgstr "Puntos de montaje y conexiones"
+
+msgid "Site configuration"
+msgstr "Configuración del sitio"
+
+msgid "Default permissions for new documents"
+msgstr "Permisos predeterminados para documentos nuevos"
+
+msgid "Documents created inside a directory inherit its permissions. Existing explicit permissions remain unchanged."
+msgstr "Los documentos creados en un directorio heredan sus permisos. Los permisos explícitos existentes no cambian."
+
+msgid "Who"
+msgstr "Quién"
+
+msgid "Save site settings"
+msgstr "Guardar ajustes del sitio"
+
+msgid "Deployment and service status"
+msgstr "Estado del despliegue y del servicio"
+
+msgid "Public URL"
+msgstr "URL pública"
+
+msgid "Allowed hosts"
+msgstr "Hosts permitidos"
+
+msgid "Secure cookies"
+msgstr "Cookies seguras"
+
+msgid "Documents awaiting synchronization"
+msgstr "Documentos pendientes de sincronización"
+
+msgid "Pending storage deletions"
+msgstr "Eliminaciones pendientes en el almacenamiento"
+
+msgid "Registration"
+msgstr "Registro"
+
+msgid "Invitation only"
+msgstr "Solo con invitación"
+
+msgid "Unauthorized access"
+msgstr "Acceso no autorizado"
+
+msgid "Generic HTTP 500"
+msgstr "HTTP 500 genérico"
+
+msgid "Deployment settings and credentials are managed by the Docker installer. To reconnect credentials, stop the web container and run"
+msgstr "El instalador de Docker administra los ajustes de despliegue y las credenciales. Para volver a conectar las credenciales, detén el contenedor web y ejecuta"
+
+msgid ", then start it again. For local HTTP, append"
+msgstr ", y luego vuelve a iniciarlo. Para HTTP local, añade"
+
+msgid "Back up the database with"
+msgstr "Haz una copia de seguridad de la base de datos con"
+
+msgid ". Also back up your documents and secrets volumes."
+msgstr ". Haz también una copia de seguridad de los volúmenes de documentos y secretos."
+
+msgid "· Revision"
+msgstr "· Revisión"
+
+msgid "Title"
+msgstr "Título"
+
+msgid "Kind"
+msgstr "Tipo"
+
+msgid "Display name"
+msgstr "Nombre para mostrar"
+
+msgid "Parent path"
+msgstr "Ruta del directorio superior"
+
+msgid "Existing parent directory, e.g. /Projects/Notes. Use / for workspace root."
+msgstr "Directorio superior existente, por ejemplo /Proyectos/Notas. Usa / para la raíz del espacio de trabajo."
+
+msgid "Expires in days (0 = never)"
+msgstr "Caduca en días (0 = nunca)"
+
+msgid "Maximum uses (0 = unlimited)"
+msgstr "Usos máximos (0 = ilimitados)"
+
+msgid "Account enabled"
+msgstr "Cuenta habilitada"
+
+msgid "Can create invitations"
+msgstr "Puede crear invitaciones"
+
+msgid "Groups this member may assign through invitations"
+msgstr "Grupos que este miembro puede asignar mediante invitaciones"
+
+msgid "Mounted filesystem"
+msgstr "Sistema de archivos montado"
+
+msgid "Never"
+msgstr "Nunca"
+
+msgid "Owner"
+msgstr "Propietario"
+
+msgid "Everyone"
+msgstr "Todos"
+
+msgid "Server error"
+msgstr "Error del servidor"
+
+msgid "Unable to complete request"
+msgstr "No se pudo completar la solicitud"
+
+msgid "The request could not be completed."
+msgstr "No se pudo completar la solicitud."
+
+msgid "Enabled"
+msgstr "Habilitado"
+
+msgid "Disabled (local HTTP)"
+msgstr "Deshabilitado (HTTP local)"
+
+msgid "Stored in %(provider)s. Download to open this file."
+msgstr "Almacenado en %(provider)s. Descárgalo para abrir este archivo."
+
+msgid "Delete %(title)s?"
+msgstr "¿Eliminar %(title)s?"
+
+msgid "Move %(name)s"
+msgstr "Mover %(name)s"
+
+msgid "Toggle star for %(name)s"
+msgstr "Marcar o desmarcar %(name)s como destacado"
+
+msgid "Rename %(name)s"
+msgstr "Cambiar nombre de %(name)s"
+
+msgid "Undo"
+msgstr "Deshacer"
+
+msgid "Redo"
+msgstr "Rehacer"
+
+msgid "Style"
+msgstr "Estilo"
+
+msgid "Paragraph"
+msgstr "Párrafo"
+
+msgid "Heading 1"
+msgstr "Título 1"
+
+msgid "Heading 2"
+msgstr "Título 2"
+
+msgid "Heading 3"
+msgstr "Título 3"
+
+msgid "Font"
+msgstr "Fuente"
+
+msgid "Size"
+msgstr "Tamaño"
+
+msgid "Bold"
+msgstr "Negrita"
+
+msgid "Italic"
+msgstr "Cursiva"
+
+msgid "Underline"
+msgstr "Subrayado"
+
+msgid "Strike"
+msgstr "Tachado"
+
+msgid "Text color"
+msgstr "Color del texto"
+
+msgid "Highlight"
+msgstr "Resaltar"
+
+msgid "Align"
+msgstr "Alinear"
+
+msgid "left"
+msgstr "izquierda"
+
+msgid "center"
+msgstr "centro"
+
+msgid "right"
+msgstr "derecha"
+
+msgid "justify"
+msgstr "justificar"
+
+msgid "Bullet list"
+msgstr "Lista con viñetas"
+
+msgid "Numbered list"
+msgstr "Lista numerada"
+
+msgid "Link"
+msgstr "Enlace"
+
+msgid "Insert link"
+msgstr "Insertar enlace"
+
+msgid "Table actions"
+msgstr "Acciones de tabla"
+
+msgid "Choose…"
+msgstr "Elegir…"
+
+msgid "Add row"
+msgstr "Añadir fila"
+
+msgid "Add column"
+msgstr "Añadir columna"
+
+msgid "Delete row"
+msgstr "Eliminar fila"
+
+msgid "Delete column"
+msgstr "Eliminar columna"
+
+msgid "Merge cells"
+msgstr "Combinar celdas"
+
+msgid "Split cell"
+msgstr "Dividir celda"
+
+msgid "Delete table"
+msgstr "Eliminar tabla"
+
+msgid "Image"
+msgstr "Imagen"
+
+msgid "Image description"
+msgstr "Descripción de la imagen"
+
+msgid "Alternative text"
+msgstr "Texto alternativo"
+
+msgid "Resize image"
+msgstr "Cambiar tamaño de imagen"
+
+msgid "Select an image first."
+msgstr "Selecciona primero una imagen."
+
+msgid "Image width"
+msgstr "Ancho de imagen"
+
+msgid "Width in pixels"
+msgstr "Ancho en píxeles"
+
+msgid "Use a width between 16 and 2000 pixels."
+msgstr "Usa un ancho de entre 16 y 2000 píxeles."
+
+msgid "Find / replace"
+msgstr "Buscar / reemplazar"
+
+msgid "Find and replace"
+msgstr "Buscar y reemplazar"
+
+msgid "Replace with"
+msgstr "Reemplazar por"
+
+msgid "No matching text."
+msgstr "No se encontró texto coincidente."
+
+msgid "Document content"
+msgstr "Contenido del documento"
+
+msgid "(Delete selected text)"
+msgstr "(Eliminar texto seleccionado)"
+
+msgid "Show text"
+msgstr "Mostrar texto"
+
+msgid "The original text no longer exists."
+msgstr "El texto original ya no existe."
+
+msgid "The selected text changed. Review the current text before making a new suggestion."
+msgstr "El texto seleccionado ha cambiado. Revisa el texto actual antes de hacer otra sugerencia."
+
+msgid "accept"
+msgstr "aceptar"
+
+msgid "reject"
+msgstr "rechazar"
+
+msgid "resolve"
+msgstr "resolver"
+
+msgid "comment"
+msgstr "comentario"
+
+msgid "suggestion"
+msgstr "sugerencia"
+
+msgid "open"
+msgstr "abierto"
+
+msgid "accepted"
+msgstr "aceptada"
+
+msgid "rejected"
+msgstr "rechazada"
+
+msgid "resolved"
+msgstr "resuelto"
+
+msgid "Saving locally…"
+msgstr "Guardando localmente…"
+
+msgid "Reconnecting… Your edits are kept in this tab"
+msgstr "Reconectando… Tus cambios se conservan en esta pestaña"
+
+msgid "Connected · saving…"
+msgstr "Conectado · guardando…"
+
+msgid "Synced to storage"
+msgstr "Sincronizado con el almacenamiento"
+
+msgid "Saved locally · syncing to storage…"
+msgstr "Guardado localmente · sincronizando con el almacenamiento…"
+
+msgid "Saved to storage"
+msgstr "Guardado en el almacenamiento"
+
+msgid "Not saved"
+msgstr "Sin guardar"
+
+msgid "Disconnected · edits kept locally"
+msgstr "Desconectado · cambios guardados localmente"
+
+msgid "Reconnecting…"
+msgstr "Reconectando…"
+
+msgid "Saving to storage…"
+msgstr "Guardando en el almacenamiento…"
+
+msgid "Rename file"
+msgstr "Cambiar nombre del archivo"
+
+msgid "Changes were not saved: %(message)s Copy your changes before reloading."
+msgstr "No se guardaron los cambios: %(message)s Copia tus cambios antes de recargar."
+
+msgid "Editor could not start: %(message)s"
+msgstr "No se pudo iniciar el editor: %(message)s"
+
+msgid "Request failed (%(status)s)."
+msgstr "La solicitud falló (%(status)s)."
+
+msgid "Spreadsheet refresh failed: %(message)s"
+msgstr "Falló la actualización de la hoja de cálculo: %(message)s"
+
+msgid "Diagram synchronization failed: %(message)s"
+msgstr "Falló la sincronización del diagrama: %(message)s"
+
+msgid "draw.io diagram editor"
+msgstr "Editor de diagramas draw.io"
+
+msgid "Canvas. Select cards, use arrow keys to move, Delete to remove."
+msgstr "Lienzo. Selecciona tarjetas, usa las flechas para moverlas y Suprimir para eliminarlas."
+
+msgid "Text"
+msgstr "Texto"
+
+msgid "Wiki document UUID or external file reference"
+msgstr "UUID del documento wiki o referencia a un archivo externo"
+
+msgid "Group name"
+msgstr "Nombre del grupo"
+
+msgid "Add text"
+msgstr "Añadir texto"
+
+msgid "Add group"
+msgstr "Añadir grupo"
+
+msgid "Add link"
+msgstr "Añadir enlace"
+
+msgid "Add file"
+msgstr "Añadir archivo"
+
+msgid "Add text card"
+msgstr "Añadir tarjeta de texto"
+
+msgid "Add group card"
+msgstr "Añadir tarjeta de grupo"
+
+msgid "Add link card"
+msgstr "Añadir tarjeta de enlace"
+
+msgid "Add file card"
+msgstr "Añadir tarjeta de archivo"
+
+msgid "Connect cards"
+msgstr "Conectar tarjetas"
+
+msgid "Select the source card, then the destination card."
+msgstr "Selecciona la tarjeta de origen y luego la de destino."
+
+msgid "Connection mode ended."
+msgstr "Modo de conexión finalizado."
+
+msgid "This imported card type is preserved but not editable."
+msgstr "Este tipo de tarjeta importada se conserva, pero no se puede editar."
+
+msgid "Edit card"
+msgstr "Editar tarjeta"
+
+msgid "Color (1–6 or #hex)"
+msgstr "Color (1–6 o #hex)"
+
+msgid "Edit selected"
+msgstr "Editar selección"
+
+msgid "Select one card."
+msgstr "Selecciona una tarjeta."
+
+msgid "Delete selected"
+msgstr "Eliminar selección"
+
+msgid "Edit connections"
+msgstr "Editar conexiones"
+
+msgid "No connections for this selection."
+msgstr "No hay conexiones para esta selección."
+
+msgid "Edit connection"
+msgstr "Editar conexión"
+
+msgid "Label"
+msgstr "Etiqueta"
+
+msgid "Type DELETE to remove"
+msgstr "Escribe DELETE para eliminar"
+
+msgid "Fit"
+msgstr "Ajustar"
+
+msgid "Card"
+msgstr "Tarjeta"
+
+msgid "Open link ↗"
+msgstr "Abrir enlace ↗"
+
+msgid "Open document ↗"
+msgstr "Abrir documento ↗"
+
+msgid "Resize card"
+msgstr "Cambiar tamaño de tarjeta"
+
+msgid "text"
+msgstr "texto"
+
+msgid "group"
+msgstr "grupo"
+
+msgid "link"
+msgstr "enlace"
+
+msgid "file"
+msgstr "archivo"
+
+msgid "label"
+msgstr "etiqueta"
+
+msgid "url"
+msgstr "url"
+
+msgid "owner"
+msgstr "propietario"
+
+msgid "everyone"
+msgstr "todos"
+
+msgid "visible"
+msgstr "visible"
+
+msgid "read"
+msgstr "leer"
+
+msgid "write"
+msgstr "escribir"
+
+msgid "Copied"
+msgstr "Copiado"
+
+msgid "Select and copy the link above."
+msgstr "Selecciona y copia el enlace de arriba."
+
+msgid "Destination group: "
+msgstr "Grupo de destino: "
+
+msgid "no access"
+msgstr "sin acceso"
+
+msgid "Release to move into %(path)s"
+msgstr "Suelta para mover a %(path)s"
+
+msgid "Release to upload into %(path)s"
+msgstr "Suelta para subir a %(path)s"
+
+msgid "this directory"
+msgstr "este directorio"
+
+msgid "Moving…"
+msgstr "Moviendo…"
+
+msgid "Could not move this item. Check directory access and destination."
+msgstr "No se pudo mover este elemento. Comprueba el acceso al directorio y el destino."
+
+msgid "Uploading %(index)s of %(total)s…"
+msgstr "Subiendo %(index)s de %(total)s…"
+
+msgid "Could not upload %(name)s. Files must be under 5 MB and you need write access."
+msgstr "No se pudo subir %(name)s. Los archivos deben ser menores de 5 MB y necesitas permiso de escritura."
+
+msgid "Action failed. Please retry."
+msgstr "La acción falló. Vuelve a intentarlo."
+
+msgid "Move failed. Please retry."
+msgstr "El traslado falló. Vuelve a intentarlo."
+
+msgid "Create file"
+msgstr "Crear archivo"
+
+msgid "Workspace name"
+msgstr "Nombre del espacio de trabajo"
+
+msgid "Workspace description"
+msgstr "Descripción del espacio de trabajo"
+
+msgid "Session lifetime (hours)"
+msgstr "Duración de la sesión (horas)"
+
+msgid "Default invitation lifetime (days; 0 = no expiry)"
+msgstr "Duración predeterminada de invitaciones (días; 0 = sin caducidad)"
+
+msgid "Default invitation uses (0 = unlimited)"
+msgstr "Usos predeterminados de invitaciones (0 = ilimitados)"
+
+msgid "Login attempts per window"
+msgstr "Intentos de inicio de sesión por intervalo"
+
+msgid "Login rate-limit window (minutes)"
+msgstr "Intervalo del límite de intentos de inicio de sesión (minutos)"
+
+msgid "Document size limit (MB)"
+msgstr "Tamaño máximo de documento (MB)"
+
+msgid "Image upload limit (MB)"
+msgstr "Tamaño máximo de imagen subida (MB)"
+
+msgid "Maximum image size (megapixels)"
+msgstr "Tamaño máximo de imagen (megapíxeles)"
+
+msgid "Storage synchronization interval (seconds)"
+msgstr "Intervalo de sincronización del almacenamiento (segundos)"
+
+msgid "Mount path"
+msgstr "Ruta de montaje"
+
+msgid "Absolute path, for example /projects/archive. Missing parent directories are created."
+msgstr "Ruta absoluta, por ejemplo /proyectos/archivo. Se crean los directorios superiores que falten."
+
+msgid "Leave blank to retain the current credential."
+msgstr "Deja en blanco para conservar la credencial actual."
+
+msgid "Directory inside the Docker container"
+msgstr "Directorio dentro del contenedor Docker"
+
+msgid "Drive folder ID"
+msgstr "ID de carpeta de Drive"
+
+msgid "OneDrive folder ID"
+msgstr "ID de carpeta de OneDrive"
+
+msgid "Provider directory"
+msgstr "Directorio del proveedor"
+
+msgid "This is the provider location attached at the mount path."
+msgstr "Esta es la ubicación del proveedor conectada a la ruta de montaje."
+
+msgid "Verified SSH host key: key type followed by its base64 value."
+msgstr "Clave de host SSH verificada: tipo de clave seguido de su valor en base64."
+
+msgid "Local directory"
+msgstr "Directorio local"
+
+msgid "Client id"
+msgstr "ID del cliente"
+
+msgid "Client secret"
+msgstr "Secreto del cliente"
+
+msgid "Refresh token"
+msgstr "Token de actualización"
+
+msgid "Tenant"
+msgstr "Inquilino"
+
+msgid "Repository"
+msgstr "Repositorio"
+
+msgid "Branch"
+msgstr "Rama"
+
+msgid "Token"
+msgstr "Token"
+
+msgid "Host"
+msgstr "Host"
+
+msgid "Port"
+msgstr "Puerto"
+
+msgid "Share"
+msgstr "Recurso compartido"
+
+msgid "Domain"
+msgstr "Dominio"
+
+msgid "Host key"
+msgstr "Clave del host"
+
+msgid "Private key"
+msgstr "Clave privada"
+
+msgid "Key passphrase"
+msgstr "Frase de contraseña de la clave"
+
+msgid "Document saved."
+msgstr "Documento guardado."
+
+msgid "Document removed from the wiki. Storage cleanup will retry automatically."
+msgstr "Documento eliminado de la wiki. La limpieza del almacenamiento se volverá a intentar automáticamente."
+
+msgid "Permissions saved."
+msgstr "Permisos guardados."
+
+msgid "Moved. Inherited permissions now follow the destination."
+msgstr "Trasladado. Los permisos heredados ahora corresponden al destino."
+
+msgid "Unmounted. The empty directory and provider files are retained."
+msgstr "Desmontado. Se conservan el directorio vacío y los archivos del proveedor."
+
+msgid "Mount credentials updated and connection verified."
+msgstr "Credenciales de montaje actualizadas y conexión verificada."
+
+msgid "Mount connected. Create or upload files in its directory."
+msgstr "Punto de montaje conectado. Crea o sube archivos en su directorio."
+
+msgid "Site settings saved. Session lifetime applies at the next sign-in; defaults apply to new documents."
+msgstr "Ajustes del sitio guardados. La duración de la sesión se aplica al próximo inicio de sesión; los valores predeterminados se aplican a documentos nuevos."
+
+msgid "Invalid request."
+msgstr "Solicitud no válida."
+
+msgid "Storage or database is temporarily unavailable. Please try again."
+msgstr "El almacenamiento o la base de datos no están disponibles temporalmente. Vuelve a intentarlo."
+
+msgid "AI settings"
+msgstr "Ajustes de IA"
+
+msgid "AI summary"
+msgstr "Resumen con IA"
+
+msgid "AI provider"
+msgstr "Proveedor de IA"
+
+msgid "Summary"
+msgstr "Resumen"
+
+msgid "Configure workspace API providers. Keys are encrypted and never sent to the browser."
+msgstr "Configura los proveedores de API del espacio de trabajo. Las claves se cifran y nunca se envían al navegador."
+
+msgid "API base URL"
+msgstr "URL base de la API"
+
+msgid "API key"
+msgstr "Clave de API"
+
+msgid "Model"
+msgstr "Modelo"
+
+msgid "Leave blank for the provider default. Qwen endpoints must match your API key region."
+msgstr "Deja en blanco para usar el valor predeterminado del proveedor. Los endpoints de Qwen deben coincidir con la región de tu clave de API."
+
+msgid "Leave blank to keep the saved key for this provider."
+msgstr "Deja en blanco para conservar la clave guardada para este proveedor."
+
+msgid "Enable summaries with this provider"
+msgstr "Habilitar resúmenes con este proveedor"
+
+msgid "An API key is saved for this provider."
+msgstr "Hay una clave de API guardada para este proveedor."
+
+msgid "Use the exact model ID from your API provider. A chat subscription is not an API key."
+msgstr "Usa el ID exacto del modelo de tu proveedor de API. Una suscripción de chat no es una clave de API."
+
+msgid "Save AI settings"
+msgstr "Guardar ajustes de IA"
+
+msgid "Back to document"
+msgstr "Volver al documento"
+
+msgid "Only extracted text is sent to the selected provider when you generate a summary. PDF pages and images are not uploaded to the API."
+msgstr "Al generar un resumen, solo se envía el texto extraído al proveedor seleccionado. Las páginas e imágenes del PDF no se suben a la API."
+
+msgid "Scanned PDFs need OCR first. Documents over 100,000 text characters must be split; content is never silently truncated."
+msgstr "Los PDF escaneados necesitan OCR primero. Los documentos de más de 100.000 caracteres de texto deben dividirse; el contenido nunca se recorta sin aviso."
+
+msgid "Generate summary"
+msgstr "Generar resumen"
+
+msgid "An administrator must configure an AI provider before summaries can be generated."
+msgstr "Un administrador debe configurar un proveedor de IA antes de poder generar resúmenes."
+
+msgid "%(character_count)s text characters sent"
+msgstr "%(character_count)s caracteres de texto enviados"
+
+msgid "The provider reached its output limit; this summary may be incomplete."
+msgstr "El proveedor alcanzó su límite de salida; este resumen puede estar incompleto."
+
+msgid "AI-generated. Check important details against the original document."
+msgstr "Generado por IA. Comprueba los detalles importantes en el documento original."
+
+msgid "Use an HTTPS API base URL without credentials, query parameters, or fragments."
+msgstr "Usa una URL base de API HTTPS sin credenciales, parámetros de consulta ni fragmentos."
+
+msgid "Enter the API key again when changing the API base URL."
+msgstr "Vuelve a introducir la clave de API al cambiar la URL base de la API."
+
+msgid "Enter an API key to enable this provider."
+msgstr "Introduce una clave de API para habilitar este proveedor."
+
+msgid "Enter an API base URL."
+msgstr "Introduce una URL base de API."
+
+msgid "AI summaries support documents, tables, and PDF files."
+msgstr "Los resúmenes con IA admiten documentos, tablas y archivos PDF."
+
+msgid "This document has no text to summarize."
+msgstr "Este documento no tiene texto para resumir."
+
+msgid "The extracted text exceeds 100,000 characters. Split the document before summarizing."
+msgstr "El texto extraído supera los 100.000 caracteres. Divide el documento antes de resumirlo."
+
+msgid "The AI provider rejected the request. Check the API key, model, quota, and endpoint."
+msgstr "El proveedor de IA rechazó la solicitud. Comprueba la clave de API, el modelo, la cuota y el endpoint."
+
+msgid "The AI provider returned an oversized response."
+msgstr "El proveedor de IA devolvió una respuesta demasiado grande."
+
+msgid "The AI provider is unavailable or timed out. Please try again."
+msgstr "El proveedor de IA no está disponible o se agotó el tiempo de espera. Vuelve a intentarlo."
+
+msgid "The AI provider returned an invalid or empty summary."
+msgstr "El proveedor de IA devolvió un resumen no válido o vacío."
+
+msgid "Use a PDF file no larger than 5 MB."
+msgstr "Usa un archivo PDF de hasta 5 MB."
+
+msgid "This PDF could not be processed within the supported limits."
+msgstr "No se pudo procesar este PDF dentro de los límites admitidos."
+
+msgid "Unlock password-protected PDFs before uploading."
+msgstr "Desbloquea los PDF protegidos con contraseña antes de subirlos."
+
+msgid "PDFs support between 1 and 200 pages."
+msgstr "Se admiten PDF de entre 1 y 200 páginas."
+
+msgid "The PDF contains too much text. Split it into smaller files."
+msgstr "El PDF contiene demasiado texto. Divídelo en archivos más pequeños."
+
+msgid "This PDF has no extractable text. Run OCR on scanned pages first."
+msgstr "Este PDF no tiene texto extraíble. Aplica OCR a las páginas escaneadas primero."
+
+msgid "The PDF is damaged or unsupported."
+msgstr "El PDF está dañado o no es compatible."
+
+msgid "Choose a PDF file."
+msgstr "Elige un archivo PDF."
+
+msgid "View PDF pages, add text, highlight, draw, and fill forms without changing the original layout."
+msgstr "Visualiza páginas PDF, añade texto, resalta, dibuja y rellena formularios sin cambiar el diseño original."
+
+msgid "Download saved PDF"
+msgstr "Descargar PDF guardado"
+
+msgid "PDF controls"
+msgstr "Controles de PDF"
+
+msgid "Page"
+msgstr "Página"
+
+msgid "Zoom"
+msgstr "Zoom"
+
+msgid "Page width"
+msgstr "Ancho de página"
+
+msgid "Fit page"
+msgstr "Ajustar página"
+
+msgid "Tool"
+msgstr "Herramienta"
+
+msgid "Select / fill forms"
+msgstr "Seleccionar / rellenar formularios"
+
+msgid "Draw"
+msgstr "Dibujar"
+
+msgid "Save PDF"
+msgstr "Guardar PDF"
+
+msgid "Download current PDF"
+msgstr "Descargar PDF actual"
+
+msgid "Loading PDF…"
+msgstr "Cargando PDF…"
+
+msgid "Changes stay in this tab until you save. Use Download current PDF to keep a local copy of unsaved edits."
+msgstr "Los cambios permanecen en esta pestaña hasta que guardes. Usa Descargar PDF actual para conservar una copia local de los cambios sin guardar."
+
+msgid "PDF pages"
+msgstr "Páginas del PDF"
+
+msgid "Unsaved PDF changes"
+msgstr "Cambios del PDF sin guardar"
+
+msgid "PDF editing is unavailable for this file."
+msgstr "La edición de PDF no está disponible para este archivo."
+
+msgid "Saving PDF…"
+msgstr "Guardando PDF…"
+
+msgid "This PDF changed in another tab. Download your edits before reloading."
+msgstr "Este PDF ha cambiado en otra pestaña. Descarga tus cambios antes de recargar."
+
+msgid "PDF save failed. Your edits are still in this tab; download them before leaving."
+msgstr "No se pudo guardar el PDF. Tus cambios siguen en esta pestaña; descárgalos antes de salir."
+
+msgid "PDF saved"
+msgstr "PDF guardado"
+
+msgid "Could not download the PDF."
+msgstr "No se pudo descargar el PDF."
+
+msgid "PDF ready"
+msgstr "PDF listo"
+
+msgid "Could not open the PDF. Download the original file to view it locally."
+msgstr "No se pudo abrir el PDF. Descarga el archivo original para verlo localmente."
+
+msgid "Import PDF, Markdown, text, CSV, Word, draw.io, Obsidian Canvas, native .wiki.json files, or portable .wiki.zip bundles."
+msgstr "Importa PDF, Markdown, texto, CSV, Word, draw.io, Obsidian Canvas, archivos nativos .wiki.json o paquetes portátiles .wiki.zip."
+
+msgid "Choose a file (up to 5 MB; PDFs keep their layout; .docx files become editable wiki documents; .doc files remain downloadable; .wiki.zip bundles up to 50 MB)"
+msgstr "Elige un archivo (hasta 5 MB; los PDF conservan su diseño; los archivos .docx se convierten en documentos wiki editables; los .doc siguen disponibles para descargar; paquetes .wiki.zip de hasta 50 MB)"
+
+msgid "%(count)s file"
+msgid_plural "%(count)s files"
+msgstr[0] "%(count)s archivo"
+msgstr[1] "%(count)s archivos"
+
+msgid "%(count)s file in your workspace"
+msgid_plural "%(count)s files in your workspace"
+msgstr[0] "%(count)s archivo en tu espacio de trabajo"
+msgstr[1] "%(count)s archivos en tu espacio de trabajo"
+
+msgid "%(count)s mount"
+msgid_plural "%(count)s mounts"
+msgstr[0] "%(count)s punto de montaje"
+msgstr[1] "%(count)s puntos de montaje"
+
+msgid "%(count)s directory"
+msgid_plural "%(count)s directories"
+msgstr[0] "%(count)s directorio"
+msgstr[1] "%(count)s directorios"
+
+msgid "Used by %(count)s directory"
+msgid_plural "Used by %(count)s directories"
+msgstr[0] "Usado por %(count)s directorio"
+msgstr[1] "Usado por %(count)s directorios"
+
+msgid "%(count)s member"
+msgid_plural "%(count)s members"
+msgstr[0] "%(count)s miembro"
+msgstr[1] "%(count)s miembros"

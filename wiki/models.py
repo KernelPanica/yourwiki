@@ -3,6 +3,7 @@ import uuid
 from django.contrib.auth.models import AbstractUser, Group
 from django.db import models
 from django.utils import timezone
+from django.utils.translation import gettext_lazy as _
 
 
 def default_policy():
@@ -51,6 +52,7 @@ class SiteConfiguration(models.Model):
     image_limit_mb = models.PositiveSmallIntegerField(default=5)
     image_limit_megapixels = models.PositiveSmallIntegerField(default=16)
     sync_interval_seconds = models.PositiveSmallIntegerField(default=3)
+    encrypted_ai_config = models.TextField(blank=True, default='')
     default_collection = models.CharField(max_length=100, default='Getting started')
     default_document_policy = models.JSONField(default=default_policy)
 
@@ -111,7 +113,7 @@ class Folder(AccessPolicy, models.Model):
         return self.name
 
 class Document(AccessPolicy, models.Model):
-    KINDS = [('document', 'Document'), ('table', 'Table'), ('drawio', 'Draw.io'), ('canvas', 'Canvas'), ('file', 'File')]
+    KINDS = [('document', _('Document')), ('table', _('Table')), ('drawio', _('Draw.io')), ('canvas', _('Canvas')), ('file', _('File'))]
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     title = models.CharField(max_length=200)
     kind = models.CharField(max_length=15, choices=KINDS)
