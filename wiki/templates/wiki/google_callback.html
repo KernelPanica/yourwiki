@@ -1,0 +1,7 @@
+{% extends 'wiki/public.html' %}{% load i18n %}{% block content %}
+<h1>{% translate "Finish connecting Google Drive" %}</h1>
+<p>{% translate "Continue in the same browser where you started connecting the mount. Your administrator session is required." %}</p>
+{% if oauth_error %}<p>{% translate "Google authorization was cancelled. Start again from Mountpoints." %}</p>{% else %}
+<form method="post" action="{% url 'google-mount-callback' %}">{% csrf_token %}<input type="hidden" name="state" value="{{ state }}"><input type="hidden" name="code" value="{{ code }}"><button class="button primary">{% translate "Finish connecting" %}</button></form>{% endif %}
+<a class="button" href="{% url 'mountpoints' %}">{% translate "Back to Mountpoints" %}</a>
+{% endblock %}

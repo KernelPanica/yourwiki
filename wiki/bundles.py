@@ -23,7 +23,7 @@ def export_bundle(document):
     content=current_content(document)
     if room:
         ydoc=Doc();ydoc.apply_update(bytes(room.state));content=derive(ydoc,document.kind)
-    manifest={'format':'yourwiki-bundle','version':1,'title':document.title,'kind':document.kind,'content':content,
+    manifest={'format':'yourwiki-bundle','version':1,'title':document.title,'kind':document.kind,'file_format':document.file_format,'content':content,
         'reviews':[{'author':r.author_label or r.author.label,'kind':r.kind,'body':r.body,'anchor':r.anchor,'status':r.status} for r in document.reviews.select_related('author').all()],
         'attachments':[]}
     output=io.BytesIO();total=len(content.encode())
@@ -85,7 +85,10 @@ def import_bundle(user,group,upload):
                     raise ValidationError('Invalid review record.')
             for id,data in assets:
                 reference=adapter.write(f'{id}.png',data);written.append((id,reference))
-            document=save_document(user,manifest['title'],kind,'Imported',content,group)
+            title = manifest['title']
+            if Document.objects.filter(folder=None, title=title).exists():
+                title = title[:180] + ' (' + uuid.uuid4().hex[:8] + ')'
+            document=save_document(user,title,kind,'Imported',content,group,file_format=manifest.get('file_format'))
             with transaction.atomic():
                 for id,reference in written:Attachment.objects.create(id=id,document=document,reference=reference,content_type='image/png')
                 if state:Collaboration.objects.create(document=document,state=state,snapshot=content)

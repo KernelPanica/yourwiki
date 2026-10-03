@@ -1,157 +1,1392 @@
 # Yourwiki
 
-A Docker-first wiki built with **Python, Django, and a local SQLite database**. Server-rendered pages provide a directory explorer, document library, search, stars, documents, tables, draw.io diagrams, and Obsidian Canvas. Docker builds the self-hosted visual editors; no separate database server is required.
+**Yourwiki — самостоятельная командная база знаний с документами, таблицами, диаграммами, Canvas, файлами и PDF.** Приложение устанавливается на ваш сервер, хранит пользователей и состояние рабочего пространства в локальной SQLite, а содержимое файлов — в подключённых хранилищах. Интерфейс доступен на русском, английском и испанском языках.
 
-## Install with Docker
+Основной способ установки — Docker Compose. Отдельные PostgreSQL, Redis, Node.js-сервер или сервис совместного редактирования не нужны. Node.js используется при сборке редакторов; приложение работает на Python/Django и Uvicorn.
 
-Prerequisites: Docker with Compose, an HTTPS reverse proxy, and credentials for your selected document storage. The proxy must route your public URL to `127.0.0.1:3000` on the Docker host. See [deployment instructions](docs/deployment.md) for the proxy configuration and Docker Desktop details.
+README описывает поведение текущего исходного кода. Команды выполняются из корня репозитория, если не указано иное. Домены `wiki.example.com`, пути и имена пользователей в примерах нужно заменить своими. Команды резервного копирования, восстановления и удаления данных не являются частью обычной установки.
 
-For startup, storage, SQLite, and container troubleshooting, see the [debugging guide](docs/debugging.md). The quickest health report is `docker compose exec web python manage.py doctor`; add `--storage` to verify the provider with a disposable file.
+## Содержание
+
+1. [Возможности и ограничения](#capabilities)
+2. [Архитектура и хранение данных](#architecture)
+3. [Что подготовить к установке](#requirements)
+4. [Установка Docker Compose с HTTPS](#docker-install)
+5. [Прокси, порты и WebSocket](#proxy)
+6. [Локальная установка для знакомства](#local-docker)
+7. [Автоматизированная установка](#unattended)
+8. [Первый вход и настройка команды](#first-login)
+9. [Язык, тема и навигация](#interface)
+10. [Документы и совместное редактирование](#editors)
+11. [Загрузка, импорт и экспорт](#files)
+12. [Просмотр изображений](#images)
+13. [Просмотр и редактирование PDF](#pdf)
+14. [AI-резюме и настройка провайдеров](#ai)
+15. [Каталоги, перемещение и удаление](#directories)
+16. [Пользователи, группы и права](#permissions)
+17. [Подключение хранилищ](#storage)
+18. [Настройки сайта и переменные окружения](#settings)
+- [Форматы файлов, история и внешние изменения](#portable-files)
+19. [Резервное копирование и восстановление](#backup)
+20. [Обновление и перенос на другой сервер](#upgrades)
+21. [Диагностика и устранение неполадок](#troubleshooting)
+22. [HTTP API](#api)
+23. [Разработка, тестирование и переводы](#development)
+24. [Безопасность и эксплуатационные ограничения](#security)
+25. [Карта репозитория и дополнительные материалы](#repository)
+
+<a id="capabilities"></a>
+## 1. Возможности и ограничения
+
+| Возможность | Реализация |
+| --- | --- |
+| Текстовые документы | Визуальный редактор: заголовки, списки, таблицы, изображения, ссылки, цвета, поиск и замена |
+| Таблицы | Формулы, форматирование, несколько листов, сортировка и фильтры |
+| Диаграммы | Локально размещённый редактор draw.io |
+| Canvas | Карточки текста, группы, ссылки, файловые ссылки и соединения |
+| Совместная работа | Живое редактирование четырёх перечисленных типов, присутствие участников, синхронизация |
+| Обсуждение текста | Комментарии и предложения замены выделенного текста |
+| PDF | Просмотр, масштабирование, аннотации, рисование, выделение и заполнение форм |
+| Картинки | Просмотр загруженных PNG, JPEG, GIF, WebP и BMP на странице файла |
+| Обычные файлы | Загрузка, скачивание, перемещение, удаление с проверкой прав |
+| AI-резюме | Текстовые документы, таблицы и PDF; общая конфигурация API у администратора |
+| Провайдеры AI | DeepSeek, Qwen, Gemini, OpenAI, Claude, совместимый с OpenAI API |
+| Хранилища | Local, Google Drive, OneDrive, GitHub, SMB, SFTP |
+| Структура | Вложенные каталоги, несколько точек подключения, перемещение между ними |
+| Контроль доступа | Независимые `visible`, `read`, `write`, группы, наследование, приглашения |
+| Интерфейс | Русский, English, Español; светлая и тёмная темы |
+| Перенос документа | Пакет `.wiki.zip` с данными редактора, обсуждениями и вложениями |
+
+### Основные пределы текущей реализации
+
+| Объект | Ограничение |
+| --- | --- |
+| Обычная загрузка / импорт одного файла | До 5 МБ; настройка сайта может уменьшить предел |
+| Пакет `.wiki.zip` | До 50 МБ; у содержимого есть дополнительные проверки |
+| PDF | 1–200 страниц, до 5 МБ, без пароля |
+| Изображение, вставляемое в текстовый редактор | По умолчанию до 5 МБ и 16 мегапикселей; PNG, JPEG, WebP |
+| Таблица | До 2 000 строк и 200 столбцов на лист, до 20 листов |
+| Canvas | До 1 000 узлов и 5 000 связей |
+| Каталоги | До 32 уровней вложенности |
+| Текст для AI | До 100 000 символов после извлечения и нормализации |
+| Ответ AI | Запрашиваемый максимум — 1 500 токенов; фактическое поведение зависит от модели |
+| Приложение | Один экземпляр, один ASGI-процесс, локальная SQLite |
+
+Это не система двусторонней синхронизации папок. Фонового наблюдения за внешними изменениями нет: контрольная сумма проверяется перед сохранением и при открытии синхронизированного визуального редактора без активных участников. Встроенных OCR, истории версий с восстановлением через интерфейс, автоматической очистки старых ревизий, полноценного Excel-импорта/экспорта и конвертации старого Word `.doc` нет.
+
+PDF редактируется аннотациями и заполнением полей. Произвольное переписывание исходного текста и перевёрстка PDF не реализованы.
+
+<a id="architecture"></a>
+## 2. Архитектура и хранение данных
+
+```text
+Браузер
+  │ HTTPS / WebSocket
+  ▼
+Reverse proxy с TLS
+  │ HTTP на закрытый порт
+  ▼
+Yourwiki: Django + Uvicorn, 1 процесс
+  ├─ SQLite: пользователи, права, каталог, состояние редакторов, очереди
+  ├─ Secrets: ключ шифрования и конфигурация запуска
+  ├─ Хранилища: текущие файлы, снимки, вложения
+  └─ API провайдера AI: только при запросе резюме пользователем
+```
+
+### Постоянные тома Docker
+
+| Том Compose | Путь в контейнере | Что хранится |
+| --- | --- | --- |
+| `database` | `/data` | `wiki.sqlite3`, служебные файлы SQLite, состояние установки |
+| `secrets` | `/secrets` | `runtime.json`, `encryption.key` |
+| `documents` | `/documents` | Локальное хранилище по умолчанию |
+
+Учётные данные хранилищ и AI зашифрованы в SQLite. Для расшифровки нужен соответствующий `/secrets/encryption.key`. Одного дампа базы недостаточно: для восстановления требуются база, секреты и содержимое всех используемых хранилищ.
+
+SQLite содержит не только список документов: там могут находиться изменения совместного редактора, ещё не доставленные провайдеру. Поэтому копия облачной папки тоже не заменяет резервную копию базы.
+
+Контейнер работает от UID/GID `10001:10001`, с файловой системой образа только для чтения, без Linux capabilities. Для записи доступны подключённые тома и временный `/tmp`. Статические файлы редакторов и шрифты включены в образ.
+
+### Что означает сохранение
+
+- **Изменения только в отключённой вкладке** ещё могут быть не приняты сервером. Не закрывайте её до восстановления связи или сохранения доступной локальной копии.
+- **Сохранено локально** в статусе совместного редактора означает фиксацию состояния в SQLite на сервере.
+- **Синхронизировано с хранилищем** означает доставку снимка в подключённое файловое хранилище.
+- При недоступности провайдера фоновые попытки повторяются. После перезапуска приложение продолжает работу с сохранённым состоянием.
+- PDF использует отдельную кнопку сохранения и проверку ревизии, а не совместное слияние изменений.
+
+<a id="requirements"></a>
+## 3. Что подготовить к установке
+
+### Для рабочего сервера
+
+1. Сервер с Docker Engine и плагином Docker Compose, либо среда Docker Desktop.
+2. Исходный код проекта, включая `compose.yaml`, `Dockerfile`, `locale/` и lock-файлы зависимостей.
+3. Домен, указывающий на reverse proxy, и HTTPS-сертификат.
+4. Прокси, поддерживающий WebSocket и передачу заголовков `Host` и `X-Forwarded-Proto`.
+5. Постоянный локальный диск для SQLite и секретов.
+6. Доступ из контейнера к выбранным хранилищам; для AI — к API провайдеров.
+7. Место для файлов, сборки Docker и независимых резервных копий.
+
+Проект не задаёт проверенных минимальных значений RAM/CPU для всех нагрузок. Размер таблиц, число одновременных редакторов, сборка frontend и обработка PDF влияют на потребление ресурсов. Перед вводом в эксплуатацию проверьте свою нагрузку; не используйте несколько реплик для обхода ограничений SQLite.
+
+Проверка инструментов:
+
+```sh
+docker version
+docker compose version
+docker info
+```
+
+Для сборки нужен доступ к Docker registry, Python/npm-пакетам и архиву draw.io. После сборки редакторы обслуживаются самим приложением; браузеру не нужен CDN редакторов.
+
+### Получение исходников
+
+Склонируйте ваш репозиторий или распакуйте его архив. Например, заменив значение URL:
+
+```sh
+git clone 'https://YOUR-GIT-SERVER/YOUR-ORG/yourwiki.git' yourwiki
+cd yourwiki
+docker compose config --quiet
+```
+
+Сохраните используемую версию исходников или идентификатор commit: это понадобится для воспроизводимого восстановления.
+
+<a id="docker-install"></a>
+## 4. Установка Docker Compose с HTTPS
+
+### Шаг 1. Подготовьте публичный адрес
+
+Выберите адрес вида `https://wiki.example.com`. Устанавливайте приложение на отдельном origin: URL с подпутём, например `/wiki`, установщиком не поддерживается.
+
+Настройте HTTPS-прокси на `127.0.0.1:3000` сервера Docker. Он используется как приложением, так и временным OAuth-callback установщика. Пример конфигурации — [в следующем разделе](#proxy).
+
+### Шаг 2. Запустите установщик
 
 ```sh
 docker compose run --build --rm --service-ports setup
 ```
 
-The Python installer asks for:
+Параметры команды:
 
-1. The public HTTPS URL.
-2. The first administrator's username, display name, and password.
-3. The first mountpoint’s provider and connection settings. It is mounted at `/`.
+- `--build` собирает образ приложения и редакторы;
+- `--rm` удаляет завершившийся контейнер установщика, сохраняя тома;
+- `--service-ports` публикует callback-порт, заданный в Compose.
 
-Setup tests create/read/update/delete access before registering the administrator and completing installation. Google Drive and OneDrive guide you through browser authorization using your own OAuth application credentials. The temporary setup callback uses the same proxy and port as the application.
+Установщик последовательно запросит:
+
+1. Публичный URL, например `https://wiki.example.com`.
+2. Имя первого администратора.
+3. Отображаемое имя.
+4. Пароль и подтверждение: минимум 12 символов, с дополнительными проверками Django.
+5. Провайдер корневого хранилища: `local`, `google`, `onedrive`, `github`, `smb`, `sftp`.
+6. Параметры подключения выбранного провайдера.
+
+При выборе Google установщик также задаёт вопрос:
+
+```text
+Save Google client_id and client_secret for future mounts? (Y/n)
+```
+
+Enter или `Y` сохраняет OAuth-клиент как зашифрованный шаблон для будущих точек; `n` не сохраняет такой шаблон. Учётные данные уже подключённого корневого хранилища в любом случае нужны для его работы и остаются в его зашифрованной конфигурации. Вопрос относится к повторному использованию, а не к удалению действующего подключения.
+
+Для простого запуска выбирайте `local`: в стандартном Compose содержимое будет храниться в постоянном томе `/documents`.
+
+Установка проверяет создание, чтение, изменение и удаление временного файла у провайдера. Первый администратор и группа `team` создаются после успешной проверки. Для облачных OAuth-провайдеров потребуется открыть напечатанную ссылку и завершить авторизацию в браузере.
+
+### Шаг 3. Запустите приложение
+
+После успешного завершения установщика:
+
+```sh
+docker compose up -d web
+docker compose ps
+docker compose logs --tail=100 web
+```
+
+При запуске автоматически применяются миграции Django и выполняется попытка синхронизации структуры старых файлов. Неинициализированное рабочее пространство не запускается как готовое приложение.
+
+### Шаг 4. Проверьте готовность
+
+На сервере Docker:
+
+```sh
+curl -i http://127.0.0.1:3000/health/
+docker compose exec web python manage.py doctor
+```
+
+Затем откройте **`https://wiki.example.com/login/`** и войдите созданным администратором.
+
+`/health/` проверяет базу и завершение установки. Успешный healthcheck не означает, что каждый внешний провайдер доступен. Для проверки хранилищ выполните:
+
+```sh
+docker compose exec web python manage.py doctor --storage
+```
+
+Эта команда создаёт, изменяет и удаляет проверочные файлы; это не полностью read-only диагностика.
+
+### Повтор установки после ошибки
+
+Исправьте причину ошибки и запустите установщик снова. Незавершённая установка допускает повтор. Завершённое пространство установщик не перезаписывает: для изменения доступа к корневому провайдеру есть `--reconnect`.
+
+Не запускайте `setup` и `web` одновременно: они используют одинаковый опубликованный порт. Перед повторной настройкой остановите приложение:
+
+```sh
+docker compose stop web
+```
+
+<a id="proxy"></a>
+## 5. Прокси, порты и WebSocket
+
+### Пример Nginx
+
+Поместите блок в существующий HTTPS `server` с вашим доменом и настроенным сертификатом:
+
+```nginx
+# Внутри существующего HTTPS server {}:
+include /etc/nginx/snippets/yourwiki.conf;
+```
+
+Скопируйте готовый фрагмент из репозитория, затем проверьте и перечитайте конфигурацию:
+
+```sh
+sudo install -m 644 docker/nginx-location.conf /etc/nginx/snippets/yourwiki.conf
+sudo nginx -t
+sudo systemctl reload nginx
+```
+
+Фрагмент заменяет существующий `location /`, а не добавляется рядом с ним. Он направляет запросы на `127.0.0.1:3000`; при изменении `YOURWIKI_PORT` исправьте `proxy_pass`. Сертификат и HTTPS `server {}` настраиваются отдельно. Фрагмент включает `client_max_body_size 60m`, `client_body_timeout`, `proxy_send_timeout` и `proxy_read_timeout` по 300 секунд, `proxy_request_buffering off`, WebSocket Upgrade и отдельные понятные ответы Nginx для 413, 408 и 504.
+
+Это конфигурация маршрута, а не полный способ выпуска сертификата. Перед перезагрузкой Nginx проверьте его конфигурацию штатными средствами вашей системы.
+
+`client_max_body_size 60m` оставляет место для пакетов `.wiki.zip` и multipart-данных. Приложение продолжает применять свои более строгие ограничения. `proxy_read_timeout 300s` важен в том числе для AI-запросов. Прокси должен сохранять WebSocket Upgrade, иначе совместный редактор не сможет подключиться.
+
+Приложение доверяет `X-Forwarded-Proto`. Прокси должен перезаписывать этот заголовок, а доступ к backend должен оставаться закрытым от посторонних клиентов.
+
+### Порты
+
+| Назначение | По умолчанию |
+| --- | --- |
+| Внутренний порт приложения | `8000` |
+| Порт на хосте Docker | `127.0.0.1:3000` |
+| Публичный адрес | HTTPS через ваш reverse proxy |
+| OAuth-callback установщика | `<PUBLIC_URL>/setup/oauth/callback` |
+| OAuth-callback новых Google-точек | `<PUBLIC_URL>/mounts/google/callback/` |
+
+Чтобы поменять порт хоста, создайте `.env` рядом с `compose.yaml`:
+
+```dotenv
+YOURWIKI_PORT=3100
+```
+
+После этого и `setup`, и `web` используют порт `3100` на хосте. Обновите адрес upstream в прокси. `YOURWIKI_PORT` не меняет публичный URL внутри приложения.
+
+### Если прокси работает в контейнере
+
+Подключите его к сети проекта и направляйте рабочий трафик на `web:8000`. Во время OAuth-установки callback должен идти к контейнеру `setup`, а не к остановленному `web`:
+
+```sh
+docker compose run --build --use-aliases --rm --service-ports setup
+```
+
+`--use-aliases` позволяет использовать сетевой alias `setup`. Конкретная настройка upstream зависит от прокси. Для прокси на хосте переключение не требуется: и установщик, и приложение используют один host port.
+
+### Точный origin
+
+Публичный URL используется для CSRF, разрешённых хостов и проверки WebSocket Origin. `https://wiki.example.com` и `http://wiki.example.com`, а также адрес с другим портом — разные origin. Вход по случайному IP вместо установленного домена может привести к ошибкам соединения или CSRF.
+
+<a id="local-docker"></a>
+## 6. Локальная установка для знакомства
+
+Для изолированного локального экземпляра с обычным HTTP:
+
+```sh
+docker compose run --build --rm --service-ports setup --allow-http
+```
+
+В ответ на запрос публичного адреса укажите:
+
+```text
+http://localhost:3000
+```
+
+Выберите `local`, завершите установку и выполните:
 
 ```sh
 docker compose up -d web
 ```
 
-Open **`https://your-wiki-host/login/`** explicitly to sign in. Opening protected pages without a session returns HTTP 500, as required; it does not redirect to login. There are no default accounts, sample documents, or automatic localhost sessions.
+Откройте `http://localhost:3000/login/`.
 
-If setup fails, run it again. Completed installations cannot be overwritten by setup. Existing prototype data is left untouched and is not automatically migrated.
+`--allow-http` отключает требование HTTPS при установке; cookie в таком экземпляре не получают флаг `Secure`. Используйте этот режим только в доверенной локальной среде. Он не переводит уже установленное HTTPS-пространство на другой адрес автоматически.
 
-## Interface language
+Не используйте одни и те же тома для независимых тестовой и рабочей установок. В Compose задано имя проекта `yourwiki`; для другого экземпляра используйте отдельное имя проекта через `docker compose -p ...`, отдельный порт и последовательно передавайте это имя во всех командах.
 
-Choose **Русский** in the language selector on the login page or in the workspace menu, then select **Apply / Применить**. The selection is remembered in a browser cookie; new visitors use their browser language when supported. Switching languages changes the interface, not document contents.
+<a id="unattended"></a>
+## 7. Автоматизированная установка
 
-Translation sources and compiled catalogs are in `locale/` and included in the Docker image. After editing a `.po` file, run `python manage.py compilemessages` (requires GNU gettext) and commit the updated `.mo` file. Rebuild the frontend with `npm run build` after changing editor strings.
+Установщик принимает JSON-файл через `--config`. Пример для локального хранилища:
 
-## Filesystem mountpoints
+```json
+{
+  "public_url": "https://wiki.example.com",
+  "admin": {
+    "username": "owner",
+    "display_name": "Администратор",
+    "password": "ЗАМЕНИТЕ-НА-СВОЙ-ДЛИННЫЙ-УНИКАЛЬНЫЙ-ПАРОЛЬ"
+  },
+  "storage": {
+    "provider": "local",
+    "root": "/documents"
+  }
+}
+```
 
-Choose the root provider during installation; add further mounts from **Menu → Mountpoints**:
+Сохраните его вне репозитория. Файл содержит секреты: ограничьте права чтения, но обеспечьте чтение пользователю контейнера UID `10001`.
 
-| Provider | Connection |
+```sh
+docker compose run --build --rm --service-ports \
+  -v /absolute/path/setup-private.json:/run/setup.json:ro \
+  setup --config /run/setup.json
+```
+
+Не передавайте пароли в аргументах команд и не добавляйте файл в Git. После использования удалите ненужную копию безопасным для вашей системы способом.
+
+Для Google в JSON верхнего уровня можно добавить `"save_google_oauth_client": true` или `false`. `true` сохраняет client ID/secret для новых точек; `false` очищает шаблон повторного использования. Если параметр отсутствует, шаблон не изменяется (при новой установке он пуст). Это булево значение, а не строка. В автоматическом режиме дополнительный интерактивный вопрос не задаётся.
+
+Для Google Drive и OneDrive отсутствие `refresh_token` запускает браузерную авторизацию даже с `--config`. Полностью автоматический запуск требует заранее подготовленной действующей конфигурации OAuth.
+
+### Аргументы `install.py`
+
+| Аргумент | Назначение |
 | --- | --- |
-| Local | Persistent Docker `documents` volume |
-| Google Drive | Guided OAuth authorization and application-created folder |
-| OneDrive | Guided OAuth authorization and dedicated folder |
-| GitHub | Repository, existing writable branch, path prefix, fine-grained token |
-| SMB | Server, share, existing directory, username/password, optional domain |
-| SFTP | Host, existing absolute directory, username/password or key, verified SSH host key |
+| `--config PATH` | Читать параметры из приватного JSON-файла |
+| `--reconnect` | Переподключить корневое хранилище без смены его идентичности и пути |
+| `--allow-http` | Разрешить HTTP для локальной установки |
+| `--debug` | Печатать traceback неожиданной ошибки установки; перед передачей лога убрать секреты |
 
-All six providers have direct Python adapters. No remote filesystem mount is required. See [provider setup](docs/storage.md) for credentials, OAuth scopes, and configuration examples.
+<a id="first-login"></a>
+## 8. Первый вход и настройка команды
 
-The wiki manages files created or imported through it. It does not continuously synchronize external changes. New saves and moves write readable names into the provider directory tree. SQLite stores current references and permissions locally, even when documents live remotely. On upgrade, startup copies current legacy revisions into their directory paths and retains older references for recovery. If a provider is offline, run `docker compose exec web python manage.py sync_storage_tree` after reconnecting.
+После входа администратором:
 
-To adopt files already below the root of a Local or Google Drive mount, run `docker compose exec web python manage.py scan_storage`. The scan creates folders and document records for supported text formats and ordinary files, skips files already catalogued, and never deletes or overwrites provider files. Other providers remain upload-only until an adapter scan is added.
+1. Откройте **Администрирование сайта** и задайте название и описание пространства.
+2. Проверьте значения по умолчанию для прав новых документов.
+3. Создайте нужные группы в разделе **Участники и группы**.
+4. Создайте структуру каталогов и настройте права.
+5. При необходимости подключите дополнительные хранилища.
+6. Создайте приглашения и передайте ссылки участникам.
+7. Если нужны AI-резюме, настройте хотя бы одного провайдера.
+8. Создайте тестовый документ и проверьте доступ под обычной учётной записью.
+9. Настройте и проверьте резервное копирование.
 
-Visual editors merge live changes and acknowledge them after a durable SQLite commit. Provider snapshots synchronize in the background, with a visible local/synced status and automatic retries. Source edits remain exclusive and revision checked. Old revision files remain for recovery; there is no revision-history UI or automatic revision pruning yet.
+Учётных записей с заводским паролем, демонстрационных документов и автоматического входа с localhost нет.
 
-Deletion removes access immediately and queues the current remote file for deletion. If storage is unavailable, the application retries on the configured synchronization interval. Older revision files are retained. Provider roots stay fixed. Create another mount and move files into it to change providers. See [mountpoint management](docs/mountpoints.md) for nested mounts, Docker bind mounts, credential updates, and migration behavior.
+### Приглашения
 
-## Permissions and accounts
+Открытой регистрации нет. Администратор или пользователь с разрешением создавать приглашения открывает **Приглашения**, выбирает группы, срок действия и число использований.
 
-Documents have an owner, a group, and independent **visible**, **read**, and **write** flags for owner/group/everyone. The applicable rule is owner first, otherwise matching group, otherwise everyone. Rules do not accumulate. Everyone means other signed-in users. Administrators bypass document permissions.
+По умолчанию ссылка действует 7 дней и допускает одно использование. Ноль в соответствующем поле означает отсутствие срока или неограниченное число использований. Ссылку нужно скопировать сразу после создания: хранится её хеш, а не исходный токен.
 
-- Visible permits discovery and direct addressing.
-- Read permits opening and exporting a visible document.
-- Write permits modifying or deleting a visible document. The editor also requires read access.
+Приложение не отправляет приглашения по почте автоматически. Передайте ссылку самостоятельно. Приглашение не выдаёт права администратора и не выдаёт право создавать новые приглашения. Администратор отдельно определяет, какие группы приглашающий может назначать.
 
-Owners and administrators manage document permissions. Nested directories inherit owner/group/everyone rules by default, with explicit item overrides. An override can grant access inside a private directory without exposing ancestor names. Stars are shared document metadata.
+Отозванные, просроченные и исчерпанные приглашения не работают. Изменение разрешений приглашающего также может сделать ранее созданные ссылки недействительными.
 
-Every denied protected request returns a generic **HTTP 500**, including anonymous requests, hidden-document requests, and insufficient privileges. Explicit login and invitation routes remain public. Invalid login/invitation attempts also return 500; ordinary form errors return 400, and authenticated requests for nonexistent resources return 404. Public `/health/` returns only readiness.
+### Пароль и отключение пользователя
 
-Use **Members** to create groups, assign membership, disable non-administrator accounts, and grant invitation privileges. To reset a password from the server:
+Серверная смена пароля:
 
 ```sh
 docker compose exec web python manage.py changepassword USERNAME
 ```
 
-## Site administration
+Замените `USERNAME` именем учётной записи. Команда запросит пароль интерактивно.
 
-Only administrators see Site administration in the top-right menu. It provides workspace identity, session lifetime, invitation defaults, login limits, upload limits, synchronization interval, and default document permissions, plus access to members/groups, permissions, invitations, directories, and storage diagnostics. Deployment settings are shown without exposing secrets; credentials remain managed by the installer.
+Администратор управляет членством в группах, правом приглашения и активностью обычных пользователей в разделе участников. Интерфейс не позволяет отключить учётную запись администратора этим способом. Автоматическое восстановление пароля по электронной почте не реализовано.
 
-## Invitation-only registration
+<a id="interface"></a>
+## 9. Язык, тема и навигация
 
-There is no open registration. Administrators and members explicitly granted invitation privileges can create links from **Invitations**. Links default to seven days and one use; expiration and usage limits are configurable, including reusable links. Links must be copied when created and distributed manually; plaintext tokens are not retained.
+### Язык
 
-Administrators choose which groups each permitted inviter may assign. Invitations cannot grant administrator or invitation-management privileges. Removing an inviter's permission or allowed group invalidates affected outstanding invitations. Revoked, expired, and exhausted links fail with HTTP 500. Simultaneous redemptions cannot exceed the usage limit.
+Выберите **Русский**, **English** или **Español** на странице входа либо в меню рабочего пространства и нажмите **Применить / Apply / Aplicar**.
 
-## File support
+Язык сохраняется cookie в браузере. Для нового посетителя Django выбирает поддерживаемый язык на основании настроек браузера. Это не глобальный перевод содержимого: названия, текст документов, карточки и пользовательские данные остаются в исходном виде.
 
-The left panel displays a collapsible directory tree; file lists show the contents. Drag files from a list or directories from the tree onto a destination, or drop files from your computer to upload. Use the Move links for keyboard and touch navigation. New-directory and file forms accept existing absolute parent paths such as `/Projects/Notes`; `/` means workspace root. Leave initial content blank to create an empty document, table, diagram, or ordinary file.
+Интерфейс редакторов, которые используют каталог Yourwiki, переводится вместе с приложением. Собственные диалоги сторонних встроенных редакторов могут иметь отдельные ограничения локализации. Язык AI-резюме определяется выбранным языком интерфейса.
 
-Upload any file type, including PDFs, images, and ZIPs, up to 5 MB (or the lower configured document limit). Uploads retain their original bytes and filenames and use the same access permissions. PDFs open in a self-hosted viewer; other ordinary files are served as downloads. `.docx` uploads are converted into persistent editable documents; use wiki import below for other supported document formats.
+### Тема
 
-Import UTF-8 `.md`, `.txt`, `.csv`, `.drawio`, `.xml`, `.canvas`, native `.wiki.json`, and PDF files up to 5 MB. `.docx` files are converted into editable native documents (paragraphs, headings, basic emphasis, and tables); legacy `.doc` files remain downloadable with their original bytes. Rich documents and spreadsheets use versioned native formats to retain formatting and formulas; original imported revisions are retained. Export native JSON, Markdown, CSV, `.drawio`, or `.canvas` as appropriate.
+Переключатель светлой/тёмной темы расположен в меню рабочего пространства. На странице аккаунта отдельного переключателя нет. Табличный редактор сохраняет собственную светлую рабочую область.
 
-Rich documents provide font sizes/families, colors, lists, links, tables, images, find/replace, undo/redo, comments, text suggestions, and browser printing. Readers may review; writers accept or reject suggestions. Spreadsheets provide a visual grid, formulas, formatting, multiple sheets, sorting/filtering, and structural editing. Canvas supports editable cards, groups, references, and connectors; draw.io uses the full self-hosted editor. All four support live collaboration. Tables support up to 2,000 rows and 200 columns per sheet, and up to 20 sheets. Canvas limits remain 1,000 nodes and 5,000 edges.
+### Навигация и поиск
 
-Legacy `.doc` conversion, Word export, Excel import/export, and formatting suggestions are deferred. Markdown/CSV exports lose unsupported formatting; CSV exports the first sheet’s values. Portable `.wiki.zip` bundles include reviews, collaboration state, and uploaded images (up to 50 MB). Plain Markdown links still require wiki access. Older revisions remain in their original provider paths for recovery.
+- Левая панель показывает дерево доступных каталогов и файлов.
+- Страница каталога показывает его содержимое; хлебные крошки помогают перейти вверх.
+- Библиотека поддерживает список и плитки, фильтр по типу, недавние и избранные документы.
+- Поиск библиотеки ищет по названию, а не выполняет полнотекстовый поиск по содержимому.
+- Звёздочка — общие метаданные документа, а не персональная закладка; изменение требует `write`.
+- На узком экране дерево открывается отдельной кнопкой.
 
-## PDF viewing and editing
+<a id="editors"></a>
+## 10. Документы и совместное редактирование
 
-Upload or import a PDF to view its pages, zoom, fill standard PDF forms, add text annotations, highlight, and draw. **Save PDF** persists edits without converting the page layout into a wiki document. **Download current PDF** also works for unsaved edits. Read-only members can view and download; saving requires both read and write access. Stale saves return a conflict and keep edits available for download in the tab.
+### Создание
 
-PDFs are limited to 5 MB (or the configured lower upload limit) and 200 pages. Unlock password-protected files before uploading. The editor uses Mozilla PDF.js with embedded PDF scripting disabled; XFA forms and digital-signature workflows are not supported. PDF parsing for validation and text extraction runs in a separate process with memory and time limits.
+Нажмите **Новый документ** или **Новый файл** в каталоге. Выберите тип, название, группу и родительский путь. `/` означает корень пространства; указанный родительский каталог должен существовать.
 
-## AI summaries
+Поле начального содержимого можно оставить пустым. После создания поддерживаемые типы открываются в визуальном редакторе. Обычный файл можно загрузить с компьютера.
 
-Administrators configure each provider under **Site administration → AI settings**. Supported providers are **DeepSeek, Qwen, Gemini, OpenAI (ChatGPT models), Claude**, and custom OpenAI-compatible APIs. Enter an API key and an exact model ID available to your account. Qwen's base URL must match the key's region. Credentials are encrypted using the existing workspace encryption key and are never included in page HTML. Blank key fields retain the saved key; changing an endpoint requires re-entering it.
+### Текстовый документ
 
-Open **AI summary** on a document, table, or PDF, select a configured provider, and choose **Generate summary**. This explicitly sends the document's text to that provider. Summaries use the current interface language. PDF pages and images are never sent to the API: extraction includes page text, annotation text, and filled form values. Whitespace is compacted and output is capped at 1,500 tokens. There are no automatic retries that could duplicate paid requests.
+Редактор поддерживает заголовки, абзацы, списки, жирный/курсив/подчёркивание/зачёркивание, выравнивание, шрифты и размеры, цвета и выделение, ссылки, таблицы, изображения, поиск/замену, отмену и повтор, печать браузером.
 
-Scanned pages require OCR before their image content can be summarized. Documents over 100,000 extracted characters must be split; the application rejects them instead of silently omitting text. Summaries are displayed without modifying the source document, and model output is escaped as text.
+Для комментария или предложения выделите текст и используйте панель обсуждений. Читатель может участвовать в рецензировании; применение и разрешение предложений требуют соответствующих прав записи. Если исходный фрагмент уже изменился, предложение нельзя безусловно применить к другому тексту: требуется проверить актуальный документ.
 
-The integrations follow the providers' official APIs: [OpenAI chat completions](https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create), [DeepSeek](https://api-docs.deepseek.com/api/create-chat-completion/), [Qwen endpoints](https://www.alibabacloud.com/help/en/model-studio/base-url), [Gemini compatibility](https://ai.google.dev/gemini-api/docs/openai), and [Claude Messages](https://platform.claude.com/docs/en/api/messages/create).
+### Таблица
 
-## Development and checks
+Редактор хранит форматирование, формулы и несколько листов в нативном формате. CSV подходит для обмена значениями, но не сохраняет всё состояние таблицы. При CSV-экспорте выводятся значения первого листа.
+
+Загрузка файла `.xlsx` как обычного файла не превращает его в редактируемую таблицу. Встроенного полного Excel-импорта/экспорта нет.
+
+### Canvas
+
+Доступны текстовые карточки, группы, ссылки и ссылки на файлы, изменение положения и размера, цвета, редактирование связей, масштабирование и вписывание в область просмотра.
+
+Для соединения выберите исходную и затем целевую карточку. Выделенные карточки можно перемещать стрелками; Delete удаляет выделение внутри редактора, а не весь документ. Страница просмотра показывает карточки и соединения без открытия визуального редактора. Числовая геометрия не зависит от языка интерфейса.
+
+Файловая карточка является ссылкой/ссылочным узлом, а не автоматическим встраиванием произвольного внешнего файла. В предпросмотре ссылочные карточки показывают ссылки/описания.
+
+### draw.io
+
+Редактор размещается на вашем сервере и загружается в сборку с проверкой целостности. Полное оформление доступно в редакторе; обычная страница документа показывает упрощённую структуру первой страницы. Для переноса полного диаграммного содержимого используйте экспорт draw.io.
+
+### Совместная работа и сохранение
+
+Откройте один документ в нескольких сеансах с разрешённым доступом. Изменения передаются по WebSocket и объединяются через состояние совместного редактора. Статус вверху показывает соединение и сохранение.
+
+Если связь потеряна, сохраните вкладку открытой. Состояние, уже принятое сервером, сохраняется в SQLite, даже если провайдер хранилища временно недоступен. Не воспринимайте отсутствие связи как гарантию офлайн-сохранения после закрытия браузера.
+
+### Редактирование исходника
+
+**Редактировать исходник (эксклюзивно)** предназначено для исходного/нативного представления документа. Оно использует проверку ревизии и эксклюзивную аренду примерно на 15 минут. Перед его открытием другие визуальные сеансы должны быть закрыты. Сохранение или отмена освобождают сеанс.
+
+При конфликте не перезаписывайте данные вслепую: сохраните свои изменения отдельно, загрузите актуальную версию и повторите редактирование.
+
+<a id="files"></a>
+## 11. Загрузка, импорт и экспорт
+
+### Разница между загрузкой и импортом
+
+**Загрузка файла** сохраняет обычный файл для скачивания или специального просмотра. **Импорт** преобразует поддерживаемый формат в соответствующий тип wiki-документа. Отдельное исключение — `.docx`: он преобразуется в редактируемый документ и при загрузке.
+
+| Формат | Поведение |
+| --- | --- |
+| `.md`, `.txt` через импорт | Текстовый документ; текст в UTF-8 |
+| `.csv` через импорт | Таблица с сохранением в `.ods` |
+| `.ods` через импорт или загрузку | Книга с несколькими листами, редактируемая в Yourwiki |
+| `.drawio`, подходящий `.xml` через импорт | Диаграмма draw.io |
+| `.canvas` через импорт | Canvas |
+| `.wiki.json` | Нативный формат документа/таблицы |
+| `.wiki.zip` | Переносимый пакет документа |
+| `.pdf` | Файл PDF с просмотром и аннотациями; не превращается в обычный wiki-текст |
+| `.docx` | Базовая конвертация в редактируемый документ |
+| `.doc` | Исходный скачиваемый файл |
+| PNG, JPEG, GIF, WebP, BMP | Через загрузку: обычный файл с просмотром изображения |
+| Другие расширения | Через загрузку: скачиваемый файл; универсальной конвертации нет |
+
+Импорт добавляет документ в корень `/`; после него файл можно переместить. Загрузка позволяет выбрать каталог. Также файлы можно перетащить с компьютера в доступную область каталога.
+
+### Ограничения Word-конвертации
+
+Импорт DOCX переносит абзацы, заголовки, базовое начертание и таблицы. Он не является точным воспроизведением Word: сложная вёрстка, колонтитулы, изображения и другие элементы могут не сохраниться. Порядок абзацев и таблиц сохраняется. Храните исходный файл, если нужна точная копия.
+
+Для `.doc` конвертация не выполняется.
+
+### Экспорт
+
+Обычная кнопка **Экспорт** выдаёт текущее представление соответствующего типа. В визуальном редакторе дополнительно доступны:
+
+- переносимый `.wiki.zip`;
+- Markdown для текстового документа;
+- CSV для таблицы;
+- браузерная печать.
+
+Нативный формат сохраняет больше возможностей редактора, чем Markdown/CSV. Переносимый пакет включает состояние сотрудничества, обсуждения и загруженные изображения, но не заменяет полную резервную копию пользователей, прав, конфигурации и хранилищ.
+
+В HTTP-экспорте текстового документа есть дополнительные `?format=docx` и `?format=pdf`. Это базовые конвертеры, не экспорт с точным сохранением оформления: DOCX сохраняет абзацы, заголовки, списки, таблицы и базовое начертание, а PDF — извлечённый текст. Не используйте их как единственную архивную копию сложного документа. Шрифтовое покрытие и компоновку полученного PDF проверяйте отдельно.
+
+<a id="images"></a>
+## 12. Просмотр изображений
+
+1. Откройте нужный каталог и нажмите **Загрузить файл**.
+2. Выберите PNG, JPEG, GIF, WebP или BMP.
+3. Откройте созданный файл: изображение отображается на странице и вписывается в доступную ширину.
+4. Для получения исходных байтов используйте **Скачать файл**.
+
+Изображение отдаётся через защищённый маршрут с проверкой доступа к документу. Тип определяется проверкой содержимого, а не только расширением. SVG, неизвестные форматы и файлы, не прошедшие проверку изображения, остаются скачиваемыми файлами.
+
+Просмотр картинки не предоставляет её редактирование. Вставка изображения в текстовый редактор — отдельный механизм: PNG/JPEG/WebP декодируются и сохраняются как вложение PNG, с ограничением размеров и числа пикселей. Эти вложения также требуют доступа к исходному документу.
+
+<a id="pdf"></a>
+## 13. Просмотр и редактирование PDF
+
+### Открытие и инструменты
+
+Загрузите или импортируйте PDF, затем откройте его страницу. Доступны переход по страницам, масштаб, вписывание по ширине/целиком, текстовые аннотации, выделение, рисование и заполнение поддерживаемых полей формы.
+
+Исходная страничная структура сохраняется: PDF не переводится в обычный документ редактора. Возможность просмотра доступна читателю; редактирование и серверное сохранение требуют `read` и `write`.
+
+### Сохранение
+
+- **Сохранить PDF** записывает результат в файл хранилища.
+- **Скачать текущий PDF** позволяет получить локальную копию, включая несохранённые изменения.
+- **Скачать сохранённый PDF** выдаёт серверную версию.
+
+До сохранения изменения остаются в этой вкладке. При конфликте ревизий или ошибке записи скачайте текущий PDF перед перезагрузкой страницы. Совместное одновременное слияние PDF-аннотаций не реализовано; изменение в другой вкладке может привести к конфликту.
+
+Сохранение не гарантирует отдельного неизменяемого архива исходного PDF. Для гарантированного возврата к оригиналу скачайте его до редактирования и включайте файлы в резервные копии.
+
+### Совместимость
+
+PDF должен быть без пароля, содержать 1–200 страниц и укладываться в предел загрузки. Встроенные скрипты PDF не исполняются; XFA и сценарии цифровых подписей не поддерживаются. Некоторые сложные формы могут отображаться или работать неполностью.
+
+Проверка и извлечение текста выполняются в отдельном процессе с ограничениями памяти и времени. Поэтому небольшой по размеру, но сложный PDF тоже может быть отклонён. Подпись `%PDF-` и расширение сами по себе не означают совместимость.
+
+<a id="ai"></a>
+## 14. AI-резюме и настройка провайдеров
+
+### Общая модель настройки
+
+API-конфигурация общая для рабочего пространства и управляется администраторами. Пользователи не вводят личные ключи. Доступ к документу проверяется перед извлечением и отправкой текста; обычному читателю может быть доступна генерация резюме.
+
+**Подписка на чат и доступ к API — разные вещи.** Нужны ключ API, доступная для этого ключа модель и достаточная квота. Приложение не предоставляет ключи, не устанавливает цены и не управляет балансом провайдера.
+
+### Добавление провайдера
+
+1. Откройте **Администрирование сайта → Настройки AI**.
+2. Выберите провайдера.
+3. Укажите точный идентификатор модели из доступных вашему аккаунту.
+4. Введите API key.
+5. Оставьте базовый URL пустым для стандартного адреса или задайте свой HTTPS endpoint.
+6. Включите генерацию резюме этим провайдером и сохраните.
+7. Повторите для остальных провайдеров, которые нужны команде.
+
+Пустое поле ключа при последующем сохранении сохраняет прежний ключ. При смене базового URL требуется повторный ввод ключа, чтобы приложение случайно не отправило старый ключ на новый сервер. Отключение провайдера убирает его из выбора генерации, но не равнозначно отзыву ключа у провайдера.
+
+### Адреса, заданные в коде
+
+| Провайдер | Базовый URL по умолчанию | Протокол |
+| --- | --- | --- |
+| OpenAI | `https://api.openai.com/v1` | Chat Completions |
+| DeepSeek | `https://api.deepseek.com/v1` | Совместимый Chat Completions |
+| Qwen | `https://dashscope-intl.aliyuncs.com/compatible-mode/v1` | Совместимый Chat Completions |
+| Gemini | `https://generativelanguage.googleapis.com/v1beta/openai` | Совместимый с OpenAI endpoint |
+| Claude | `https://api.anthropic.com/v1` | Messages |
+| OpenAI-compatible | Задаётся администратором | Chat Completions |
+
+Это значения текущей реализации, а не обещание совместимости каждой модели провайдера. Qwen требует соответствия endpoint региону ключа. Базовый URL задаётся без суффикса `/chat/completions` или `/messages`: приложение добавляет его само. URL должен использовать HTTPS, без встроенных учётных данных, query-параметров и fragment.
+
+Ключи шифруются общим ключом рабочего пространства и не возвращаются в HTML. Администратор, имеющий доступ одновременно к SQLite и ключу шифрования на сервере, обладает доступом к этим секретам.
+
+### Создание резюме
+
+1. Откройте текстовый документ, таблицу или PDF.
+2. Нажмите **AI-резюме**.
+3. Выберите включённого провайдера.
+4. Нажмите **Создать резюме**.
+
+Само открытие страницы не отправляет запрос генерации. Отправка выполняется по явному действию пользователя. Результат показывается отдельно, не заменяет содержимое документа и не добавляется к нему автоматически. Автоматического общего архива или кэша резюме нет.
+
+### Как обрабатывается PDF и экономятся токены
+
+Вместо бинарного PDF, изображений страниц или base64 API получает извлечённый текст. При извлечении учитываются текст страниц, текстовые аннотации и заполненные значения полей формы. Лишние пробелы и пустые строки сокращаются.
+
+Это уменьшает объём передаваемых данных по сравнению с отправкой изображения/файла, но не является точным подсчётом токенов. Лимит приложения измеряется символами, а тарифы и контекст модели — правилами провайдера.
+
+Встроенного OCR нет. Чисто сканированный PDF без извлекаемого текста отклоняется с предложением выполнить OCR. В смешанном PDF текстовые страницы могут быть обработаны, но содержимое изображений не распознаётся. Для полного резюме такого документа сначала выполните OCR внешним инструментом.
+
+Таблицы преобразуются в CSV-представление первого листа. Другие листы, графики и оформление не становятся автоматически частью резюме. Canvas, draw.io, обычные изображения и произвольные бинарные файлы не поддерживаются как источники AI-резюме.
+
+### Пределы и ошибки
+
+- Более 100 000 извлечённых символов: документ нужно разделить; тихого обрезания нет.
+- PDF-экстрактор дополнительно ограничивает объём сырого текста, время и память.
+- Максимум ответа запрашивается как 1 500 токенов; при достижении лимита показывается предупреждение о возможной неполноте.
+- Таймаут соединения API — 10 секунд, чтения — 90 секунд.
+- Ответ API ограничен 1 МБ.
+- Автоматических повторов платного запроса и переходов HTTP-redirect нет.
+- Qwen запрашивается с отключённым thinking в данном сценарии.
+- Ошибки API не выводят пользователю сырые тела ответов с потенциальными секретами.
+
+Если модель не работает, проверьте её ID, протокол, квоту, регион, endpoint и права ключа. Поддержка провайдера не означает поддержку любого его продукта или модели. Факты в резюме сверяйте с исходником.
+
+<a id="directories"></a>
+## 15. Каталоги, перемещение и удаление
+
+### Каталоги и пути
+
+Пути вида `/Projects/Notes` относятся к пространству Yourwiki. Это не обязательно физический путь на сервере. Отдельно существуют путь подключения внутри wiki и корень конкретного провайдера.
+
+Новый каталог по умолчанию наследует правила родителя. Для создания файла внутри каталога нужны права на выбранное место. Переименование и удаление пустого каталога доступны в его меню при разрешённой записи и отсутствии ограничений точки подключения.
+
+### Перемещение
+
+Используйте **Переместить** или drag-and-drop. Кнопка предназначена также для клавиатуры и сенсорного экрана. Право перемещения может быть строже права изменения самого файла: проверяются исходное расположение и доступ к назначению.
+
+При наследуемых правах перемещение меняет эффективный доступ в соответствии с новым родителем. Явные права элемента сохраняются. Внутри точки монтирования используется переименование/перемещение провайдера: Google Drive и OneDrive сохраняют ID объекта, GitHub меняет пути одним коммитом, файловые провайдеры используют rename. Между разными точками файлы, история и вложения копируются с проверкой содержимого; после фиксации каталога исходники удаляются через надёжную очередь. При недоступности источника удаление будет повторено. Исторические ревизии старых версий приложения и резервные копии не очищаются.
+
+Сами точки подключения и каталоги, содержащие точки подключения, нельзя свободно перемещать или переименовывать. Для смены провайдера создайте новую точку и перенесите файлы.
+
+### Удаление файлов
+
+Кнопка удаления находится в списке, плитках, содержимом каталога и на странице документа/файла. Она отображается только при наличии `write`. Для удаления скрытого документа одного `write` недостаточно: сервер также требует `visible`.
+
+1. Нажмите кнопку удаления нужного файла.
+2. Проверьте название на странице подтверждения.
+3. Подтвердите удаление.
+
+Открытие страницы подтверждения через GET ничего не удаляет. Фактическое удаление выполняется POST-запросом с CSRF-защитой и повторной проверкой прав на сервере. Подстановка чужого URL не обходит проверку.
+
+Документ сразу исчезает из каталога. Удаление текущего физического файла, JSON истории и вложений отслеживается очередью. Если провайдер недоступен, фоновые попытки продолжатся позже. Старые ревизии не удаляются автоматически. Корзины с кнопкой восстановления нет: для возврата используйте резервные копии.
+
+<a id="permissions"></a>
+## 16. Пользователи, группы и права
+
+### Независимые разрешения
+
+| Разрешение | Что позволяет |
+| --- | --- |
+| `visible` | Обнаруживать элемент и обращаться к нему по адресу |
+| `read` | Читать, просматривать и экспортировать видимый документ |
+| `write` | Изменять или удалять видимый документ |
+
+`write` не означает автоматически `read`, а `read` не включает автоматически `visible`. Визуальный редактор и сохранение PDF требуют чтения и записи. Для пользователя-редактора обычно задают все три разрешения; для читателя — `visible` и `read`.
+
+Администраторы обходят предметные ограничения доступа. Неактивные пользователи и пользователи без сеанса не получают доступ к защищённым данным.
+
+### Документы: владелец, группа, остальные
+
+Документ имеет владельца, основную группу и правила `owner`, `group`, `everyone`. Применяется одна категория: владелец, иначе участник основной группы, иначе остальные вошедшие пользователи. Эти три категории не суммируются.
+
+Стандартная policy для нового пространства:
+
+| Категория | `visible` | `read` | `write` |
+| --- | --- | --- | --- |
+| Владелец | Да | Да | Да |
+| Основная группа | Да | Да | Нет |
+| Остальные вошедшие пользователи | Нет | Нет | Нет |
+
+Администратор может изменить значения по умолчанию; у конкретного элемента также может действовать наследование или явная policy.
+
+`everyone` не означает открытый доступ из интернета. Анонимный посетитель всё равно не получает документ.
+
+### Каталоги: матрица групп
+
+Для каталогов существует отдельная матрица разрешений нескольких групп. Если у пользователя несколько совпадающих групп с явными правилами, разрешение для действия предоставляется при наличии разрешающего правила хотя бы в одной из них. При отсутствии совпадающих явных правил применяется обычная схема владелец/основная группа/остальные.
+
+В текущем коде эта матрица проверяется для **каталогов**. Не считайте, что она автоматически заменяет модель основной группы для каждого вложенного документа: при наследовании документ использует родительскую базовую policy. Если нужна точная изоляция документов между несколькими группами, проверяйте доступ на самих документах и под реальными учётными записями.
+
+### Наследование и управление
+
+Каталог или документ может наследовать права родителя либо использовать явные настройки. Явное разрешение на вложенный элемент может дать доступ к нему без раскрытия имён недоступных родительских каталогов.
+
+Текущий web-интерфейс изменения политик документов и каталогов доступен администратору. HTTP API допускает некоторые изменения policy владельцем документа при соблюдении серверных проверок; это не делает владельца администратором пространства.
+
+### Необычные HTTP-коды отказов
+
+Проект намеренно возвращает общий **HTTP 500** при отказе в доступе, в том числе для анонимного обращения к защищённой странице, скрытого документа и недостаточных прав. Это не всегда означает поломку сервера. В логах такие события отмечены `access_denied`.
+
+Публичные страницы входа, приглашений и готовности работают без обычного сеанса. Ошибки валидности форм обычно дают 400, конфликт ревизий — 409, недоступность хранилища — 503, отсутствующий ресурс у авторизованного клиента — 404. Неудачный вход или недействительное приглашение также могут возвращать общий 500.
+
+<a id="storage"></a>
+## 17. Подключение хранилищ
+
+### Общие правила
+
+Корневое хранилище `/` создаётся установщиком. Дополнительные подключения создаёт администратор через **Точки подключения**. Приложение обращается к провайдерам Python-адаптерами: SMB/SFTP не нужно монтировать в файловую систему хоста.
+
+| Провайдер | Идентификатор | Что требуется |
+| --- | --- | --- |
+| Локальная папка | `local` | Постоянный доступный для записи каталог внутри контейнера |
+| Google Drive | `google` | OAuth client ID/secret или сохранённый шаблон; refresh token новой точки получается через браузер |
+| OneDrive | `onedrive` | OAuth client ID/secret, tenant, авторизация; для дополнительной точки — folder ID и refresh token |
+| GitHub | `github` | Репозиторий, существующая ветка, префикс пути, токен Contents read/write |
+| SMB | `smb` | Сервер, порт, share, каталог, имя/пароль, при необходимости domain |
+| SFTP | `sftp` | Сервер, порт, абсолютный каталог, имя, пароль/ключ, проверенный host key |
+
+Учётные данные сервера дают доступ провайдеру, но пользователь всё равно проходит проверки прав Yourwiki. Используйте отдельное место для управляемых wiki-файлов. Редактирование их в обход приложения может рассогласовать каталог и состояние редакторов.
+
+### Local и bind mount
+
+Стандартный корень — `/documents` в named volume. Для подключения каталога хоста добавьте volume в общий блок `x-app.volumes` в `compose.yaml`, например:
+
+```yaml
+- /srv/wiki-archive:/mnt/archive
+```
+
+Предварительно создайте каталог и назначьте доступ UID/GID `10001` в соответствии с политикой вашей системы. Для нового выделенного каталога на Linux пример:
 
 ```sh
-python3 -m venv .venv
+sudo install -d -o 10001 -g 10001 -m 0750 /srv/wiki-archive
+```
+
+Не меняйте рекурсивно владельца чужого дерева без проверки. После изменения Compose пересоздайте `web`, затем создайте точку `/archive` с provider directory `/mnt/archive`.
+
+Путь хоста `/srv/wiki-archive`, путь контейнера `/mnt/archive` и wiki-путь `/archive` — три разных значения.
+
+### Google Drive
+
+Настройте OAuth web application с Drive API и redirect URI:
+
+```text
+https://wiki.example.com/setup/oauth/callback
+https://wiki.example.com/mounts/google/callback/
+```
+
+Первый адрес относится к установщику, второй — к работающему web-приложению. Оба должны быть разрешены в Google OAuth client; завершающий `/` у второго адреса обязателен.
+
+При установке введите client ID/secret, откройте предложенную ссылку, подтвердите доступ и вернитесь в терминал. Авторизация ограничена по времени; при истечении запустите установку повторно.
+
+Код запрашивает `https://www.googleapis.com/auth/drive.file` с offline access и при отсутствии root создаёт папку `Yourwiki`. Этот scope не даёт произвольного доступа ко всему чужому Drive. Folder ID сам по себе не выдаёт разрешение OAuth-приложению. Настройки consent screen, тестовых пользователей и учётной записи должны допускать вашу авторизацию.
+
+Для новой Google-точки:
+
+1. Откройте **Точки подключения**, выберите Google Drive.
+2. Укажите wiki-путь, например `/Google/Archive`.
+3. Укажите ID уже доступной OAuth-приложению папки или оставьте поле пустым для создания новой папки в Google Drive.
+4. Если установщик сохранил client ID/secret, оставьте включённым **Использовать OAuth-клиент Google, сохранённый при установке**. Чтобы использовать другой клиент, снимите флажок и заполните его реквизиты.
+5. Нажмите **Подключить через Google**, выберите аккаунт и подтвердите доступ.
+6. После возврата нажмите **Завершить подключение** в том же браузере и с исходным сеансом администратора.
+
+Refresh token получается сервером автоматически, не показывается в форме и сохраняется зашифрованно. Клиент использует offline access и экран согласия. Связка state, PKCE и исходного сеанса проверяется перед обменом кода; процесс действует 10 минут. Запуск нового подключения в этом же сеансе заменяет предыдущую незавершённую попытку. При ошибке начните заново.
+
+Страница завершения нужна из-за `SameSite=Strict`: при переходе от Google cookie сеанса не передаётся, а при следующем same-origin POST снова доступна. Не меняйте глобальную защиту cookie для обхода этого шага. Страница работает без API-вызова на GET; обмен и создание точки происходят только после подтверждения администратора.
+
+Приложение проверяет запись в папку перед сохранением точки. Если после создания новой Drive-папки проверка или регистрация точки не удалась, пустая папка может остаться у провайдера — приложение не удаляет её автоматически. При существующей папке не нужны новые scope: ID должен указывать на место, уже доступное вашему OAuth-приложению.
+
+Существующие установки не начинают повторно использовать root credentials без согласия. Чтобы сохранить шаблон через установщик, выполните Google `setup --reconnect` и ответьте `Y`; либо вводите client ID/secret вручную для каждой новой точки. OneDrive в этом изменении сохраняет прежнюю форму с ручным refresh token. Повторная авторизация существующей Google-точки через браузер пока не добавлена: действие Credentials сохраняет прежний механизм обновления её реквизитов.
+
+Протокол основан на [Google OAuth для web-server приложений](https://developers.google.com/identity/protocols/oauth2/web-server).
+
+### OneDrive
+
+Используется OAuth web application, тот же callback и Microsoft Graph. Код запрашивает `Files.ReadWrite` и `offline_access`; tenant по умолчанию `common`. Подключается default drive авторизованной учётной записи, при необходимости создаётся выделенная папка.
+
+Выбор произвольной библиотеки SharePoint или site не реализован. Учётная запись должна иметь доступный OneDrive. Дополнительные подключения требуют готового folder ID и токенов.
+
+### GitHub
+
+Укажите `owner/repository`, существующую ветку, относительный путь и токен с правом Contents read/write. Изменения выполняются через Contents API с созданием коммитов, без локального checkout и без pull request.
+
+Защита ветки должна разрешать запись этому токену. Не используйте этот адаптер как замену workflow рецензирования кода.
+
+### SMB
+
+Требуются сервер, share и существующий каталог внутри него. Порт по умолчанию — `445`. Каталог задаётся относительно share, без выхода через `..`. Используется `smbprotocol`; сервер должен поддерживать ожидаемые SMB2/SMB3 и signing.
+
+Контейнер должен разрешать имя сервера и подключаться к нему по сети. `localhost` внутри контейнера не означает хост Docker.
+
+### SFTP
+
+Порт по умолчанию — `22`, каталог — существующий абсолютный путь. Аутентификация: пароль либо приватный ключ, при необходимости с passphrase.
+
+Host key вводится в виде `ssh-ed25519 BASE64...` или другого поддерживаемого типа. Получите и проверьте его у администратора сервера. Неизвестные и изменённые ключи отклоняются.
+
+Если установщику нужен файл приватного ключа, подключите его read-only volume и укажите путь **внутри контейнера**. Содержимое ключа сохраняется в зашифрованной конфигурации.
+
+### Вложенные точки подключения
+
+Более длинный подходящий путь имеет приоритет: `/projects/archive` перед `/projects`, а `/projects` перед `/`. Сопоставление учитывает границы каталогов: `/projects-other` не относится к `/projects`.
+
+Новая точка должна занимать пустое место; отсутствующие родительские каталоги могут создаваться. Корневую точку удалить нельзя. Отключение другой точки требует пустого каталога и отсутствия активных ссылок/ожидаемой очистки. Оно не удаляет всё содержимое провайдера.
+
+### Учёт уже существующих файлов
+
+Для корневого Local или Google Drive доступно одноразовое сканирование:
+
+```sh
+docker compose exec web python manage.py scan_storage
+```
+
+Команда не является постоянным watcher. Она добавляет записи каталогов и файлов, пропускает уже зарегистрированные ссылки и некоторые служебные/ревизионные имена, не переписывает и не удаляет исходные файлы. Поддерживаемый текст проверяется перед добавлением; часть неподходящих файлов может быть пропущена.
+
+В текущей реализации сканируется **корневое** хранилище, а не все дополнительные точки. Владелец выбирается как первый активный администратор, группа — первая существующая группа. После сканирования проверьте типы и права импортированных элементов. Сканирование распознаёт Markdown с метаданными, DOCX, ODS и старые `.wiki.json`; оно не заменяет импорт пакета обсуждений и вложений.
+
+### Переподключение
+
+Для отдельной точки используйте действие обновления учётных данных в интерфейсе. Для корневого хранилища через установщик:
+
+```sh
+docker compose stop web
+docker compose run --rm --service-ports setup --reconnect
+docker compose up -d web
+```
+
+Для HTTP-экземпляра добавьте `--allow-http` к команде `setup`. Переподключение сохраняет провайдера и его идентичность: корень, репозиторий/ветку, host/share и host key нельзя произвольно заменить этим действием. Для смены хранилища используйте новую точку и перемещение файлов.
+
+<a id="settings"></a>
+## 18. Настройки сайта и переменные окружения
+
+### Настройки через интерфейс
+
+Раздел администрирования сайта доступен администратору. Значения по умолчанию в модели:
+
+| Параметр | Значение |
+| --- | --- |
+| Название пространства | `My workspace` |
+| Описание | `Your shared knowledge` |
+| Время сеанса | 24 часа |
+| Срок приглашения | 7 дней |
+| Использования приглашения | 1 |
+| Попытки входа в окне ограничения | 10 |
+| Окно ограничения входа | 15 минут |
+| Предел документа | 5 МБ |
+| Предел изображения редактора | 5 МБ |
+| Максимальное изображение редактора | 16 мегапикселей |
+| Интервал синхронизации | 3 секунды |
+
+Допустимые диапазоны формы: сеанс — 1–720 часов; срок приглашения — 0–3 650 дней; число использований — 0–100 000; попытки входа — 1–100; окно входа — 1–1 440 минут; размер документа и изображения — 1–5 МБ; изображение — 1–16 мегапикселей; интервал синхронизации — 1–60 секунд.
+
+Изменение времени сеанса применяется при следующем входе. Значения по умолчанию для новых объектов не переписывают все существующие явные политики. Увеличение значения в модели само по себе не отменяет жёсткие пределы конкретного импортера, хранилища или HTTP-обработчика.
+
+### Переменные окружения
+
+| Переменная | Docker / локальное значение по умолчанию | Назначение |
+| --- | --- | --- |
+| `YOURWIKI_PORT` | `3000` | Подстановка host port в Compose |
+| `YOURWIKI_DATA` | `/data` / `<repo>/instance` | Каталог SQLite и служебных данных |
+| `YOURWIKI_SECRETS` | `/secrets` / `<data>/secrets` | runtime-конфигурация и ключ шифрования |
+| `YOURWIKI_DOCUMENTS` | `/documents` / `<data>/documents` | Локальное хранилище по умолчанию |
+| `DJANGO_SETTINGS_MODULE` | `config.settings` | Django settings |
+| `DJANGO_SECRET_KEY` | Только fallback при отсутствии секрета в runtime | Используется, например, при сборке staticfiles; не заменяет установку |
+| `SETUP_PORT` | `8000` | Внутренний listener OAuth-callback установщика |
+| `RUN_BROWSER` | Не установлен | Значение `1` включает браузерные тесты |
+| `YOURWIKI_STORAGE_TEST_CONFIG` | Не установлен | Путь к приватному JSON для live-тестов провайдеров |
+
+`.env` для Compose не является универсальным файлом конфигурации Django. Произвольные переменные из него не передаются контейнеру автоматически без соответствующей настройки Compose. Dockerfile уже задаёт пути основных томов.
+
+### `runtime.json`
+
+Установщик записывает `public_url`, `allowed_hosts` и `django_secret`. Файл содержит секрет: не публикуйте его и не включайте в логи. При необходимости смены домена остановите сервис, сделайте резервную копию, измените `public_url` и соответствующий `allowed_hosts`, обновите reverse proxy и OAuth redirect URI, затем запустите приложение.
+
+Сохраняйте прежние секреты, если не выполняете осознанную процедуру их ротации. Повторная установка не предназначена для смены домена: существующий runtime URL имеет приоритет.
+
+<a id="portable-files"></a>
+
+## Форматы файлов, история и внешние изменения
+
+### Создание и открытие оригинала
+
+При создании текстового документа выберите **Markdown (.md)** или **Word (.docx)** в поле формата. Обе разновидности используют один визуальный редактор. Формат существующего документа не меняется простым изменением заголовка. Таблицы всегда создаются как **OpenDocument Spreadsheet (.ods)**. CSV остаётся форматом импорта и упрощённого экспорта.
+
+Сохранённый Markdown содержит JSON-совместимый YAML front matter с ключом `yourwiki` и обычный текст Markdown после него. DOCX содержит данные редактора в `customXml/yourwiki.xml`, ODS — в стандартном свойстве `meta:user-defined` в `meta.xml`. Снимок хранит форматирование и дополнительные возможности редактора. Контрольная сумма видимого содержимого защищает от восстановления устаревших метаданных после внешнего изменения: при несовпадении импортируется видимое содержимое файла.
+
+ODS сохраняет несколько листов, значения, формулы с преобразованием A1-ссылок в OpenFormula, базовые цвета/начертание и объединения. Полный снимок редактора сохраняется внутри файла. Импорт произвольного внешнего ODS ограничен возможностями редактора: 20 листов, 2000 строк и 200 столбцов; макросы и внешние формулы не поддерживаются. Сложное оформление сторонних офисных документов может отличаться; сохраняйте оригиналы перед преобразованием.
+
+**Открыть оригинал** появляется у читателей файла, если провайдер даёт известную ссылку: Google Drive, OneDrive, GitHub. Ссылка ведёт на текущий объект и не содержит OAuth credentials. Yourwiki не создаёт публичных разрешений и не меняет sharing у провайдера. Для доступа нужен аккаунт с правами у самого провайдера; права Yourwiki их не заменяют. Локальный диск, SMB и SFTP не имеют такой веб-ссылки; WebDAV в текущем списке провайдеров отсутствует.
+
+Для ODS на Google Drive нажмите **Открыть оригинал → Открыть с помощью Google Таблиц**. При необходимости используйте импорт ODS в интерфейсе Google Sheets. Yourwiki хранит именно `.ods`, а не Google-native объект. Если Google создаёт отдельную таблицу при импорте, это другой объект: изменения в ней не синхронизируются с исходным ODS автоматически. Для переноса обратно скачайте `.ods` и импортируйте его в Yourwiki.
+
+### Настройки истории
+
+История **выключена по умолчанию**. Счётчик `revision` при этом продолжает изменяться: он защищает от конкурентной перезаписи, а не означает наличие архивной копии.
+
+| Уровень | Где настроить |
+| --- | --- |
+| Пространство | Администрирование сайта → «Хранить историю файлов по умолчанию» |
+| Источник | Точки монтирования → Учётные данные → «История изменений» |
+| Папка | Страница папки → «Настройки файла» |
+| Файл | Страница просмотра/редактор → «Настройки файла» |
+
+Для источника, папки и файла доступны **Наследовать / Включено / Выключено**. Первым учитывается явное значение файла, затем ближайшего предка-папки, затем источника, затем пространства. Изменения действуют на последующие сохранения. ACL и история наследуются независимо.
+
+При включённой истории перед заменой содержимого предыдущие байты добавляются в один соседний файл `имя.расширение.json`. В нём находятся `format: yourwiki-history`, `version: 1` и массив `entries`; запись содержит время сохранения снимка, ревизию, SHA-256 и `content_base64` с исходными байтами. Текущая версия остаётся в основном файле. При отключении новые снимки не добавляются, существующий JSON сохраняется и доступен по кнопке **Скачать историю**. Новые отдельные файлы с суффиксами ревизий больше не создаются.
+
+Размер JSON истории ограничен **50 МиБ**. Для SFTP требуется расширение OpenSSH `posix-rename`, чтобы завершённый временный файл атомарно заменял оригинал; при отсутствии расширения замена безопасно отклоняется. При достижении лимита сохранение останавливается с понятной ошибкой, оригинал остаётся нетронутым. Скачайте и архивируйте историю; отключите историю файла, чтобы продолжить сохранение. Снимки автоматически не удаляются. История провайдера (например, Git-коммиты) управляется провайдером независимо от этого переключателя. История не заменяет резервную копию.
+
+Для извлечения снимка из скачанного JSON можно использовать Python; выберите нужный индекс:
+
+```python
+import base64, hashlib, json
+from pathlib import Path
+history = json.loads(Path("document.docx.json").read_text())
+entry = history["entries"][0]
+content = base64.b64decode(entry["content_base64"], validate=True)
+assert hashlib.sha256(content).hexdigest() == entry["sha256"]
+with open("restored.docx", "xb") as output:
+    output.write(content)
+```
+
+### Конфликты и восстановление
+
+Обычные сохранения проверяют актуальные ревизию, ссылку и папку **до записи провайдеру**. Визуальные редакторы используют существующее совместное редактирование. Перед заменой файла проверяется SHA-256 предыдущей сохранённой версии: если файл изменён вне Yourwiki, запись отменяется. Провайдеры без условной записи не дают общей транзакции с SQLite: параллельную запись сторонним приложением непосредственно между проверкой и загрузкой полностью исключить нельзя. Не используйте несколько независимых экземпляров Yourwiki для одних файлов.
+
+При конфликте экспортируйте свои локальные изменения или пакет, закройте визуальные редакторы и откройте **Настройки файла → Загрузить оригинал заново**. Подтверждение удаляет локальное состояние редактора, перечитывает оригинал и повышает ревизию. Сам файл у провайдера эта операция не перезаписывает. Загружайте сохранённые изменения обратно после сравнения версий. Если конфликт возник в PDF, сначала скачайте текущий PDF из редактора.
+
+База остаётся необходимой для пользователей, ACL, обсуждений, сопоставления вложений, незавершённых CRDT-изменений, очередей удаления и конфигурации. После перезапуска редактор восстанавливается из встроенного снимка файла, а ещё не доставленные изменения — из SQLite. Удалять базу как «кеш» нельзя.
+
+### Обновление существующих данных
+
+Миграция `0013` добавляет настройки и поля форматов, не перезаписывая удалённые файлы и не меняя ранее заданные ACL. Старые `.wiki.json`, Markdown и CSV продолжают читаться. При следующем сохранении текста/таблицы Yourwiki переносит данные в Markdown/ODS со встроенными метаданными. Старые независимые ревизии не удаляются автоматически.
+
+Чтобы преобразовать все зарегистрированные старые тексты и таблицы заранее, сделайте согласованную резервную копию и остановите web/редакторы:
+
+```sh
+docker compose stop web
+docker compose run --rm --no-deps --entrypoint python setup manage.py migrate --noinput
+docker compose run --rm --no-deps --entrypoint python setup manage.py convert_file_formats
+docker compose up -d web
+```
+
+Команда останавливается на первой ошибке, сообщает ID документа и количество завершённых преобразований. Исправьте причину и повторите: уже преобразованные документы пропускаются. Имена с коллизиями не перезаписываются. Для локального запуска используйте `.venv/bin/python manage.py convert_file_formats` после остановки сервера. `sync_storage_tree` переносит старые пути физически; он больше не оставляет дубликаты исходников.
+
+### Проверка Nginx
+
+Проверка с настоящим локальным Nginx использует production-фрагмент, меняя только адрес тестового backend и порты. Она загружает допустимый файл 5 МиБ и проверяет понятные ответы при превышении лимитов приложения и прокси:
+
+```sh
+RUN_NGINX=1 NGINX_BINARY=/usr/bin/nginx .venv/bin/pytest tests/test_nginx_upload.py -q
+```
+
+У upstream-прокси/CDN тоже должен быть достаточный лимит. Проверьте свободное место в `/tmp` контейнера: Django может временно сохранять большие multipart-запросы на диск, даже если буферизация Nginx отключена.
+
+<a id="backup"></a>
+## 19. Резервное копирование и восстановление
+
+### Что входит в полноценную копию
+
+1. Согласованный снимок SQLite.
+2. Весь каталог секретов, включая runtime и ключ шифрования.
+3. Локальные документы и вложения.
+4. Содержимое каждого удалённого или дополнительного bind-mounted хранилища.
+5. Версия исходников/образа, Compose overrides и настройки reverse proxy.
+
+Копии должны храниться независимо от рабочего сервера. Потеря ключа шифрования делает зашифрованные конфигурации недоступными; потеря файлов не устраняется восстановлением одного SQLite.
+
+### Снимок работающей базы
+
+```sh
+docker compose exec web python manage.py backup /data/backup.sqlite3
+docker compose cp web:/data/backup.sqlite3 ./backup.sqlite3
+```
+
+Команда использует SQLite backup API и может выполняться при работающем приложении. Целевой файл не должен существовать: для следующей копии выберите новое имя. Файл содержит закрытые данные и получает права `0600` в контейнере; проверьте права также у локальной копии.
+
+Не копируйте только живой `wiki.sqlite3` обычным `cp`: актуальные транзакции могут находиться в WAL.
+
+### Согласованная полная копия стандартного Compose
+
+Следующий пример рассчитан на стандартные тома `/data`, `/secrets`, `/documents` и уже собранный образ. Название каталога и SQLite-снимка должно быть новым для каждого запуска. Остановка нужна, чтобы файлы и база не менялись между этапами.
+
+```sh
+umask 077
+mkdir -p backups/backup-2026-09-29
+docker compose stop web
+docker compose run --rm --no-deps --entrypoint python web \
+  manage.py backup /data/backup-2026-09-29.sqlite3
+docker compose cp web:/data/backup-2026-09-29.sqlite3 \
+  backups/backup-2026-09-29/wiki.sqlite3
+docker compose run --rm -T --no-deps --entrypoint tar web \
+  -C / -czf - secrets documents \
+  > backups/backup-2026-09-29/secrets-documents.tar.gz
+```
+
+Пока приложение остановлено, отдельно скопируйте остальные подключённые хранилища штатными средствами провайдера. Затем:
+
+```sh
+docker compose up -d web
+```
+
+Проверьте успешность **каждой** команды и читаемость архивов до удаления старых копий. Если шаг завершился ошибкой, неполный backup нельзя считать пригодным для восстановления. Архив выше не включает внешние облака и каталоги, смонтированные по другим путям.
+
+SQLite backup-файлы остаются в `/data`. Организуйте их удержание и очистку после проверки независимых копий, чтобы не заполнить рабочий том.
+
+### Проверка резервной копии SQLite
+
+На отдельной копии:
+
+```sh
+python3 - <<'PY'
+import sqlite3
+with sqlite3.connect('file:backup.sqlite3?mode=ro', uri=True) as db:
+    print(db.execute('PRAGMA integrity_check').fetchone()[0])
+PY
+```
+
+Ожидается `ok`. Это проверяет структуру SQLite, но не наличие файлов у провайдера. Полезная проверка восстановления включает вход, открытие нескольких документов и чтение вложений на изолированном экземпляре. Изолируйте его от рабочих хранилищ: стартовые фоновые задачи могут выполнять записи и удаления.
+
+### Восстановление: последовательность
+
+Восстановление заменяет данные целевого экземпляра. Сначала сохраните его текущее состояние, если оно нужно. Предпочтителен отдельный экземпляр с чистыми целевыми томами.
+
+1. Разверните соответствующую версию исходников и соберите образ.
+2. Создайте контейнер и тома, но не запускайте приложение и установщик.
+3. Восстановите снимок как `/data/wiki.sqlite3`.
+4. Восстановите соответствующие секреты и все файлы провайдеров.
+5. Для ранее использовавшейся, полностью остановленной базы удалите только её устаревшие `wiki.sqlite3-wal` и `wiki.sqlite3-shm` перед заменой основного файла.
+6. Проверьте доступ UID/GID `10001` к восстановленным данным.
+7. Запустите приложение, проверьте логи, миграции и `doctor`.
+
+Для **новых пустых стандартных томов** и архива из примера выше:
+
+```sh
+docker compose build
+docker compose create web
+docker compose cp backups/backup-2026-09-29/wiki.sqlite3 web:/data/wiki.sqlite3
+docker compose run --rm -T --no-deps --user 0 --entrypoint tar web \
+  -C / -xzf - < backups/backup-2026-09-29/secrets-documents.tar.gz
+docker compose run --rm --no-deps --user 0 --entrypoint chown web \
+  10001:10001 /data/wiki.sqlite3
+docker compose up -d web
+docker compose exec web python manage.py doctor
+```
+
+Используйте только доверенный собственный архив с ожидаемыми путями `secrets/` и `documents/`. Архив, созданный штатным способом, сохраняет владельцев и права этих каталогов; при другом способе копирования восстановите их отдельно. Команды с `--user 0` нужны только для восстановления владельцев/архива, рабочий сервис остаётся непривилегированным.
+
+Не запускайте `setup` поверх восстановленного пространства. Если версия кода новее базы, запуск применит миграции. Для отката используйте совместимую версию кода и полный согласованный backup.
+
+<a id="upgrades"></a>
+## 20. Обновление и перенос на другой сервер
+
+### Обновление
+
+1. Запишите текущую версию.
+2. Создайте и проверьте полную резервную копию.
+3. Получите нужную версию исходников, сохранив свои настройки Compose/proxy.
+4. Соберите образ и пересоздайте приложение:
+
+```sh
+docker compose build
+docker compose up -d web
+docker compose logs --tail=200 web
+docker compose exec web python manage.py showmigrations
+docker compose exec web python manage.py doctor
+```
+
+Миграции выполняются автоматически при старте. Не пытайтесь обойти ошибочную миграцию запуском несовместимого кода. Для старых записей, которым не удалось перенести текущий файл в дерево хранилища, после восстановления провайдера выполните:
+
+```sh
+docker compose exec web python manage.py sync_storage_tree
+```
+
+Это команда миграционной синхронизации путей, а не обновление wiki из внешних правок файлов.
+
+### Откат
+
+Откат образа сам по себе не откатывает схему базы. После изменения схемы безопасный план отката — остановить приложение и восстановить совместимую согласованную копию базы, секретов и файлов вместе с прежней версией кода.
+
+### Перенос на другой сервер
+
+Сделайте полную копию, остановите старый экземпляр, перенесите данные и восстановите их на новом. Не допускайте одновременной работы двух независимых приложений с одними управляемыми файлами.
+
+Если домен сохранён, обычно сохраняется и runtime origin. Если домен изменён, обновите runtime, прокси, DNS и OAuth redirect URI. Проверьте сетевой доступ нового сервера к SMB/SFTP и облачным API.
+
+### Остановка без удаления данных
+
+```sh
+docker compose stop web
+```
+
+`docker compose down` удаляет контейнеры и сеть, но по умолчанию сохраняет named volumes. **Не используйте `docker compose down -v` для обычного обновления или перезапуска:** флаг `-v` удаляет тома проекта вместе с базой, секретами и локальными документами.
+
+<a id="troubleshooting"></a>
+## 21. Диагностика и устранение неполадок
+
+### Начальная диагностика
+
+```sh
+docker compose ps
+docker compose logs --tail=200 web
+curl -i http://127.0.0.1:3000/health/
+docker compose exec web python manage.py doctor
+docker compose exec web python manage.py check --deploy
+docker compose exec web python manage.py showmigrations
+```
+
+Для непрерывного просмотра лога:
+
+```sh
+docker compose logs -f web
+```
+
+`check --deploy` может сообщать о настройках, ответственность за которые несёт внешний HTTPS-прокси. Разбирайте каждое сообщение в контексте развёртывания; не отключайте проверки ради чистого вывода.
+
+### Типовые симптомы
+
+| Симптом | Что проверить |
+| --- | --- |
+| 500 при открытии `/` без входа | Откройте `/login/`: отказ без сеанса предусмотрен проектом |
+| 500 только у одного документа | `visible`, `read`, активность пользователя, группы, наследование |
+| 500 после неверного пароля/приглашения | Корректность данных, срок/отзыв ссылки, лимит попыток; смотрите `access_denied` |
+| 503 на `/health/` | Завершена ли установка, доступна ли SQLite |
+| 503 при чтении файла | Доступность хранилища, действительность credentials, наличие файла |
+| Порт занят при setup | Остановлен ли `web`, совпадают ли host ports других сервисов |
+| `database is locked` | Нет ли второй реплики/процесса записи; база должна быть на локальном диске |
+| Ошибка OAuth callback | Для установки — `/setup/oauth/callback` на setup; для новой Google-точки — `/mounts/google/callback/` на web. Проверьте точный origin и оба redirect URI |
+| В редакторе постоянно «Подключение» | WebSocket в прокси, точный установленный origin, состояние сеанса |
+| «Сохранено локально», но не синхронизировано | Провайдер недоступен; проверьте `doctor --storage` и очередь |
+| CSRF-ошибка | Origin, HTTPS, cookies и передача `X-Forwarded-Proto`; не отключайте CSRF |
+| Файл отклонён | Размер, формат, ограничения конкретного импортера/PDF |
+| Картинка скачивается вместо просмотра | Поддерживаемый raster-формат и успешная проверка содержимого; SVG не встраивается |
+| PDF не открывается | Пароль, число страниц, повреждения, сложность, пределы парсера |
+| PDF не сохраняется из второй вкладки | Конфликт ревизий; скачайте свои изменения перед обновлением |
+| AI не предлагает провайдера | Администратор должен сохранить ключ, модель и включить провайдера |
+| AI отклоняет запрос | ID модели, API key, квота, endpoint, регион Qwen, совместимость протокола |
+| AI не видит текст скана | Выполните OCR до загрузки; встроенного распознавания нет |
+| Перевод/стили не обновились | Пересоберите образ либо каталоги/staticfiles и перезапустите процесс |
+| Исчезли документы после перемещения | Изменились наследуемые права; проверьте назначение под администратором |
+| Новые файлы в облаке не видны | Нет автоматического watcher; используйте импорт или поддерживаемое сканирование корня |
+
+### Проверка хранилищ
+
+```sh
+docker compose exec web python manage.py doctor --storage
+```
+
+- Local: владельцы, права и свободное место в томе.
+- GitHub: существующая ветка, токен Contents read/write и branch protection.
+- SMB: DNS из контейнера, TCP 445 или заданный порт, share, каталог, пароль/domain.
+- SFTP: сеть, каталог, аутентификация и точный host key.
+- Google/OneDrive: разрешение OAuth-приложения, действующий refresh token, доступ к папке.
+
+Число отложенных удалений:
+
+```sh
+docker compose exec web python manage.py shell -c \
+  "from wiki.models import PendingDeletion; print(PendingDeletion.objects.count())"
+```
+
+Фоновая обработка работает в ASGI-приложении. Не запускайте production только через WSGI, если нужны совместное редактирование и фоновые задачи.
+
+### Что приложить к сообщению об ошибке
+
+Укажите версию кода/образа, действие, HTTP-статус, вывод `docker compose ps`, релевантный фрагмент лога и результат `doctor`. Не прикладывайте `runtime.json`, ключ шифрования, cookies, токены, пароли, приглашения, OAuth codes и содержимое закрытых документов.
+
+Не включайте публичные Django debug-страницы: `DEBUG=False` задан в конфигурации. Для подробной диагностики воспроизводите ошибку локально или тестом. `install.py --debug` относится к traceback установщика и тоже требует очистки секретов перед публикацией.
+
+<a id="api"></a>
+## 22. HTTP API
+
+API использует обычную Django-сессию. Отдельного механизма персональных API-токенов нет. Для изменяющих запросов нужны session cookie и корректный CSRF token; наличие UUID документа не выдаёт доступ.
+
+Это API приложения, а не обещание неизменяемого внешнего контракта. Перед интеграцией сверяйте текущие обработчики и тесты.
+
+| Метод и маршрут | Назначение |
+| --- | --- |
+| `GET /health/` | Публичная готовность без данных документов |
+| `GET /api/docs` | Метаданные видимых документов |
+| `POST /api/docs` | Создание документа из JSON |
+| `GET /api/docs/<uuid>` | Метаданные и содержимое; для обычного файла — download URL |
+| `PUT /api/docs/<uuid>` | Обновление содержимого/метаданных с проверками прав и ревизии |
+| `DELETE /api/docs/<uuid>` | Удаление; 200 при завершённой очистке, 202 при отложенной |
+| `GET /api/docs/<uuid>/status` | Состояние синхронизации редактора |
+| `/api/docs/<uuid>/reviews` | Операции обсуждений редактора |
+| `POST /api/docs/<uuid>/attachments` | Загрузка изображения-вложения |
+| `GET /attachments/<uuid>/` | Защищённое чтение вложения |
+| `GET /api/folders` | Доступные каталоги |
+| `GET /documents/<uuid>/export/` | Экспорт документа или скачивание файла |
+| `GET /documents/<uuid>/export/?inline=1` | Inline-ответ для поддерживаемого PDF/изображения |
+| `POST /documents/<uuid>/pdf/` | Multipart-сохранение PDF с полями `file` и `revision` |
+
+Пример JSON создания обычного текстового документа:
+
+```json
+{
+  "title": "План проекта",
+  "kind": "document",
+  "group": "team",
+  "content": "# План\n\nПервый этап."
+}
+```
+
+Пример изменения содержимого:
+
+```json
+{
+  "title": "План проекта",
+  "content": "# План\n\nУточнённый первый этап.",
+  "revision": 1
+}
+```
+
+Ревизия должна соответствовать актуальному состоянию. Не смешивайте изменение `content`/`title` с `policy`/`group`/`starred` в одном запросе: обработчик требует раздельных операций. Изменение одного title через этот API также требует полного content и revision.
+
+Обычный JSON endpoint создания не является multipart-загрузчиком бинарных файлов. Используйте маршруты загрузки/импорта для файлов и переносимых пакетов. Для совместного редактора используются дополнительные внутренние протоколы: отправка произвольного JSON туда не заменяет корректный CRDT update.
+
+<a id="development"></a>
+## 23. Разработка, тестирование и переводы
+
+### Локальный запуск без Docker
+
+Ориентируйтесь на версии сборки проекта: Python 3.13 и Node.js 24. Рекомендуется Linux или WSL/Linux-среда: установщик использует `fcntl`, PDF-парсер — POSIX `resource`. Нативный Windows-запуск не является описанным здесь поддерживаемым сценарием; на Windows используйте Docker Desktop или WSL.
+
+Подготовка:
+
+```sh
+python3.13 -m venv .venv
 .venv/bin/pip install -r requirements-dev.txt
-.venv/bin/python install.py --allow-http
 npm ci --ignore-scripts
 npm run build
 .venv/bin/python docker/fetch_drawio.py
-.venv/bin/python manage.py collectstatic --noinput
-.venv/bin/python -m docker.start
+.venv/bin/python install.py --allow-http
 ```
 
-For local development, give the installer `http://localhost:8000`; Uvicorn listens on port 8000 outside Docker. `--allow-http` is only for trusted local testing. Database and files default to `instance/`, not the old prototype's `data/`.
+В установщике задайте `http://localhost:8000` и выберите локальное хранилище. Данные по умолчанию появятся в `instance/`. Для другого расположения задайте `YOURWIKI_DATA`, `YOURWIKI_SECRETS` и `YOURWIKI_DOCUMENTS` **до установки** и используйте те же значения при каждом запуске.
+
+Соберите staticfiles и запустите ASGI на loopback:
 
 ```sh
+.venv/bin/python manage.py migrate --noinput
+.venv/bin/python manage.py collectstatic --noinput
+.venv/bin/uvicorn config.asgi:application \
+  --host 127.0.0.1 --port 8000 --workers 1 \
+  --ws-max-size 9437184 --no-access-log
+```
+
+Откройте `http://localhost:8000/login/`. Установка уже выполняет миграции; отдельная команда `migrate` полезна и при последующих изменениях кода.
+
+Контейнерный entrypoint `python -m docker.start` дополнительно проверяет инициализацию и синхронизирует старые пути, но слушает `0.0.0.0:8000`. Для локальной разработки приведён явный loopback-запуск, чтобы не открывать HTTP на все интерфейсы.
+
+### Пересборка frontend
+
+```sh
+npm ci --ignore-scripts
+npm run build
+.venv/bin/python manage.py collectstatic --noinput
+```
+
+Сборка включает основной редактор, PDF viewer, worker и необходимые PDF-ресурсы. draw.io загружается отдельно через `docker/fetch_drawio.py`; Dockerfile делает это автоматически в отдельном этапе.
+
+При изменении статических ресурсов перезапустите рабочий процесс/контейнер и обновите страницу браузера. Не редактируйте вручную сгенерированные файлы `wiki/static/wiki/dist/` вместо исходников `frontend/`.
+
+### Backend-проверки
+
+```sh
+.venv/bin/python manage.py check
+.venv/bin/python manage.py makemigrations --check --dry-run
 .venv/bin/python -m pytest -q
+```
+
+Тесты используют тестовую базу и временные хранилища. Обычный запуск не активирует все внешние интеграции. Пропуск opt-in тестов не означает, что реальная облачная учётная запись проверена.
+
+### Браузерные тесты
+
+```sh
 .venv/bin/python -m playwright install chromium
 RUN_BROWSER=1 .venv/bin/python -m pytest tests/browser -q
 ```
 
-The test suite covers access denial, sessions, invitations, concurrency, storage contracts, previews, installation/retry, and SQLite backups. Browser tests and live provider tests are opt-in. CI runs browser tests plus Docker deployment and real SMB/SFTP fixtures. For Docker acceptance locally:
+На чистой системе Chromium может потребовать системные библиотеки; установите их средствами Playwright/дистрибутива. Среда должна разрешать запуск браузера и локального тестового сервера. Тесты проверяют реальные страницы и редакторы, включая локализацию, PDF, просмотр картинок и действия над файлами.
+
+### Контейнерные проверки
 
 ```sh
+docker compose config --quiet
 .venv/bin/python tests/run_container_checks.py
 ```
 
-This command uses temporary Compose projects and deletes only their test volumes on exit. Live cloud tests require your own dedicated test credentials; see [provider setup](docs/storage.md).
+Сценарию нужен доступ к Docker daemon. Он использует временные Compose-проекты для проверок. Не делайте `/var/run/docker.sock` доступным всем пользователям ради запуска тестов: доступ к Docker фактически предоставляет широкие возможности управления хостом.
 
-## Security audit and deployment limits
+### Live-тесты хранилищ
 
-The application was reviewed for authentication, authorization, CSRF, path traversal, upload handling, archive extraction, storage credential handling, and client-side injection. The reviewed flows enforce invitation-only registration, Django password hashing and CSRF protection, signed sessions, permission checks before document and attachment access, bounded uploads, safe ZIP member names, defused XML parsing, and encrypted provider credentials.
+Используйте отдельные тестовые каталоги/репозитории и приватный файл конфигурации:
 
-Treat these deployment requirements as security controls:
+```sh
+YOURWIKI_STORAGE_TEST_CONFIG=/private/storage-test.json \
+  .venv/bin/python -m pytest tests/test_live_storage.py -q
+```
 
-- Put an HTTPS reverse proxy in front of the container. Do not publish port 8000 or the Compose port directly to the internet. `--allow-http` is for local development only; HTTP sessions do not have the `Secure` cookie flag.
-- Keep the `database`, `secrets`, and `documents` volumes private and back them up separately. Never commit `runtime.json`, `encryption.key`, OAuth tokens, SSH keys, or provider passwords; the repository ignores their normal local paths.
-- Use a dedicated OAuth app, GitHub token, SMB account, or SFTP account with only the required repository/share permissions. Rotate credentials after a suspected leak and reconnect the mount.
-- The bundled draw.io editor requires a broader script policy (`unsafe-inline`/`unsafe-eval`) for its upstream application. Keep it same-origin and do not load untrusted draw.io bundles into the image. User document previews are sanitized separately and do not use that policy.
-- Login attempts are throttled, but this is a single-process SQLite deployment. Put rate limiting and request-size limits at the reverse proxy if the service is internet-facing, and keep the container bound to loopback as shown in `compose.yaml`.
+Пример структуры без настоящих секретов:
 
-The audit was source-based and backed by the automated test suite; it is not a substitute for a penetration test of a deployed instance or a review of provider account permissions.
+```json
+{
+  "local": {"provider": "local", "root": "/tmp/wiki-test-docs"},
+  "github": {
+    "provider": "github",
+    "repository": "owner/test-repo",
+    "branch": "main",
+    "root": "wiki-tests",
+    "token": "YOUR_TOKEN"
+  }
+}
+```
+
+Тесты создают, меняют и удаляют проверочные файлы. Для остальных провайдеров примеры находятся в [docs/storage.md](docs/storage.md). Тесты облачных адаптеров не сохраняют все ротации refresh token обратно в ваш файл; используйте тестовую авторизацию.
+
+AI-тесты проверяют запросы и ответы на mock-объектах. Они не подтверждают баланс, реальную доступность модели и параметры вашей подписки. Проверку конкретного API выполните отдельно через небольшой документ, учитывая платность запроса.
+
+### Переводы
+
+Исходники и собранные каталоги находятся в:
+
+```text
+locale/ru/LC_MESSAGES/django.po
+locale/ru/LC_MESSAGES/django.mo
+locale/es/LC_MESSAGES/django.po
+locale/es/LC_MESSAGES/django.mo
+```
+
+Английский — язык исходных строк. Backend и JavaScript-интерфейс Yourwiki используют общий домен `django`; `/jsi18n/` отдаёт JavaScript-каталог. Не создавайте отдельный `djangojs` в расчёте на автоматическое подключение: текущий URL настроен на общий домен.
+
+После изменения `.po`:
+
+```sh
+.venv/bin/python manage.py compilemessages
+```
+
+Команде нужен GNU gettext. Добавляйте в изменения и `.po`, и обновлённый `.mo`: Dockerfile копирует каталоги, а не компилирует их при запуске. Сохраняйте placeholders, например `%(count)s`, и правильные формы множественного числа.
+
+Если менялись исходные строки frontend, обновите каталог и пересоберите frontend. Для чисел внутри SVG/CSS/машинных атрибутов используйте нелокализованное представление: десятичная запятая в SVG-координате ломает геометрию. Форматирование чисел для чтения пользователем можно локализовать отдельно.
+
+<a id="security"></a>
+## 24. Безопасность и эксплуатационные ограничения
+
+- Публикуйте HTTPS-прокси, а не backend-порт напрямую. Стандартный Compose привязывает порт только к loopback.
+- Держите SQLite на локальном диске. SMB/SFTP/облако подходят для файлов, но не для живой базы SQLite.
+- Используйте один процесс и одну реплику приложения. Не добавляйте `--workers` больше 1 без изменения архитектуры.
+- Защищайте одновременно базу, ключ шифрования и резервные копии. Шифрование credentials не означает шифрования всех пользовательских документов.
+- Выдавайте провайдерным аккаунтам только необходимые права на выделенные места хранения.
+- Не публикуйте приглашения и callback URL с OAuth-кодами в логах прокси. Uvicorn access log выключен, но внешний прокси может вести свой журнал.
+- Разрешайте внешние AI API с учётом политики вашей команды: при генерации текст документа уходит выбранному провайдеру. Встроенного согласования каждой отправки администратором, бюджетов по пользователям или квот расходов нет.
+- Произвольный HTTPS endpoint AI задаётся доверенным администратором. Сетевые ограничения исходящих запросов при необходимости обеспечиваются инфраструктурой.
+- Загружаемые файлы не проходят универсальную антивирусную проверку. Предпросмотр и проверки формата не заменяют её.
+- Для встроенного draw.io предусмотрена более широкая script policy, необходимая upstream-редактору. Используйте проверяемую штатную сборку.
+- Не редактируйте управляемые файлы внешними инструментами одновременно с wiki: это не поддерживаемый механизм совместной работы.
+- Удаление из wiki не стирает ваши внешние резервные копии и все старые ревизии. Сроки хранения задаются отдельно.
+
+В коде предусмотрены проверки доступа, CSRF, ограничения размеров, безопасная обработка путей, XML/архивов и экранирование AI-ответов. Наличие этих механизмов и тестов не является сертификацией безопасности развёрнутой системы: настройки сервера, прокси и провайдеров также влияют на результат.
+
+<a id="repository"></a>
+## 25. Карта репозитория и дополнительные материалы
+
+| Путь | Назначение |
+| --- | --- |
+| `README.md` | Основное руководство установки, использования и эксплуатации |
+| `compose.yaml`, `Dockerfile` | Сборка и развёртывание |
+| `install.py` | Первичная установка, OAuth и reconnect |
+| `docker/start.py` | Миграции, проверка установки, запуск Uvicorn |
+| `docker/fetch_drawio.py` | Получение проверяемой сборки draw.io |
+| `config/` | Настройки Django, URL, ASGI |
+| `wiki/models.py` | Данные, настройки и права |
+| `wiki/views.py`, `wiki/editor_views.py` | Web-страницы и HTTP API |
+| `wiki/storage.py`, `wiki/mounts.py` | Адаптеры и точки подключения |
+| `wiki/folders.py` | Каталоги и перемещения |
+| `wiki/collaboration.py`, `wiki/realtime.py` | Состояние совместного редактора и WebSocket |
+| `wiki/ai.py`, `wiki/pdf.py`, `wiki/docx.py` | AI и конвертация/обработка файлов |
+| `wiki/templates/wiki/` | Шаблоны интерфейса |
+| `wiki/static/` | Статические ресурсы |
+| `frontend/` | Исходники редакторов |
+| `locale/` | Переводы |
+| `wiki/management/commands/` | `backup`, `doctor`, `scan_storage`, `sync_storage_tree` |
+| `tests/`, `tests/browser/` | Автоматические и браузерные проверки |
+| `instance/` | Локальные данные вне Docker; не исходный код |
+
+Дополнительные технические заметки:
+
+- [Развёртывание и эксплуатация](docs/deployment.md).
+- [Настройка провайдеров](docs/storage.md).
+- [Точки подключения](docs/mountpoints.md).
+- [Диагностика](docs/debugging.md).
+
+Для точного поведения установленной версии проверяйте соответствующий ей исходный код и миграции. Сохраняйте README вместе с резервной копией конфигурации и идентификатором версии, чтобы процедуры восстановления оставались воспроизводимыми.

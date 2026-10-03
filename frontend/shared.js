@@ -18,7 +18,7 @@ export function error(message) {const box=document.getElementById('editor-error'
 export async function api(path, options={}) {
   const csrf = document.cookie.split('; ').find(v=>v.startsWith('csrftoken='))?.split('=')[1] || '';
   const response=await fetch(path,{...options,headers:{'X-CSRFToken':decodeURIComponent(csrf),...(options.body instanceof FormData?{}:{'Content-Type':'application/json'}),...options.headers}});
-  if(!response.ok) {let value;try{value=await response.json();}catch{} throw new Error(value?.error || format('Request failed (%(status)s).', {status:response.status}));}
+  if(!response.ok) {if(response.status===413) throw new Error(t('Upload rejected by the proxy or server: file too large. Check the file limit and Nginx client_max_body_size.')); let value;try{value=await response.json();}catch{} throw new Error(value?.error || format('Request failed (%(status)s).', {status:response.status}));}
   return response.json();
 }
 export function button(label, action, {write=true, parent=toolbar}={}) {

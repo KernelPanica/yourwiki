@@ -15,7 +15,7 @@ def storage_key(doc, directory=None, title=None, extension=None):
     from .folders import storage_path
     path = storage_path(doc.folder) if directory is None else directory
     name = re.sub(r'[\\/<>:"|?*\x00-\x1f]', '_', title if title is not None else doc.title).rstrip(' .')[:160] or 'file'
-    suffix = '' if doc.kind == 'file' else '.' + (extension or ('wiki.json' if doc.format_version else EXTENSIONS[doc.kind]))
+    suffix = '' if doc.kind == 'file' else '.' + (extension or doc.file_format or ('wiki.json' if doc.format_version else EXTENSIONS[doc.kind]))
     return f'{path + "/" if path else ""}{name}{suffix}'
 
 class Conflict(Exception):
@@ -71,13 +71,20 @@ def require(doc, user, action):
         raise PermissionDenied
 
 
-def save_document(user, title, kind, collection, content, group, doc=None, revision=None, source_token=None, folder=None):
+@transaction.atomic
+def save_document(user, title, kind, collection, content, group, doc=None, revision=None, source_token=None, folder=None, file_format=None):
+    # ponytail: SQLite serializes provider writes; use durable per-file leases before scaling writers.
     title, collection = title.strip(), collection.strip()
     if not title or len(title) > 200 or not collection or len(collection) > 100:
         raise ValidationError('Provide a title (up to 200 characters) and collection (up to 100).')
     from .models import SiteConfiguration
     validate_content(kind, content, SiteConfiguration.current().document_limit_mb)
     if doc:
+        # Check the persisted revision before touching the existing provider object.
+        current = Document.objects.get(pk=doc.pk)
+        if current.revision != revision or current.reference != doc.reference or current.folder_id != doc.folder_id:
+            raise Conflict('This document changed. Reload it before saving.')
+        doc = current
         require(doc, user, 'write')
         from .source import valid, check_available
         if source_token and not valid(doc,user,source_token):
@@ -93,47 +100,39 @@ def save_document(user, title, kind, collection, content, group, doc=None, revis
                        inherit_permissions=bool(folder), path_synced=True)
         from .models import SiteConfiguration
         doc.policy = SiteConfiguration.current().default_document_policy
+        doc.file_format = (file_format or 'md') if kind == 'document' else 'ods' if kind == 'table' else ''
+    if file_format and (file_format not in ('md', 'docx', 'ods') or kind == 'document' and file_format not in ('md', 'docx')):
+        raise ValidationError('Unsupported file format.')
+    if not doc.file_format and kind in ('document', 'table'):
+        doc.file_format = 'md' if kind == 'document' else 'ods'
     adapter = active_storage()
     from .native import unpack
-    key = storage_key(doc, title=title, extension='wiki.json' if kind != 'file' and unpack(content) else None)
+    key = storage_key(doc, title=title, extension='wiki.json' if not doc.file_format and kind != 'file' and unpack(content) else None)
     if doc.folder:
         adapter.ensure_dir(key.rpartition('/')[0])
-    same_object = doc if doc and not doc._state.adding and title == doc.title and (folder is None or folder.pk == doc.folder_id) else None
-    reference = adapter.write(key, content if isinstance(content, bytes) else content.encode(), same_object.reference if same_object else None)
+    same_object = not doc._state.adding
+    from .file_history import persist
+    reference = persist(doc, content, key, new=not same_object, adapter=adapter)
     try:
-        with transaction.atomic():
-            if doc._state.adding:
-                doc.title, doc.collection, doc.reference = title, collection, reference
-                from .native import unpack
-                doc.format_version = 1 if kind != 'file' and unpack(content) else 0
-                doc.save()
-            else:
-                current = Document.objects.get(pk=doc.pk)
-                require(current, user, 'write')
-                if source_token and not valid(current,user,source_token):
-                    raise Conflict('The source session expired. Copy your edits before reopening it.')
-                if not source_token: check_available(current)
-                if current.revision != revision or current.reference != doc.reference or current.folder_id != doc.folder_id:
-                    raise Conflict('This document changed. Reload it before saving.')
-                current.title, current.collection, current.reference, current.path_synced = title, collection, reference, True
-                current.updated_at = timezone.now()
-                current.revision += 1
-                from .native import unpack
-                current.format_version = 1 if kind != 'file' and unpack(content) else 0
-                current.save()
-                if source_token:
-                    from .models import Collaboration, SourceLease
-                    Collaboration.objects.filter(document=current).delete()
-                    SourceLease.objects.filter(document=current).delete()
-                doc = current
+        # The outer IMMEDIATE transaction keeps revision/ACL/lease checks valid.
+        # Do not recheck a time-limited lease after writing the provider object.
+        doc.title, doc.collection, doc.reference, doc.path_synced = title, collection, reference, True
+        doc.format_version = 1 if kind != 'file' and unpack(content) else 0
+        if same_object:
+            doc.updated_at = timezone.now()
+            doc.revision += 1
+        doc.save()
+        if source_token:
+            from .models import Collaboration, SourceLease
+            Collaboration.objects.filter(document=doc).delete()
+            SourceLease.objects.filter(document=doc).delete()
     except Exception:
         try:
-            adapter.delete(reference)
+            if not same_object:
+                adapter.delete(reference)
         except Exception:
             log.warning('Orphan revision cleanup failed for document %s', doc.pk)
         raise
-    # Older immutable revisions remain in storage for backup/recovery. The UI serves
-    # only the current reference, after checking current document permissions.
     return doc
 
 
@@ -162,6 +161,8 @@ def delete_document(user, doc):
         if current.revision != doc.revision:
             raise Conflict('This document changed. Reload before deleting.')
         job = PendingDeletion.objects.create(reference=current.reference)
+        if current.history_reference:
+            PendingDeletion.objects.create(reference=current.history_reference)
         for attachment in current.attachments.all():
             PendingDeletion.objects.create(reference=attachment.reference)
         current.delete()

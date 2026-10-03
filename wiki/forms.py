@@ -15,6 +15,7 @@ class DocumentForm(forms.Form):
     title = forms.CharField(label=_('Title'), max_length=200)
     kind = forms.ChoiceField(label=_('Kind'), choices=Document.KINDS)
     group = forms.ModelChoiceField(label=_('Group'), queryset=Group.objects.none())
+    file_format = forms.ChoiceField(label=_('Text document format'), choices=[('md', 'Markdown (.md)'), ('docx', 'Word (.docx)')], required=False, help_text=_('Applies to text documents. Tables are stored as ODS.'))
     content = forms.CharField(label=_('Content'), widget=forms.Textarea(attrs={'rows': 22, 'spellcheck': 'false'}), required=False)
     revision = forms.IntegerField(widget=forms.HiddenInput, required=False)
     path = forms.CharField(label=_('Path'), initial='/', required=False, max_length=6500, help_text=_('Existing parent directory, e.g. /Projects/Notes. Use / for workspace root.'), widget=forms.TextInput(attrs={'list': 'directory-paths', 'placeholder': '/', 'aria-label': _('Path')}))
@@ -34,6 +35,7 @@ class DocumentForm(forms.Form):
             selected = self.fields['folder'].queryset.filter(pk=self.initial['folder']).first()
             self.initial['path'] = directory_path(selected, user) if selected else '/'
         if editing:
+            self.fields['file_format'].disabled = True
             self.fields['kind'].disabled = True
             self.fields['group'].disabled = True
             self.fields['folder'].disabled = True
@@ -97,3 +99,9 @@ class MemberForm(forms.Form):
     can_invite = forms.BooleanField(required=False, label=_('Can create invitations'))
     groups = forms.ModelMultipleChoiceField(label=_('Groups'), queryset=Group.objects.all(), required=False, widget=forms.CheckboxSelectMultiple)
     invite_groups = forms.ModelMultipleChoiceField(queryset=Group.objects.all(), required=False, widget=forms.CheckboxSelectMultiple, label=_('Groups this member may assign through invitations'))
+
+
+class HistoryForm(forms.Form):
+    revision_history = forms.TypedChoiceField(label=_('Revision history'),
+        choices=[('', _('Inherit')), ('on', _('Enabled')), ('off', _('Disabled'))], required=False,
+        coerce=lambda value: {'on': True, 'off': False}.get(value), empty_value=None)

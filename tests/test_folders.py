@@ -64,7 +64,10 @@ def test_path_creation_empty_files_and_uploads(client, workspace):
         doc = Document.objects.get(title='Empty '+kind)
         assert doc.folder == child and doc.inherit_permissions
         content = active_storage().read(doc.reference)
-        if kind in ('document', 'table', 'file'): assert content == b''
+        if kind in ('document', 'file'): assert content == b''
+        if kind == 'table':
+            from wiki.file_formats import read_ods
+            assert read_ods(content)
         assert client.get(f'/documents/{doc.pk}/').status_code == 200
     payload = b'\x00\xff arbitrary binary bytes'
     response = client.post('/files/upload/', {'path':'/Projects/Notes', 'file':SimpleUploadedFile('archive.zip', payload)})
@@ -110,7 +113,7 @@ def test_provider_tree_tracks_nested_files_moves_and_legacy_revisions(client, wo
     assert active_storage().read(created.reference) == b'hello'
     assert client.post(f'/move/document/{document.pk}/', {'destination':child.pk}).status_code == 302
     document.refresh_from_db()
-    assert document.reference.startswith('Projects/Notes/') and (root/legacy).exists()
+    assert document.reference.startswith('Projects/Notes/') and not (root/legacy).exists()
     assert client.post(f'/folders/{child.pk}/', {'action':'rename','name':'Memos'}).status_code == 302
     created.refresh_from_db()
     assert created.reference.startswith('Projects/Memos/')
@@ -126,7 +129,7 @@ def test_provider_tree_tracks_nested_files_moves_and_legacy_revisions(client, wo
     old = other.reference
     call_command('sync_storage_tree', verbosity=0)
     other.refresh_from_db()
-    assert other.path_synced and other.reference != old and (root/old).exists()
+    assert other.path_synced and other.reference == old and (root/old).exists()
     assert active_storage().read(other.reference) == b'content'
     synced_reference = other.reference
     call_command('sync_storage_tree', verbosity=0)

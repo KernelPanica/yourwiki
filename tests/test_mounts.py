@@ -51,6 +51,7 @@ def test_root_and_longest_mount_routing_preserve_existing_references(workspace, 
         adapter.write('Projects/../escape', b'bad')
 
 
+@pytest.mark.django_db(transaction=True)
 def test_cross_mount_moves_copy_attachments_and_empty_subdirectories(workspace, document, tmp_path):
     destination, root = mount(workspace, tmp_path, '/Remote')
     adapter = active_storage()

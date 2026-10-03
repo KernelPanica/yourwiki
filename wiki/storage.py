@@ -14,6 +14,7 @@ from urllib.parse import quote
 import requests
 
 MAX_BYTES = 5 * 1024 * 1024
+HISTORY_MAX_BYTES = 50 * 1024 * 1024
 
 class StorageError(Exception):
     pass
@@ -25,9 +26,9 @@ def safe_key(key):
     return key
 
 
-def bounded(data):
-    if len(data) > MAX_BYTES:
-        raise StorageError('File exceeds the 5 MB limit.')
+def bounded(data, limit=MAX_BYTES):
+    if len(data) > limit:
+        raise StorageError(f'File exceeds the {limit // (1024*1024)} MB limit.')
     return data
 
 class Adapter:
@@ -49,6 +50,12 @@ class Adapter:
             if ref is not None:
                 self.delete(ref)
 
+    def location(self, ref):
+        return ref
+
+    def original_url(self, ref):
+        return ''
+
     def ensure_dir(self, key):
         safe_key(key)
 
@@ -61,27 +68,35 @@ class Local(Adapter):
             raise StorageError('Invalid storage path.')
         return result
 
-    def read(self, ref):
+    def read(self, ref, limit=MAX_BYTES):
         with self.path(ref).open('rb') as f:
-            return bounded(f.read(MAX_BYTES + 1))
+            return bounded(f.read(limit + 1), limit)
 
-    def write(self, key, data, reference=None):
+    def write(self, key, data, reference=None, limit=MAX_BYTES):
         path = self.path(reference or key)
         if reference is None and path.exists():
-            if path.is_file() and path.read_bytes() == bounded(data):
-                return key
             raise StorageError('A file with that name already exists.')
         path.parent.mkdir(parents=True, exist_ok=True)
         temp = path.with_name(path.name + '.tmp-' + secrets.token_hex(8))
         try:
             with temp.open('xb') as f:
-                f.write(bounded(data))
+                f.write(bounded(data, limit))
                 f.flush()
                 os.fsync(f.fileno())
             os.replace(temp, path)
         finally:
             temp.unlink(missing_ok=True)
         return reference or key
+
+    def move(self, ref, key):
+        source, destination = self.path(ref), self.path(key)
+        if source == destination:
+            return key
+        if destination.exists():
+            raise StorageError('A file with that name already exists.')
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        source.rename(destination)
+        return key
 
     def delete(self, ref):
         self.path(ref).unlink(missing_ok=True)
@@ -107,12 +122,12 @@ class HTTP(Adapter):
             # Provider responses and URLs can contain credentials: never expose them.
             raise StorageError('The storage provider could not complete the request.') from None
 
-    def download(self, url, **kwargs):
+    def download(self, url, limit=MAX_BYTES, **kwargs):
         with self.request('GET', url, stream=True, **kwargs) as response:
             data = bytearray()
             for part in response.iter_content(65536):
                 data.extend(part)
-                bounded(data)
+                bounded(data, limit)
             return bytes(data)
 
 # Serialize refreshes on the shared adapter in the single application process.
@@ -136,6 +151,20 @@ class OAuthHTTP(HTTP):
         return {'Authorization': 'Bearer ' + self.token()}
 
 class GoogleDrive(OAuthHTTP):
+    def location(self, ref):
+        parts, current = [], ref
+        for _ in range(34):
+            if current == self.config['root']:
+                return '/'.join(reversed(parts))
+            if not current: break
+            info = self.request('GET', self.base + '/' + quote(current, safe=''), headers=self.headers()).json()
+            parts.append(info['name'])
+            current = info.get('parents', [None])[0]
+        raise StorageError('The original file is outside the configured storage directory.')
+
+    def original_url(self, ref):
+        return 'https://drive.google.com/file/d/' + quote(ref, safe='') + '/view'
+
     base = 'https://www.googleapis.com/drive/v3/files'
 
     def create_root(self, name):
@@ -143,20 +172,33 @@ class GoogleDrive(OAuthHTTP):
         self.config['root'] = result['id']
         self.save_config(self.config)
 
-    def read(self, ref):
-        return self.download(self.base + '/' + quote(ref, safe=''), headers=self.headers(), params={'alt': 'media'})
+    def read(self, ref, limit=MAX_BYTES):
+        return self.download(self.base + '/' + quote(ref, safe=''), limit=limit, headers=self.headers(), params={'alt': 'media'})
 
-    def write(self, key, data, reference=None):
+    def write(self, key, data, reference=None, limit=MAX_BYTES):
         safe_key(key)
-        data = bounded(data)
+        data = bounded(data, limit)
         if reference:
             self.request('PATCH', 'https://www.googleapis.com/upload/drive/v3/files/' + quote(reference, safe=''), headers={**self.headers(), 'Content-Type': 'application/octet-stream'}, params={'uploadType': 'media'}, data=data)
             return reference
         boundary = 'yourwiki' + secrets.token_hex(12)
         parent = self.directory(key.rpartition('/')[0])
-        metadata = json.dumps({'name': key.rpartition('/')[2], 'parents': [parent]})
+        import mimetypes
+        metadata = json.dumps({'name': key.rpartition('/')[2], 'parents': [parent], 'mimeType': mimetypes.guess_type(key)[0] or 'application/octet-stream'})
         payload = (f'--{boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n{metadata}\r\n--{boundary}\r\nContent-Type: application/octet-stream\r\n\r\n'.encode() + data + f'\r\n--{boundary}--\r\n'.encode())
         return self.request('POST', 'https://www.googleapis.com/upload/drive/v3/files', headers={**self.headers(), 'Content-Type': f'multipart/related; boundary={boundary}'}, params={'uploadType': 'multipart', 'fields': 'id'}, data=payload).json()['id']
+
+    def move(self, ref, key):
+        safe_key(key)
+        parent = self.directory(key.rpartition('/')[0])
+        info = self.request('GET', self.base + '/' + quote(ref, safe=''), headers=self.headers(), params={'fields': 'parents'}).json()
+        parents = info.get('parents', [])
+        params = {'fields': 'id'}
+        if parent not in parents:
+            params.update(addParents=parent, removeParents=','.join(parents))
+        self.request('PATCH', self.base + '/' + quote(ref, safe=''), headers=self.headers(),
+                     params=params, json={'name': key.rsplit('/', 1)[-1]})
+        return ref
 
     def delete(self, ref):
         self.request('DELETE', self.base + '/' + quote(ref, safe=''), headers=self.headers(), allowed_status=(404,))
@@ -192,6 +234,22 @@ class GoogleDrive(OAuthHTTP):
         yield from walk(self.config['root'])
 
 class OneDrive(OAuthHTTP):
+    def location(self, ref):
+        parts, current = [], ref
+        for _ in range(34):
+            if current == self.config['root']:
+                return '/'.join(reversed(parts))
+            if not current: break
+            info = self.request('GET', self.base + '/items/' + quote(current, safe=''), headers=self.headers()).json()
+            parts.append(info['name'])
+            current = info.get('parentReference', {}).get('id')
+        raise StorageError('The original file is outside the configured storage directory.')
+
+    def original_url(self, ref):
+        from urllib.parse import urlsplit
+        value = self.request('GET', self.base + '/items/' + quote(ref, safe=''), headers=self.headers(), params={'$select': 'webUrl'}).json().get('webUrl', '')
+        return value if urlsplit(value).scheme == 'https' and not urlsplit(value).username else ''
+
     base = 'https://graph.microsoft.com/v1.0/me/drive'
 
     def create_root(self, name):
@@ -199,14 +257,24 @@ class OneDrive(OAuthHTTP):
         self.config['root'] = result['id']
         self.save_config(self.config)
 
-    def read(self, ref):
+    def read(self, ref, limit=MAX_BYTES):
         # requests strips Authorization when redirected to a different download host.
-        return self.download(self.base + '/items/' + quote(ref, safe='') + '/content', headers=self.headers())
+        return self.download(self.base + '/items/' + quote(ref, safe='') + '/content', limit=limit, headers=self.headers())
 
-    def write(self, key, data, reference=None):
+    def write(self, key, data, reference=None, limit=MAX_BYTES):
         safe_key(key)
         url = self.base + '/items/' + quote(reference, safe='') + '/content' if reference else self.base + '/items/' + quote(self.config['root'], safe='') + ':/' + quote(key, safe='/') + ':/content'
-        return self.request('PUT', url, headers={**self.headers(), 'Content-Type': 'application/octet-stream'}, data=bounded(data)).json()['id']
+        return self.request('PUT', url, headers={**self.headers(), 'Content-Type': 'application/octet-stream'}, params={} if reference else {'@microsoft.graph.conflictBehavior': 'fail'}, data=bounded(data, limit)).json()['id']
+
+    def move(self, ref, key):
+        safe_key(key)
+        directory, _, name = key.rpartition('/')
+        parent = self.config['root']
+        if directory:
+            self.ensure_dir(directory)
+            parent = self.request('GET', self.base + '/items/' + quote(parent, safe='') + ':/' + quote(directory, safe='/'), headers=self.headers()).json()['id']
+        self.request('PATCH', self.base + '/items/' + quote(ref, safe=''), headers=self.headers(), json={'name': name, 'parentReference': {'id': parent}})
+        return ref
 
     def delete(self, ref):
         self.request('DELETE', self.base + '/items/' + quote(ref, safe=''), headers=self.headers(), allowed_status=(404,))
@@ -222,6 +290,10 @@ class OneDrive(OAuthHTTP):
                 json={'name':part, 'folder':{}, '@microsoft.graph.conflictBehavior':'fail'}).json()['id']
 
 class GitHub(HTTP):
+    def original_url(self, ref):
+        path = '/'.join(p for p in (self.config.get('root', '').strip('/'), ref) if p)
+        return 'https://github.com/' + '/'.join(quote(p, safe='') for p in self.config['repository'].split('/')) + '/blob/' + quote(self.config['branch'], safe='') + '/' + quote(path, safe='/')
+
     def url(self, key):
         safe_key(key)
         root = self.config.get('root', '').strip('/')
@@ -234,15 +306,37 @@ class GitHub(HTTP):
     def info(self, ref):
         return self.request('GET', self.url(ref), headers=self.headers(), params={'ref': self.config['branch']}).json()
 
-    def read(self, ref):
-        return self.download(self.url(ref), headers={**self.headers(), 'Accept': 'application/vnd.github.raw+json'}, params={'ref': self.config['branch']})
+    def read(self, ref, limit=MAX_BYTES):
+        return self.download(self.url(ref), limit=limit, headers={**self.headers(), 'Accept': 'application/vnd.github.raw+json'}, params={'ref': self.config['branch']})
 
-    def write(self, key, data, reference=None):
-        body = {'message': 'Yourwiki: save document revision', 'branch': self.config['branch'], 'content': base64.b64encode(bounded(data)).decode()}
+    def write(self, key, data, reference=None, limit=MAX_BYTES):
+        body = {'message': 'Yourwiki: save document revision', 'branch': self.config['branch'], 'content': base64.b64encode(bounded(data, limit)).decode()}
         if reference:
             body['sha'] = self.info(reference)['sha']
         self.request('PUT', self.url(reference or key), headers=self.headers(), json=body)
         return reference or key
+
+    def move(self, ref, key):
+        safe_key(key)
+        if ref == key:
+            return key
+        base = 'https://api.github.com/repos/' + '/'.join(quote(p, safe='') for p in self.config['repository'].split('/')) + '/git/'
+        branch = 'heads/' + quote(self.config['branch'], safe='')
+        head = self.request('GET', base + 'ref/' + branch, headers=self.headers()).json()['object']['sha']
+        existing = self.request('GET', self.url(key), headers=self.headers(), params={'ref': head}, allowed_status=(404,))
+        if existing.status_code != 404:
+            raise StorageError('A file with that name already exists.')
+        commit = self.request('GET', base + 'commits/' + head, headers=self.headers()).json()
+        root = self.config.get('root', '').strip('/')
+        prefix = root + '/' if root else ''
+        info = self.request('GET', self.url(ref), headers=self.headers(), params={'ref': head}).json()
+        tree = self.request('POST', base + 'trees', headers=self.headers(), json={'base_tree': commit['tree']['sha'], 'tree': [
+            {'path': prefix + ref, 'mode': '100644', 'type': 'blob', 'sha': None},
+            {'path': prefix + key, 'mode': '100644', 'type': 'blob', 'sha': info['sha']},
+        ]}).json()['sha']
+        new_commit = self.request('POST', base + 'commits', headers=self.headers(), json={'message': 'Yourwiki: move file', 'tree': tree, 'parents': [head]}).json()['sha']
+        self.request('PATCH', base + 'refs/' + branch, headers=self.headers(), json={'sha': new_commit, 'force': False})
+        return key
 
     def delete(self, ref):
         response = self.request('GET', self.url(ref), headers=self.headers(), params={'ref': self.config['branch']}, allowed_status=(404,))
@@ -289,19 +383,38 @@ class SFTP(Adapter):
     def path(self, ref):
         return posixpath.join(self.config['root'], safe_key(ref))
 
-    def read(self, ref):
+    def read(self, ref, limit=MAX_BYTES):
         with self.client() as c, c.open(self.path(ref), 'rb') as f:
-            return bounded(f.read(MAX_BYTES + 1))
+            return bounded(f.read(limit + 1), limit)
 
-    def write(self, key, data, reference=None):
+    def write(self, key, data, reference=None, limit=MAX_BYTES):
+        data = bounded(data, limit)
         ref = reference or safe_key(key)
         if '/' in ref:
             self.ensure_dir(ref.rpartition('/')[0])
-        # Revisions are unique. Only the disposable connection probe is overwritten.
-        with self.client() as c, c.open(self.path(ref), 'wb') as f:
-            f.write(bounded(data))
-            f.flush()
+        temporary = self.path(ref) + '.yourwiki-tmp-' + secrets.token_hex(8)
+        with self.client() as client:
+            try:
+                with client.open(temporary, 'wx') as stream:
+                    stream.write(data)
+                    stream.flush()
+                if reference:
+                    # OpenSSH extension: fail safely if atomic replacement is unsupported.
+                    client.posix_rename(temporary, self.path(ref))
+                else:
+                    client.rename(temporary, self.path(ref))
+            finally:
+                try: client.remove(temporary)
+                except FileNotFoundError: pass
         return ref
+
+    def move(self, ref, key):
+        safe_key(key)
+        if ref == key: return key
+        if '/' in key: self.ensure_dir(key.rpartition('/')[0])
+        with self.client() as client:
+            client.rename(self.path(ref), self.path(key))
+        return key
 
     def delete(self, ref):
         with self.client() as c:
@@ -336,17 +449,34 @@ class SMB(Adapter):
         root = c.get('root', '').strip('/\\').replace('/', '\\')
         return '\\\\' + c['host'] + '\\' + c['share'] + '\\' + (root + '\\' if root else '') + ref.replace('/', '\\')
 
-    def read(self, ref):
+    def read(self, ref, limit=MAX_BYTES):
         with self.client().open_file(self.path(ref), mode='rb', port=int(self.config.get('port', 445))) as f:
-            return bounded(f.read(MAX_BYTES + 1))
+            return bounded(f.read(limit + 1), limit)
 
-    def write(self, key, data, reference=None):
+    def write(self, key, data, reference=None, limit=MAX_BYTES):
+        data = bounded(data, limit)
         ref = reference or safe_key(key)
         if '/' in ref:
             self.ensure_dir(ref.rpartition('/')[0])
-        with self.client().open_file(self.path(ref), mode='wb', port=int(self.config.get('port', 445))) as f:
-            f.write(bounded(data))
+        client = self.client()
+        temporary = self.path(ref) + '.yourwiki-tmp-' + secrets.token_hex(8)
+        port = int(self.config.get('port', 445))
+        try:
+            with client.open_file(temporary, mode='xb', port=port) as stream:
+                stream.write(data)
+            operation = client.replace if reference else client.rename
+            operation(temporary, self.path(ref), port=port)
+        finally:
+            try: client.remove(temporary, port=port)
+            except FileNotFoundError: pass
         return ref
+
+    def move(self, ref, key):
+        safe_key(key)
+        if ref == key: return key
+        if '/' in key: self.ensure_dir(key.rpartition('/')[0])
+        self.client().rename(self.path(ref), self.path(key), port=int(self.config.get('port', 445)))
+        return key
 
     def delete(self, ref):
         try:
@@ -432,19 +562,46 @@ class MountedStorage:
                 raise StorageError('The file mount is unavailable.') from None
         return root_mount(), value
 
-    def read(self, reference):
+    def location(self, reference):
         mount, ref = self.reference(reference)
-        return mount_adapter(mount).read(ref)
+        key = mount_adapter(mount).location(ref)
+        return key if mount.path == '/' else mount.path.strip('/') + '/' + key
 
-    def write(self, key, data, reference=None):
+    def original_url(self, reference):
+        mount, ref = self.reference(reference)
+        return mount_adapter(mount).original_url(ref)
+
+    def read(self, reference, limit=MAX_BYTES):
+        mount, ref = self.reference(reference)
+        return mount_adapter(mount).read(ref, limit=limit)
+
+    def write(self, key, data, reference=None, limit=MAX_BYTES):
         mount, relative = self.reference(reference) if reference else self.resolve(key)
         if not relative:
             raise StorageError('Cannot write a file over a mountpoint.')
         adapter = mount_adapter(mount)
         if not reference and '/' in relative:
             adapter.ensure_dir(relative.rpartition('/')[0])
-        ref = adapter.write(relative, data, relative if reference else None)
+        ref = adapter.write(relative, data, relative if reference else None, limit=limit)
         return ref if mount.path == '/' else f'mount:{mount.pk}:{ref}'
+
+    def move(self, reference, key):
+        source, ref = self.reference(reference)
+        destination, relative = self.resolve(key)
+        if source.pk == destination.pk:
+            moved = mount_adapter(source).move(ref, relative)
+            return moved if source.path == '/' else f'mount:{source.pk}:{moved}'
+        # Different services have no shared rename operation. Verify before removing the source.
+        data = self.read(reference)
+        moved = self.write(key, data)
+        if self.read(moved) != data:
+            raise StorageError('The moved file could not be verified. The original was retained.')
+        try:
+            self.delete(reference)
+        except Exception:
+            self.delete(moved)
+            raise
+        return moved
 
     def delete(self, reference):
         mount, ref = self.reference(reference)

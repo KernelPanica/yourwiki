@@ -1,13 +1,15 @@
 from pathlib import PurePosixPath
 import re
+import json
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 
-from wiki.models import Document, Folder, SiteConfiguration
+from wiki.models import Document, Folder, SiteConfiguration, Attachment, PendingDeletion
 from wiki.native import unpack
+from wiki.file_formats import decode, digest
 from wiki.services import EXTENSIONS, validate_content
 from wiki.storage import StorageError, active_storage
 
@@ -29,9 +31,9 @@ class Command(BaseCommand):
             raise CommandError(str(error)) from error
         for key, reference in entries:
             path = PurePosixPath(key)
-            if not path.parts or path.name.startswith('.'):
+            if not path.parts or any(part.startswith('.') for part in path.parts) or path.name.endswith(('.md.json', '.ods.json', '.docx.json', '.pdf.json')):
                 continue
-            if re.search(r' \(revision-\d+\)(?:\.[^.]+)?$', path.name):
+            if re.search(r' \(revision-\d+\)(?:\..*)?$|\.yourwiki-tmp-|\.tmp-[0-9a-f]{16}$', path.name):
                 continue
             folder = None
             folder_path = []
@@ -43,18 +45,24 @@ class Command(BaseCommand):
                         parent=folder, name=part, defaults={'owner': owner, 'group': group})[0]
                 else:
                     folder = folders[folder_key]
-            if Document.objects.filter(reference=reference).exists():
+            if Document.objects.filter(reference=reference).exists() or Attachment.objects.filter(reference=reference).exists() or PendingDeletion.objects.filter(reference=reference).exists():
                 continue
             native_file = path.name.lower().endswith('.wiki.json')
             suffix = path.suffix.lower()
             kind = next((candidate for candidate, extension in EXTENSIONS.items() if extension == suffix.lstrip('.')), 'file')
+            file_format = suffix.lstrip('.') if suffix in ('.md', '.docx', '.ods') else ''
+            if file_format: kind = 'table' if file_format == 'ods' else 'document'
             title = path.name if kind == 'file' else path.stem
             if native_file:
                 kind, title = 'document', path.name[:-10]
             try:
                 content = adapter.read(reference)
+                if suffix == '.json':
+                    try:
+                        if json.loads(content).get('format') == 'yourwiki-history': continue
+                    except (ValueError, AttributeError): pass
                 if kind != 'file':
-                    text = content.decode('utf-8')
+                    text = decode(Document(file_format=file_format), content)
                     native = unpack(text)
                     if native:
                         kind = native.get('kind', kind)
@@ -63,7 +71,7 @@ class Command(BaseCommand):
                 continue
             with transaction.atomic():
                 Document.objects.create(title=title[:200], kind=kind, collection='Imported', owner=owner,
-                                        group=group, folder=folder, reference=reference,
+                                        group=group, folder=folder, reference=reference, file_format=file_format, storage_digest=digest(content),
                                         policy=SiteConfiguration.current().default_document_policy,
                                         inherit_permissions=bool(folder), path_synced=True)
             created += 1

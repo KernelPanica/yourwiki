@@ -18,7 +18,7 @@ class TestDocuments:
         assert response.status_code==200,response.content
         assert response.json()['revision']==2
         assert client.get(reverse('export',args=[id])).content==b'# Changed'
-        assert len(list(workspace['root'].iterdir()))==2
+        assert len(list(workspace['root'].iterdir()))==1
 
     def test_conflicting_save_does_not_overwrite(self,client,workspace,document):
         client.force_login(workspace['admin'])
@@ -30,6 +30,10 @@ class TestDocuments:
     def test_failed_storage_preserves_editor_content(self,client,workspace,document):
         client.force_login(workspace['admin'])
         with patch('wiki.services.active_storage') as adapter:
+            from wiki.storage import active_storage
+            adapter.return_value.read.side_effect = active_storage().read
+            adapter.return_value.location.side_effect = active_storage().location
+            adapter.return_value.move.side_effect = active_storage().move
             adapter.return_value.write.side_effect=StorageError('Unavailable')
             response=client.post(reverse('edit',args=[document.pk]),{'title':'Changed','collection':'Engineering','content':'UNSAVED TEXT','revision':1})
         assert response.status_code==503,response.content
@@ -87,7 +91,7 @@ class TestDocuments:
         source=docx.Document(); source.add_paragraph('Explorer upload')
         stream=BytesIO(); source.save(stream)
         client.force_login(workspace['admin'])
-        response=client.post('/documents/upload/',{'file':SimpleUploadedFile('uploaded.docx',stream.getvalue()),'path':'/'})
+        response=client.post('/files/upload/',{'file':SimpleUploadedFile('uploaded.docx',stream.getvalue()),'path':'/'})
         assert response.status_code==302
         uploaded=Document.objects.get(title='uploaded')
         assert uploaded.kind=='document'
@@ -111,6 +115,10 @@ class TestDocuments:
         from wiki.services import cleanup_storage
         client.force_login(workspace['admin'])
         with patch('wiki.services.active_storage') as adapter:
+            from wiki.storage import active_storage
+            adapter.return_value.read.side_effect = active_storage().read
+            adapter.return_value.location.side_effect = active_storage().location
+            adapter.return_value.move.side_effect = active_storage().move
             adapter.return_value.delete.side_effect=StorageError('offline')
             response=client.delete(f'/api/docs/{document.pk}')
         assert response.status_code==202

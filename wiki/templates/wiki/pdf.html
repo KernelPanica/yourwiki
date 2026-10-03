@@ -1,4 +1,4 @@
-{% extends 'wiki/base.html' %}{% load static i18n %}{% block content %}
+{% extends 'wiki/base.html' %}{% load static i18n %}{% block content %}<div class="form-actions">{% include 'wiki/file_actions.html' %}</div>
 <link rel="stylesheet" href="{% static 'wiki/dist/pdf.css' %}">
 <div class="page-heading"><h1>{{ doc.title }}</h1><p>{% translate 'View PDF pages, add text, highlight, draw, and fill forms without changing the original layout.' %}</p></div>
 <div class="form-actions"><a class="button" href="{% url 'export' doc.pk %}">{% translate 'Download saved PDF' %}</a><a class="button" href="{% url 'summary' doc.pk %}">{% translate 'AI summary' %}</a>{% if can_write %}<a class="button" href="{% url 'move' 'document' doc.pk %}">{% translate 'Move' %}</a><a class="button danger" href="{% url 'delete' doc.pk %}">{% translate 'Delete' %}</a>{% endif %}</div>

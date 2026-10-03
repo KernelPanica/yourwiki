@@ -39,6 +39,47 @@ def ask(label, default='', secret=False):
     return value.strip() or default
 
 
+def authorization_url(config, redirect_uri, state, verifier):
+    provider = config['provider']
+    auth_endpoint='https://accounts.google.com/o/oauth2/v2/auth' if provider=='google' else f"https://login.microsoftonline.com/{quote(config.get('tenant','common'),safe='')}/oauth2/v2.0/authorize"
+    scope='https://www.googleapis.com/auth/drive.file' if provider=='google' else 'offline_access Files.ReadWrite'
+    params={'client_id':config['client_id'],'redirect_uri':redirect_uri,'response_type':'code','scope':scope,'state':state,'code_challenge':base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b'=').decode(),'code_challenge_method':'S256'}
+    if provider=='google': params.update(access_type='offline',prompt='consent')
+    return auth_endpoint + '?' + urlencode(params)
+
+
+def exchange_code(config, redirect_uri, code, verifier):
+    endpoint = 'https://oauth2.googleapis.com/token' if config['provider'] == 'google' else f"https://login.microsoftonline.com/{quote(config.get('tenant', 'common'), safe='')}/oauth2/v2.0/token"
+    try:
+        response = requests.post(endpoint, data={'client_id': config['client_id'], 'client_secret': config['client_secret'],
+            'redirect_uri': redirect_uri, 'grant_type': 'authorization_code', 'code': code, 'code_verifier': verifier},
+            timeout=30, allow_redirects=False)
+        if response.status_code != 200:
+            raise ValueError('Token exchange failed. Check your OAuth application settings.')
+        tokens = response.json()
+        token = tokens.get('refresh_token') if isinstance(tokens, dict) else None
+        if not isinstance(token, str) or not token:
+            raise ValueError('No refresh token was returned. Grant offline access and retry.')
+    except requests.RequestException:
+        raise ValueError('Token exchange failed. Check your OAuth application settings.') from None
+    config['refresh_token'] = token
+
+
+def save_google_client_choice(config, supplied=None):
+    if config['provider'] != 'google':
+        return None
+    if supplied is not None:
+        value = supplied.get('save_google_oauth_client')
+        if value is not None and type(value) is not bool:
+            raise ValueError('save_google_oauth_client must be true or false.')
+        return value
+    while True:
+        value = ask('Save Google client_id and client_secret for future mounts? (Y/n)', 'y').lower()
+        if value in ('y', 'yes', 'n', 'no'):
+            return value in ('y', 'yes')
+        print('Enter Y or n.')
+
+
 def authorize(config, public_url):
     """One-time, state-bound callback server. No public setup UI or credentials."""
     provider=config['provider']
@@ -69,25 +110,14 @@ def authorize(config, public_url):
     server=HTTPServer(('0.0.0.0',int(os.environ.get('SETUP_PORT','8000'))),Callback)
     server.timeout=1
     thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
-    auth_endpoint='https://accounts.google.com/o/oauth2/v2/auth' if provider=='google' else f"https://login.microsoftonline.com/{quote(config.get('tenant','common'),safe='')}/oauth2/v2.0/authorize"
-    token_endpoint='https://oauth2.googleapis.com/token' if provider=='google' else f"https://login.microsoftonline.com/{quote(config.get('tenant','common'),safe='')}/oauth2/v2.0/token"
-    scope='https://www.googleapis.com/auth/drive.file' if provider=='google' else 'offline_access Files.ReadWrite'
-    params={'client_id':config['client_id'],'redirect_uri':redirect_uri,'response_type':'code','scope':scope,'state':state,'code_challenge':base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b'=').decode(),'code_challenge_method':'S256'}
-    if provider=='google': params.update(access_type='offline',prompt='consent')
     print('\nRegister this exact redirect URI in your OAuth application:\n'+redirect_uri)
-    print('Your HTTPS proxy must forward to this setup container. Open this URL:\n'+auth_endpoint+'?'+urlencode(params),flush=True)
+    print('Your HTTPS proxy must forward to this setup container. Open this URL:\n'+authorization_url(config, redirect_uri, state, verifier), flush=True)
     try:
         if not done.wait(600): raise ValueError('Authorization timed out. Run setup again to resume.')
     finally:
         server.shutdown(); server.server_close(); thread.join()
     if 'code' not in result: raise ValueError('Authorization was not granted.')
-    try:
-        response=requests.post(token_endpoint,data={'client_id':config['client_id'],'client_secret':config['client_secret'],'redirect_uri':redirect_uri,'grant_type':'authorization_code','code':result['code'][0],'code_verifier':verifier},timeout=30)
-        response.raise_for_status(); tokens=response.json()
-    except requests.RequestException:
-        raise ValueError('Token exchange failed. Check your OAuth application settings.') from None
-    if not tokens.get('refresh_token'): raise ValueError('No refresh token was returned. Grant offline access and retry.')
-    config['refresh_token']=tokens['refresh_token']
+    exchange_code(config, redirect_uri, result['code'][0], verifier)
 
 
 def storage_config(provider, old=None):
@@ -161,7 +191,7 @@ def run(args):
         from django.contrib.auth.password_validation import validate_password
         from django.contrib.auth.models import Group
         from django.db import transaction
-        from wiki.models import Workspace,User,MountPoint
+        from wiki.models import Workspace,User,MountPoint,SiteConfiguration
         from wiki.crypto import encrypt,decrypt
         from wiki.storage import ADAPTERS,SafeAdapter
         call_command('migrate',interactive=False,verbosity=0)
@@ -181,6 +211,9 @@ def run(args):
             provider=(supplied or {}).get('storage',{}).get('provider') or (ws.provider if ws else ask('Root mount (/): local, google, onedrive, github, smb, sftp','local'))
             c=(supplied or {}).get('storage') or storage_config(provider,old)
         validate_config(c)
+        save_google_client = save_google_client_choice(c, supplied)
+        if c['provider'] == 'google':
+            print('For future Google mounts, also register this redirect URI:\n' + public_url + '/mounts/google/callback/')
         def checkpoint(updated):
             if not args.reconnect:
                 Workspace.objects.update_or_create(pk=1,defaults={'provider':updated['provider'],'encrypted_config':encrypt(updated),'initialized':False})
@@ -202,6 +235,11 @@ def run(args):
                 user.groups.add(group)
             Workspace.objects.update_or_create(pk=1,defaults={'provider':c['provider'],'encrypted_config':encrypt(c),'initialized':True})
             MountPoint.objects.update_or_create(path='/', defaults={'provider':c['provider'],'encrypted_config':encrypt(c)})
+            if save_google_client is not None:
+                site = SiteConfiguration.current()
+                site.encrypted_google_oauth_client = encrypt({name: c[name] for name in ('client_id', 'client_secret')}) if save_google_client else ''
+                site.save()
+
         print('Root mount reconnected.' if args.reconnect else 'Administrator registered and root mount / connected.')
         print('Start: docker compose up -d web\nSign in: '+public_url+'/login/')
 

@@ -47,7 +47,9 @@ def guarded(view):
             return view(request, *args, **kwargs)
         except PermissionDenied:
             return deny(request)
-        except (StorageError, OperationalError):
+        except StorageError as error:
+            return failure(request, str(error), 503)
+        except OperationalError:
             return failure(request, 'Storage or database is temporarily unavailable. Please try again.', 503)
         except Conflict as error:
             return failure(request, str(error), 409)
@@ -169,7 +171,7 @@ def editor(request, id=None):
     if doc and request.method == 'GET' and not request.GET.get('source'):
         from .editor_views import live
         return live(request, id)
-    initial = {'title':doc.title,'kind':doc.kind,'group':doc.group_id,'revision':doc.revision,'folder':doc.folder_id} if doc else {'group': request.user.groups.first(), 'kind':'document','content':'', 'path':request.GET.get('path', '/'),'folder':request.GET.get('folder')}
+    initial = {'file_format':doc.file_format if doc.file_format in ('md','docx') else 'md','title':doc.title,'kind':doc.kind,'group':doc.group_id,'revision':doc.revision,'folder':doc.folder_id} if doc else {'group': request.user.groups.first(), 'kind':'document','content':'', 'path':request.GET.get('path', '/'),'folder':request.GET.get('folder')}
     if doc and request.method == 'GET':
         from .collaboration import current_content
         initial['content'] = current_content(doc)
@@ -189,7 +191,7 @@ def editor(request, id=None):
                 if not doc and data.get('folder'):
                     require(data['folder'], request.user, 'write')
                 from .models import SiteConfiguration
-                saved = save_document(request.user, data['title'], data['kind'], doc.collection if doc else SiteConfiguration.current().default_collection, data['content'], data['group'], doc, data.get('revision'), source_token=source_token, folder=data.get('folder'))
+                saved = save_document(request.user, data['title'], data['kind'], doc.collection if doc else SiteConfiguration.current().default_collection, data['content'], data['group'], doc, data.get('revision'), source_token=source_token, folder=data.get('folder'), file_format=data.get('file_format') or None)
                 messages.success(request, 'Document saved.')
                 return redirect('document' if saved.kind == 'file' else 'live', id=saved.pk)
             except (ValidationError, Conflict, StorageError, OperationalError) as error:
@@ -220,8 +222,11 @@ def upload_file(request):
                 group = request.user.groups.first() or (Group.objects.first() if request.user.is_superuser else None)
                 if not group: raise PermissionDenied
                 if upload.name.lower().endswith('.docx'):
-                    from .docx import to_native
-                    doc = save_document(request.user, upload.name[:-5], 'document', 'Uploads', to_native(upload), group, folder=folder)
+                    from .file_formats import read_docx as to_native
+                    doc = save_document(request.user, upload.name[:-5], 'document', 'Uploads', to_native(upload.read()), group, folder=folder, file_format='docx')
+                elif upload.name.lower().endswith('.ods'):
+                    from .file_formats import read_ods
+                    doc = save_document(request.user, upload.name[:-4], 'table', 'Uploads', read_ods(upload.read()), group, folder=folder)
                 else:
                     content = upload.read(limit+1)
                     if upload.name.lower().endswith('.pdf'):
@@ -241,7 +246,7 @@ def import_document(request):
         if not upload or upload.size > (50 if is_bundle else 5)*1024*1024:
             raise ValidationError('Choose a file smaller than 5 MB.')
         ext = upload.name.rsplit('.',1)[-1].lower()
-        kind = {'md':'document','txt':'document','csv':'table','canvas':'canvas','drawio':'drawio','xml':'drawio','doc':'file','docx':'file','pdf':'file'}.get(ext)
+        kind = {'md':'document','txt':'document','csv':'table','ods':'table','canvas':'canvas','drawio':'drawio','xml':'drawio','doc':'file','docx':'file','pdf':'file'}.get(ext)
         group = request.user.groups.first() or (Group.objects.first() if request.user.is_superuser else None)
         if not group: raise ValidationError('Ask an administrator to add you to a group first.')
         if is_bundle:
@@ -249,9 +254,15 @@ def import_document(request):
             doc=import_bundle(request.user,group,upload)
             return redirect('document',id=doc.pk)
         if ext == 'docx':
-            from .docx import to_native
-            content = to_native(upload)
+            from .file_formats import read_docx as to_native
+            content = to_native(upload.read())
             kind = 'document'
+        elif ext == 'ods':
+            from .file_formats import read_ods
+            content = read_ods(upload.read())
+        elif ext in ('md', 'txt'):
+            from .file_formats import read_markdown
+            content = read_markdown(upload.read())
         elif ext == 'pdf':
             from .pdf import process_pdf
             content = upload.read()
@@ -267,7 +278,7 @@ def import_document(request):
             kind = native.get('kind') if native else None
         if not kind: raise ValidationError('Unsupported file type.')
         title = upload.name if kind == 'file' else upload.name.rsplit('.',1)[0]
-        doc = save_document(request.user, title, kind, 'Imported', content, group)
+        doc = save_document(request.user, title, kind, 'Imported', content, group, file_format='docx' if ext == 'docx' else None)
         return redirect('document', id=doc.pk)
     return render(request,'wiki/import.html',{'section':'Import'})
 
@@ -295,14 +306,20 @@ def export_document(request,id):
     content = current_content(doc)
     from django.utils.http import content_disposition_header
     if request.GET.get('format') == 'docx' and doc.kind == 'document':
-        from .docx import to_docx
-        response = HttpResponse(to_docx(content), content_type='application/vnd.openxmlformats-officedocument.wordprocessingml.document')
+        from .file_formats import encode
+        doc.file_format = 'docx'
+        response = HttpResponse(encode(doc, content), content_type='application/vnd.openxmlformats-officedocument.wordprocessingml.document')
         response['Content-Disposition'] = content_disposition_header(True, doc.title + '.docx')
         return response
     if request.GET.get('format') == 'pdf' and doc.kind == 'document':
         from .pdf import to_pdf
         response = HttpResponse(to_pdf(content, doc.title), content_type='application/pdf')
         response['Content-Disposition'] = content_disposition_header(True, doc.title + '.pdf')
+        return response
+    if doc.file_format and request.GET.get('format') != 'plain':
+        from .file_formats import encode, MIMES
+        response = HttpResponse(encode(doc, content), content_type=MIMES.get(doc.file_format, 'application/octet-stream'))
+        response['Content-Disposition'] = content_disposition_header(True, doc.title + '.' + doc.file_format)
         return response
     native = unpack(content)
     extension = 'wiki.json' if native else EXTENSIONS[doc.kind]
@@ -481,7 +498,7 @@ def account(request):
 
 def serialized(doc,user):
     folder = doc.folder if doc.folder_id and doc.folder.allows(user, 'visible') and doc.folder.allows(user, 'read') else None
-    return {'id':str(doc.pk),'title':doc.title,'kind':doc.kind,'owner':doc.owner.username,'group':doc.group.name,'policy':doc.policy,'effective_policy':doc.effective_policy()[0],'inherit_permissions':doc.inherit_permissions,'folder':str(folder.pk) if folder else None,'format_version':doc.format_version,'revision':doc.revision,'starred':doc.starred,'updated_at':doc.updated_at.isoformat(),'access':{k:doc.allows(user,k) for k in ('visible','read','write')}}
+    return {'id':str(doc.pk),'title':doc.title,'kind':doc.kind,'owner':doc.owner.username,'group':doc.group.name,'policy':doc.policy,'effective_policy':doc.effective_policy()[0],'inherit_permissions':doc.inherit_permissions,'folder':str(folder.pk) if folder else None,'file_format':doc.file_format,'format_version':doc.format_version,'revision':doc.revision,'starred':doc.starred,'updated_at':doc.updated_at.isoformat(),'access':{k:doc.allows(user,k) for k in ('visible','read','write')}}
 
 
 @guarded
@@ -495,7 +512,7 @@ def api_documents(request):
     if not group: raise PermissionDenied
     if 'collection' in data: raise ValidationError('Labels are no longer supported.')
     from .models import SiteConfiguration
-    doc=save_document(request.user,data.get('title',''),data.get('kind','document'),SiteConfiguration.current().default_collection,data.get('content',''),group)
+    doc=save_document(request.user,data.get('title',''),data.get('kind','document'),SiteConfiguration.current().default_collection,data.get('content',''),group,file_format=data.get('file_format'))
     return JsonResponse(serialized(doc,request.user),status=201)
 
 
@@ -558,3 +575,49 @@ def save_pdf(request, id):
         saved = save_document(request.user, doc.title, 'file', doc.collection, content,
                               doc.group, doc, int(request.POST.get('revision', '0')))
     return JsonResponse({'revision': saved.revision})
+
+
+@guarded
+@require_http_methods(['GET', 'POST'])
+def file_settings(request, id):
+    from .forms import HistoryForm
+    doc = document_for(request.user, id, 'write')
+    form = HistoryForm(request.POST or None, initial={'revision_history': '' if doc.revision_history is None else 'on' if doc.revision_history else 'off'})
+    if request.method == 'POST' and request.POST.get('action') == 'reload':
+        if request.POST.get('discard') != 'on':
+            raise ValidationError('Export your edits and confirm discarding the local editor state first.')
+        from .realtime import connections
+        from .source import check_available
+        from .file_formats import decode, digest
+        from .models import Collaboration
+        with transaction.atomic():
+            doc = document_for(request.user, id, 'write')
+            check_available(doc)
+            if connections.get(str(doc.pk)):
+                raise Conflict('Close active visual editors before reloading the original.')
+            raw = active_storage().read(doc.reference)
+            if doc.kind != 'file': decode(doc, raw)
+            Collaboration.objects.filter(document=doc).delete()
+            doc.storage_digest = digest(raw)
+            doc.revision += 1
+            doc.save(update_fields=['storage_digest', 'revision'])
+        return redirect('document', id=doc.pk)
+
+    if request.method == 'POST' and form.is_valid():
+        doc.revision_history = form.cleaned_data['revision_history']
+        doc.save(update_fields=['revision_history'])
+        return redirect('document', id=doc.pk)
+    return render(request, 'wiki/file_settings.html', {'doc': doc, 'form': form, 'history_enabled': doc.history_enabled()})
+
+
+@guarded
+@require_http_methods(['GET'])
+def file_history(request, id):
+    doc = document_for(request.user, id)
+    if not doc.history_reference:
+        raise ValidationError('This file has no saved history.')
+    from django.utils.http import content_disposition_header
+    from .storage import HISTORY_MAX_BYTES
+    response = HttpResponse(active_storage().read(doc.history_reference, limit=HISTORY_MAX_BYTES), content_type='application/json')
+    response['Content-Disposition'] = content_disposition_header(True, doc.title + '.' + (doc.file_format or 'file') + '.json')
+    return response

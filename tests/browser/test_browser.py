@@ -172,11 +172,15 @@ def test_drag_and_path_creation(realtime_server, workspace):
         expect(page.get_by_role('heading', name='Empty files', exact=True)).to_be_visible()
         expect(page.locator('.explorer-card .quick-card', has_text='dropped.zip')).to_be_visible()
         page.goto(realtime_server+'/files/upload/?path=/Projects/Empty%20files')
-        page.get_by_label('File', exact=True).set_input_files({'name':'example.pdf','mimeType':'application/pdf','buffer':b'%PDF-1.4 example'})
+        from io import BytesIO
+        from pypdf import PdfWriter
+        pdf = PdfWriter(); pdf.add_blank_page(width=300, height=400)
+        stream = BytesIO(); pdf.write(stream)
+        page.get_by_label('File', exact=True).set_input_files({'name':'example.pdf','mimeType':'application/pdf','buffer':stream.getvalue()})
         page.get_by_role('button', name='Upload file', exact=True).click()
         expect(page.get_by_role('heading', name='example.pdf')).to_be_visible()
         with page.expect_download() as download:
-            page.get_by_role('link', name='Download file', exact=True).click()
+            page.get_by_role('link', name='Download saved PDF', exact=True).click()
         assert download.value.suggested_filename == 'example.pdf'
         browser.close()
     doc.refresh_from_db()
@@ -254,3 +258,40 @@ def test_russian_language(realtime_server, workspace):
         expect(page.get_by_role('heading', name='Your account')).to_be_visible()
         assert not errors
         browser.close()
+
+
+def test_docx_creation_and_history_settings(realtime_server, workspace):
+    from wiki.models import Document
+    from wiki.file_formats import read_docx
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        page = browser.new_page()
+        page.goto(realtime_server+'/login/')
+        page.get_by_label('Username').fill('admin')
+        page.get_by_label('Password', exact=True).fill('Correct-password-8923')
+        page.get_by_role('button', name='Sign in', exact=True).click()
+        page.goto(realtime_server+'/documents/new/')
+        page.get_by_label('Title', exact=True).fill('Portable Word')
+        page.get_by_label('Text document format', exact=True).select_option('docx')
+        page.get_by_role('button', name='Create and open editor', exact=True).click()
+        expect(page.locator('.tiptap')).to_be_visible()
+        page.locator('.tiptap').fill('Shared Word content')
+        expect(page.locator('#sync-status')).to_contain_text('Synced', timeout=15000)
+        page.get_by_role('button', name='Save now', exact=True).click()
+        expect(page.locator('#sync-status')).to_contain_text('Saved to storage', timeout=15000)
+        doc_url = page.url.removesuffix('live/')
+        assert 'Shared Word content' in read_docx(page.request.get(doc_url+'export/').body())
+        page.get_by_role('link', name='File settings', exact=True).click()
+        page.get_by_label('Revision history').select_option('on')
+        page.get_by_role('button', name='Save', exact=True).click()
+        expect(page.get_by_role('heading', name='Portable Word', exact=True)).to_be_visible()
+        page.get_by_role('link', name='Open visual editor', exact=True).click()
+        page.locator('.tiptap').fill('New Word revision')
+        expect(page.locator('#sync-status')).to_contain_text('Synced', timeout=15000)
+        page.get_by_role('button', name='Save now', exact=True).click()
+        expect(page.locator('#sync-status')).to_contain_text('Saved to storage', timeout=15000)
+        page.goto(doc_url)
+        expect(page.get_by_role('link', name='Download history', exact=True)).to_be_visible()
+        browser.close()
+    document = Document.objects.get(title='Portable Word')
+    assert document.file_format == 'docx' and document.history_reference.endswith('.docx.json')

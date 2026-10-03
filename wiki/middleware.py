@@ -20,7 +20,7 @@ class AccessMiddleware:
         self.get_response = get_response
 
     def __call__(self, request):
-        public = request.path in ('/login', '/login/', '/health/', '/i18n/setlang/', '/jsi18n/') or request.path.startswith('/invite/')
+        public = request.path in ('/login', '/login/', '/health/', '/i18n/setlang/', '/jsi18n/', '/mounts/google/callback/') or request.path.startswith('/invite/')
         if not public and not request.user.is_authenticated:
             return deny(request, 'session_required')
         try:
@@ -31,5 +31,12 @@ class AccessMiddleware:
             return deny(request, 'not_initialized')
         response = self.get_response(request)
         response['Cache-Control'] = 'no-store'
+        if request.path == '/mounts/google/callback/':
+            # Hide the callback query while preserving Origin for the CSRF POST.
+            response['Referrer-Policy'] = 'strict-origin'
         response['Content-Security-Policy'] = "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; worker-src 'self' blob:; object-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+        if request.path in ('/mounts/', '/storage/'):
+            # Browsers also check form-action on the OAuth POST's redirect.
+            response['Content-Security-Policy'] = response['Content-Security-Policy'].replace(
+                "form-action 'self'", "form-action 'self' https://accounts.google.com")
         return response

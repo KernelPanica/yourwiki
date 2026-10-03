@@ -31,6 +31,7 @@ class MountPoint(models.Model):
     folder = models.OneToOneField('Folder', null=True, blank=True, on_delete=models.PROTECT, related_name='mountpoint')
     provider = models.CharField(max_length=20)
     encrypted_config = models.TextField()
+    revision_history = models.BooleanField(null=True, blank=True, default=None)
 
     class Meta:
         ordering = ['path']
@@ -53,6 +54,8 @@ class SiteConfiguration(models.Model):
     image_limit_megapixels = models.PositiveSmallIntegerField(default=16)
     sync_interval_seconds = models.PositiveSmallIntegerField(default=3)
     encrypted_ai_config = models.TextField(blank=True, default='')
+    encrypted_google_oauth_client = models.TextField(blank=True, default='')
+    revision_history = models.BooleanField(default=False)
     default_collection = models.CharField(max_length=100, default='Getting started')
     default_document_policy = models.JSONField(default=default_policy)
 
@@ -62,6 +65,17 @@ class SiteConfiguration(models.Model):
 
 
 class AccessPolicy:
+    def history_enabled(self):
+        item = self
+        while item is not None:
+            if item.revision_history is not None:
+                return item.revision_history
+            item = item.parent_policy
+        from .storage import active_storage
+        from .folders import storage_path
+        mount, _ = active_storage().resolve(storage_path(self) if isinstance(self, Folder) else (storage_path(self.folder) + '/_' if self.folder else '_'))
+        return mount.revision_history if mount.revision_history is not None else SiteConfiguration.current().revision_history
+
     def effective_source(self):
         item, seen = self, set()
         while item.inherit_permissions and item.parent_policy is not None:
@@ -82,13 +96,13 @@ class AccessPolicy:
             return True
         source = self.effective_source()
         policy, group_id = source.policy, source.group_id
-        if isinstance(self, Folder):
+        if isinstance(source, Folder):
             grants = source.group_policies or {}
             allowed = [rules.get(action) is True for gid, rules in grants.items()
                        if user.groups.filter(pk=gid).exists()]
             if allowed:
                 return any(allowed)
-        scope = 'owner' if user.pk == self.owner_id else 'group' if user.groups.filter(pk=group_id).exists() else 'everyone'
+        scope = 'owner' if user.pk == source.owner_id else 'group' if user.groups.filter(pk=group_id).exists() else 'everyone'
         return policy.get(scope, {}).get(action) is True
 
 
@@ -101,6 +115,7 @@ class Folder(AccessPolicy, models.Model):
     policy = models.JSONField(default=default_policy)
     group_policies = models.JSONField(default=dict)
     inherit_permissions = models.BooleanField(default=True)
+    revision_history = models.BooleanField(null=True, blank=True, default=None)
 
     @property
     def parent_policy(self):
@@ -126,12 +141,25 @@ class Document(AccessPolicy, models.Model):
     starred = models.BooleanField(default=False)
     updated_at = models.DateTimeField(default=timezone.now)
     folder = models.ForeignKey(Folder, null=True, blank=True, on_delete=models.PROTECT, related_name='documents')
-    inherit_permissions = models.BooleanField(default=False)
+    inherit_permissions = models.BooleanField(default=True)
+    revision_history = models.BooleanField(null=True, blank=True, default=None)
     format_version = models.PositiveSmallIntegerField(default=0)
     path_synced = models.BooleanField(default=False)
+    file_format = models.CharField(max_length=12, blank=True, default='')
+    storage_digest = models.CharField(max_length=64, blank=True, default='')
+    history_reference = models.TextField(blank=True, default='')
+
 
     class Meta:
         ordering = ['-updated_at']
+
+    @property
+    def original_url(self):
+        from .storage import active_storage, StorageError
+        try:
+            return active_storage().original_url(self.reference)
+        except StorageError:
+            return ''
 
     @property
     def parent_policy(self):

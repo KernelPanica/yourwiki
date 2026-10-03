@@ -7,6 +7,7 @@ from wiki import administration
 from wiki import mounts
 from wiki import ai
 urlpatterns = [
+    path('folders/<uuid:id>/file-settings/', folders.folder_settings, name='folder_settings'),
     path('settings/ai/', ai.settings, name='ai-settings'),
     path('documents/<uuid:id>/summary/', ai.summary, name='summary'),
     path('jsi18n/', JavaScriptCatalog.as_view(domain='django'), name='javascript-catalog'),
@@ -36,6 +37,8 @@ urlpatterns = [
     path('documents/<uuid:id>/pdf/', views.save_pdf, name='save-pdf'),
     path('documents/<uuid:id>/edit/', views.editor, name='edit'),
     path('documents/<uuid:id>/export/', views.export_document, name='export'),
+    path('documents/<uuid:id>/file-settings/', views.file_settings, name='file-settings'),
+    path('documents/<uuid:id>/history/', views.file_history, name='file-history'),
     path('documents/<uuid:id>/delete/', views.remove, name='delete'),
     path('documents/<uuid:id>/star/', views.star, name='star'),
     path('documents/<uuid:id>/permissions/', views.policy, name='policy'),
@@ -47,6 +50,7 @@ urlpatterns = [
     path('groups/', views.groups, name='groups'),
     path('members/<int:id>/', views.member, name='member'),
     path('storage/', mounts.mountpoints, name='storage'),
+    path('mounts/google/callback/', mounts.google_callback, name='google-mount-callback'),
     path('mounts/', mounts.mountpoints, name='mountpoints'),
     path('settings/', administration.site_admin, name='settings'),
     path('account/', views.account, name='account'),

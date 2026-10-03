@@ -14,7 +14,7 @@ from django.utils.crypto import constant_time_compare
 from asgiref.sync import sync_to_async
 from .models import Collaboration, Document
 from .collaboration import apply_update, flush_room
-from .services import require, cleanup_storage
+from .services import require, cleanup_storage, Conflict
 
 log = logging.getLogger('wiki')
 connections = {}
@@ -118,6 +118,8 @@ async def application(scope, receive, send):
                 try:
                     await sync_to_async(flush_room, thread_sensitive=False)(doc_id)
                     await send({'type':'websocket.send','text':json.dumps({'type':'saved'})})
+                except Conflict as error:
+                    await send({'type':'websocket.send','text':json.dumps({'type':'error','message':str(error)})})
                 except Exception:
                     await send({'type':'websocket.send','text':json.dumps({'type':'error','message':'Saved locally. Storage is unavailable; synchronization will retry.'})})
             pending = asyncio.create_task(receive())

@@ -37,6 +37,9 @@ def test_storage_failure_does_not_lose_acknowledged_edits(workspace,document):
     apply_update(workspace['admin'],document.pk,edit_state(room,'Durable '))
     old=document.reference
     with patch('wiki.collaboration.active_storage') as storage:
+        from wiki.storage import active_storage
+        storage.return_value.read.side_effect = active_storage().read
+        storage.return_value.location.side_effect = active_storage().location
         storage.return_value.write.side_effect=OSError('offline')
         with pytest.raises(OSError):flush_room(document.pk)
     room.refresh_from_db();document.refresh_from_db()
@@ -44,7 +47,7 @@ def test_storage_failure_does_not_lose_acknowledged_edits(workspace,document):
     assert 'Durable ' in current_content(document)
     flush_room(document.pk)
     room.refresh_from_db();document.refresh_from_db()
-    assert room.sequence==room.synced_sequence and document.reference!=old
+    assert room.sequence==room.synced_sequence and document.reference==old
 
 
 def test_reader_cannot_send_collaborative_updates(workspace,document):

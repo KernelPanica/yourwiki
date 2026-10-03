@@ -119,6 +119,7 @@ def path_depth(folder):
     return depth
 
 
+@transaction.atomic
 def move_item(user, item, destination, rename=None):
     require(item, user, 'write')
     source = item.parent_policy
@@ -157,6 +158,7 @@ def move_item(user, item, destination, rename=None):
         pending = [item]
         while pending:
             node = pending.pop()
+            require(node, user, 'write')
             directories.append(node)
             pending.extend(node.children.all())
             descendants.extend(node.documents.all())
@@ -166,40 +168,54 @@ def move_item(user, item, destination, rename=None):
     else:
         descendants = [item]
     staged = []
+    from .models import PendingDeletion
+    from .services import cleanup_storage
+    def relocate(record, field, key):
+        from .storage import MAX_BYTES, HISTORY_MAX_BYTES
+        limit = HISTORY_MAX_BYTES if field == 'history_reference' else MAX_BYTES
+        original = getattr(record, field)
+        old_key = adapter.location(original)
+        same_mount = adapter.reference(original)[0].pk == adapter.resolve(key)[0].pk
+        reference = adapter.move(original, key) if same_mount else adapter.write(key, adapter.read(original, limit=limit), limit=limit)
+        staged.append((record, field, reference, old_key, same_mount))
+        if not same_mount:
+            if adapter.read(reference, limit=limit) != adapter.read(original, limit=limit):
+                raise ValidationError('The moved file could not be verified. The original was retained.')
+            PendingDeletion.objects.create(reference=original)
+        setattr(record, field, reference)
+        record.save(update_fields=[field])
     try:
-        for doc in descendants:
-            path = storage_path(doc.folder)
-            new_dir = new_prefix + path[len(old_prefix):] if isinstance(item, Folder) else new_prefix
-            key = storage_key(doc, directory=new_dir, title=rename if doc == item and isinstance(item, Document) else None)
-            if new_dir:
-                adapter.ensure_dir(new_dir)
-            reference = adapter.write(key, adapter.read(doc.reference))
-            staged.append((doc, reference))
-            for attachment in doc.attachments.all():
-                import secrets
-                asset_key = f'{new_dir + "/" if new_dir else ""}.attachments/{attachment.pk}-{secrets.token_hex(8)}.png'
-                staged.append((attachment, adapter.write(asset_key, adapter.read(attachment.reference))))
         with transaction.atomic():
+            for doc in descendants:
+                require(doc, user, 'write')
+                path = storage_path(doc.folder)
+                new_dir = new_prefix + path[len(old_prefix):] if isinstance(item, Folder) else new_prefix
+                key = storage_key(doc, directory=new_dir, title=rename if doc == item and isinstance(item, Document) else None)
+                if new_dir: adapter.ensure_dir(new_dir)
+                relocate(doc, 'reference', key)
+                if doc.history_reference:
+                    relocate(doc, 'history_reference', key + '.json')
+                for attachment in doc.attachments.all():
+                    name = adapter.location(attachment.reference).rsplit('/', 1)[-1]
+                    relocate(attachment, 'reference', f'{new_dir + "/" if new_dir else ""}.attachments/{name}')
+                doc.path_synced = True
+                doc.revision += 1
+                doc.save(update_fields=['path_synced', 'revision'])
             if isinstance(item, Folder):
                 item.parent, item.name = destination, rename or item.name
                 item.save(update_fields=['parent', 'name'])
             else:
-                item.folder = destination
-                item.title = rename or item.title
+                item.folder, item.title = destination, rename or item.title
                 item.save(update_fields=['folder', 'title'])
-            for record, reference in staged:
-                record.reference = reference
-                if isinstance(record, Document):
-                    record.path_synced = True
-                    record.save(update_fields=['reference', 'path_synced'])
-                else:
-                    record.save(update_fields=['reference'])
+            transaction.on_commit(cleanup_storage)
     except Exception:
-        for _, reference in staged:
+        for record, field, reference, old_key, same_mount in reversed(staged):
             try:
-                adapter.delete(reference)
+                if same_mount: adapter.move(reference, old_key)
+                else: adapter.delete(reference)
             except Exception:
-                pass
+                import logging
+                logging.getLogger('wiki').exception('Move rollback needs recovery for %s', record.pk)
         raise
 
 
@@ -316,3 +332,16 @@ def api_folders(request):
     ids = {f.pk for f in allowed}
     return JsonResponse([{'id': str(f.pk), 'name': f.name, 'parent': str(f.parent_id) if f.parent_id in ids else None,
         'access': {a: f.allows(request.user, a) for a in ('visible','read','write')}} for f in allowed], safe=False)
+
+
+@guarded
+@require_http_methods(['GET', 'POST'])
+def folder_settings(request, id):
+    from .forms import HistoryForm
+    folder = target_folder(request.user, id, 'write')
+    form = HistoryForm(request.POST or None, initial={'revision_history': '' if folder.revision_history is None else 'on' if folder.revision_history else 'off'})
+    if request.method == 'POST' and form.is_valid():
+        folder.revision_history = form.cleaned_data['revision_history']
+        folder.save(update_fields=['revision_history'])
+        return redirect('folder', id=folder.pk)
+    return render(request, 'wiki/file_settings.html', {'doc': folder, 'form': form, 'is_folder': True})

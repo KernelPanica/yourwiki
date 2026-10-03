@@ -10,9 +10,22 @@ The installer uses `/documents` in Docker, backed by the persistent `documents` 
 
 Create a Google Cloud project, enable the Drive API, configure its OAuth consent screen, and create a Web application OAuth client. Add this exact authorized redirect URI:
 
-`https://YOUR-WIKI-HOST/setup/oauth/callback`
+- `https://YOUR-WIKI-HOST/setup/oauth/callback` for installation.
+- `https://YOUR-WIKI-HOST/mounts/google/callback/` for additional Google mounts.
 
-Enter the client ID and secret when prompted. Open the installer-generated URL, authorize your Google account, and return to the terminal. Yourwiki requests `https://www.googleapis.com/auth/drive.file` with offline access and creates a new `Yourwiki` folder. It does not request access to arbitrary existing Drive files. Refresh tokens are encrypted at rest.
+Enter the client ID and secret when prompted. Open the installer-generated URL, authorize your Google account, and return to the terminal. Yourwiki requests `https://www.googleapis.com/auth/drive.file` with offline access and creates a new `Yourwiki` folder. It does not request access to arbitrary existing Drive files. Refresh tokens are encrypted at rest. The installer asks whether to save the
+client ID and secret for future mounts (`Y/n`, default yes). This stores a
+separate encrypted reusable client, without exposing it to browsers. Choosing
+no keeps the current connection credentials but does not save a reusable template.
+Unattended setup uses the optional top-level boolean `save_google_oauth_client`;
+when omitted it leaves the template unchanged.
+
+For new Google mounts, choose the saved client or enter client credentials,
+then authorize with Google and press **Finish connecting** on return. The server
+obtains the refresh token; copying one manually is unnecessary. The callback GET
+is only a landing page so Strict session cookies can resume on a same-origin
+CSRF-protected POST. Authorization is session-bound, uses state and PKCE, and
+expires after ten minutes. An empty folder ID creates a new Drive folder.
 
 Your OAuth application's publishing/test-user configuration determines who can authorize and how long its credentials remain valid. Configure the consent screen for your intended deployment. See [Google's web-server OAuth documentation](https://developers.google.com/identity/protocols/oauth2/web-server).
 
@@ -26,7 +39,7 @@ The adapter requests delegated `Files.ReadWrite` and `offline_access`, uses the 
 
 ## GitHub
 
-Provide `owner/repository`, an existing writable branch, a dedicated relative path prefix, and a fine-grained personal access token with repository Contents read/write permission. Each revision is committed through the Contents API. Branch protection must permit this token to write to the selected branch. Only files within the prefix are managed; there is no repository checkout or pull-request workflow.
+Provide `owner/repository`, an existing writable branch, a dedicated relative path prefix, and a fine-grained personal access token with repository Contents read/write permission. Each save is committed through the Contents API; moves update the Git tree in one commit without retaining the old path. Provider Git history is independent of the optional Yourwiki JSON history. Branch protection must permit this token to write to the selected branch. Only files within the prefix are managed; there is no repository checkout or pull-request workflow.
 
 ## SMB
 
@@ -68,3 +81,5 @@ Google and OneDrive test configs use `provider`, `client_id`, `client_secret`, `
 YOURWIKI_STORAGE_TEST_CONFIG=/private/storage-test.json \
   .venv/bin/python -m pytest tests/test_live_storage.py -q
 ```
+
+SFTP overwrites use the OpenSSH `posix-rename` extension so an interrupted upload cannot truncate the original. Servers without this extension reject replacement safely. SMB and local storage also replace a completed temporary file atomically.

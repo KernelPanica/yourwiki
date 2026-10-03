@@ -1545,3 +1545,108 @@ msgid "%(count)s member"
 msgid_plural "%(count)s members"
 msgstr[0] "%(count)s miembro"
 msgstr[1] "%(count)s miembros"
+
+msgid "Use the Google OAuth client saved during installation"
+msgstr "Usar el cliente OAuth de Google guardado durante la instalación"
+
+msgid "Uncheck to enter another client ID and secret. Saved credentials stay on the server."
+msgstr "Desmarca para introducir otro ID y secreto de cliente. Las credenciales guardadas permanecen en el servidor."
+
+msgid "Leave blank to create a new Google Drive folder. An existing folder must be accessible to this OAuth app."
+msgstr "Deja en blanco para crear una nueva carpeta de Google Drive. La aplicación OAuth debe tener acceso a una carpeta existente."
+
+msgid "Register this redirect URI in your Google OAuth web application:"
+msgstr "Registra este URI de redirección en tu aplicación web OAuth de Google:"
+
+msgid "Connect with Google to obtain a refresh token automatically. No token needs to be copied into this form."
+msgstr "Conecta con Google para obtener un token de actualización automáticamente. No necesitas copiar ningún token en este formulario."
+
+msgid "Connect with Google"
+msgstr "Conectar con Google"
+
+msgid "Finish connecting Google Drive"
+msgstr "Finalizar la conexión con Google Drive"
+
+msgid "Continue in the same browser where you started connecting the mount. Your administrator session is required."
+msgstr "Continúa en el mismo navegador donde iniciaste la conexión. Se requiere tu sesión de administrador."
+
+msgid "Finish connecting"
+msgstr "Finalizar conexión"
+
+msgid "Back to Mountpoints"
+msgstr "Volver a los puntos de montaje"
+
+msgid "Google authorization expired or was already used. Start again from Mountpoints."
+msgstr "La autorización de Google ha caducado o ya se ha utilizado. Vuelve a empezar desde los puntos de montaje."
+
+msgid "Google authorization was cancelled. Start again from Mountpoints."
+msgstr "Se canceló la autorización de Google. Vuelve a empezar desde los puntos de montaje."
+
+msgid "Could not obtain a Google refresh token. Check the OAuth client and grant offline access, then try again."
+msgstr "No se pudo obtener un token de actualización de Google. Comprueba el cliente OAuth, concede acceso sin conexión y vuelve a intentarlo."
+
+msgid "Open original"
+msgstr "Abrir original"
+
+msgid "File settings"
+msgstr "Configuración del archivo"
+
+msgid "Download history"
+msgstr "Descargar historial"
+
+msgid "Revision history"
+msgstr "Historial de cambios"
+
+msgid "Keep file history by default"
+msgstr "Guardar el historial de archivos por defecto"
+
+msgid "Inherit"
+msgstr "Heredar"
+
+msgid "Disabled"
+msgstr "Desactivado"
+
+msgid "Save"
+msgstr "Guardar"
+
+msgid "Export bundle"
+msgstr "Exportar paquete"
+
+msgid "Text document format"
+msgstr "Formato del documento de texto"
+
+msgid "Applies to text documents. Tables are stored as ODS."
+msgstr "Se aplica a documentos de texto. Las hojas de cálculo se guardan como ODS."
+
+msgid "History is stored beside the file as filename.extension.json. Disabling history stops new snapshots; existing history is retained."
+msgstr "El historial se guarda junto al archivo como nombre.extensión.json. Desactivarlo detiene las nuevas versiones; se conserva el historial existente."
+
+msgid "Reload original"
+msgstr "Recargar original"
+
+msgid "If the original was edited outside Yourwiki, export your local edits before reloading. Close all visual editors first. Reloading discards the local editor state and reads the original without changing it."
+msgstr "Si el original se editó fuera de Yourwiki, exporte sus cambios locales antes de recargar. Cierre todos los editores visuales. La recarga descarta el estado local del editor y lee el original sin modificarlo."
+
+msgid "Discard local editor state and reload the original"
+msgstr "Descartar el estado local del editor y recargar el original"
+
+msgid "Export your edits and confirm discarding the local editor state first."
+msgstr "Primero exporte sus cambios y confirme que desea descartar el estado local del editor."
+
+msgid "Close active visual editors before reloading the original."
+msgstr "Cierre los editores visuales activos antes de recargar el original."
+
+msgid "The original file changed in storage. Reload it before saving; your edits have not overwritten it."
+msgstr "El original cambió en el almacenamiento. Recárguelo antes de guardar; sus cambios no lo han sobrescrito."
+
+msgid "This file has no saved history."
+msgstr "Este archivo no tiene historial guardado."
+
+msgid "The document is damaged or uses an unsupported format."
+msgstr "El documento está dañado o utiliza un formato no compatible."
+
+msgid "Upload rejected by the proxy or server: file too large. Check the file limit and Nginx client_max_body_size."
+msgstr "El proxy o servidor rechazó la carga: archivo demasiado grande. Compruebe el límite y client_max_body_size de Nginx."
+
+msgid "File history exceeds 50 MB. Download and archive the history, then disable history to continue saving. The original was not overwritten."
+msgstr "El historial supera 50 MB. Descárguelo y archívelo; después desactive el historial para seguir guardando. El original no se sobrescribió."

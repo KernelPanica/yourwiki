@@ -57,9 +57,9 @@ def test_cloud_crud_contract(provider):
 class MemoryFile(io.BytesIO):
     def __init__(self,files,path,mode):
         self.files,self.path,self.mode=files,path,mode
-        super().__init__(b'' if 'w' in mode else files.get(path,b''))
+        super().__init__(b'' if any(flag in mode for flag in ('w','x')) else files.get(path,b''))
     def close(self):
-        if 'w' in self.mode and not self.closed:self.files[self.path]=self.getvalue()
+        if any(flag in self.mode for flag in ('w','x')) and not self.closed:self.files[self.path]=self.getvalue()
         super().close()
 
 @pytest.mark.parametrize('provider',['sftp','smb'])
@@ -71,6 +71,9 @@ def test_network_filesystem_contract(provider):
     fake.open.side_effect=lambda path,mode:MemoryFile(files,path,mode)
     fake.open_file.side_effect=lambda path,mode,**kwargs:MemoryFile(files,path,mode)
     fake.remove.side_effect=lambda path,**kwargs:files.pop(path,None)
+    fake.rename.side_effect=lambda source,destination,**kwargs:files.__setitem__(destination,files.pop(source))
+    fake.posix_rename.side_effect=fake.rename.side_effect
+    fake.replace.side_effect=fake.rename.side_effect
     if provider=='sftp':
         @contextlib.contextmanager
         def client():yield fake

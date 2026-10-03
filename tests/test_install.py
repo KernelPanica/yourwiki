@@ -84,3 +84,46 @@ def test_install_rejects_http_by_default(tmp_path):
     assert result.returncode==1
     assert 'HTTPS is required' in result.stdout
     assert not (Path(env['YOURWIKI_DATA'])/'wiki.sqlite3').exists()
+
+
+@pytest.mark.parametrize('save_client', [True, False])
+def test_google_setup_optional_reusable_client(tmp_path, save_client):
+    from cryptography.fernet import Fernet
+    file, env, config = setup_config(tmp_path)
+    config['storage'] = {'provider': 'google', 'root': 'folder-id', 'client_id': 'oauth-client',
+                         'client_secret': 'private-oauth-secret', 'refresh_token': 'private-refresh'}
+    config['save_google_oauth_client'] = save_client
+    file.write_text(json.dumps(config))
+    # Use the real installer/database, replacing only the external storage probe.
+    script = '''import sys
+from unittest.mock import patch
+import install
+with patch('wiki.storage.SafeAdapter'):
+    sys.argv = ['install.py', '--allow-http', '--config', sys.argv[1]]
+    install.main()
+'''
+    result = subprocess.run([sys.executable, '-c', script, str(file)], env=env, cwd=ROOT, capture_output=True, text=True, timeout=30)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert '/mounts/google/callback/' in result.stdout
+    assert 'private-oauth-secret' not in result.stdout + result.stderr
+    with sqlite3.connect(Path(env['YOURWIKI_DATA']) / 'wiki.sqlite3') as db:
+        value = db.execute('select encrypted_google_oauth_client from wiki_siteconfiguration').fetchone()[0]
+        root = db.execute('select encrypted_config from wiki_mountpoint').fetchone()[0]
+    cipher = Fernet((Path(env['YOURWIKI_SECRETS']) / 'encryption.key').read_bytes())
+    assert json.loads(cipher.decrypt(root.encode()))['client_secret'] == 'private-oauth-secret'
+    if save_client:
+        assert 'private-oauth-secret' not in value
+        assert json.loads(cipher.decrypt(value.encode())) == {'client_id': 'oauth-client', 'client_secret': 'private-oauth-secret'}
+    else:
+        assert value == ''
+
+
+def test_google_setup_prompt_defaults_to_yes(monkeypatch):
+    import install
+    for answer, expected in [('', True), ('n', False), ('Y', True)]:
+        monkeypatch.setattr('builtins.input', lambda prompt: answer)
+        assert install.save_google_client_choice({'provider': 'google'}) is expected
+    assert install.save_google_client_choice({'provider': 'local'}) is None
+    assert install.save_google_client_choice({'provider': 'google'}, {}) is None
+    with pytest.raises(ValueError):
+        install.save_google_client_choice({'provider': 'google'}, {'save_google_oauth_client': 'false'})

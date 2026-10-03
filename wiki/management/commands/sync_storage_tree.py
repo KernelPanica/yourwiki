@@ -1,5 +1,4 @@
-"""Copy current legacy revisions into the provider's directory tree."""
-import secrets
+"""Move legacy files into the provider tree without retaining duplicate originals."""
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 from wiki.folders import storage_path
@@ -17,25 +16,14 @@ class Command(BaseCommand):
         try:
             for folder in Folder.objects.select_related('parent'):
                 adapter.ensure_dir(storage_path(folder))
-            for doc in Document.objects.filter(path_synced=False).select_related('folder'):
-                # Legacy records still need a new provider object; new records use readable names.
-                key = storage_key(doc) + f'.legacy-{secrets.token_hex(4)}'
-                if doc.folder:
-                    adapter.ensure_dir(key.rpartition('/')[0])
-                reference = adapter.write(key, adapter.read(doc.reference))
-                try:
-                    with transaction.atomic():
-                        current = Document.objects.get(pk=doc.pk)
-                        if current.path_synced or current.reference != doc.reference:
-                            adapter.delete(reference)
-                            continue
-                        current.reference = reference
-                        current.path_synced = True
-                        current.save(update_fields=['reference', 'path_synced'])
-                except Exception:
-                    adapter.delete(reference)
-                    raise
-                count += 1
+            for pk in Document.objects.filter(path_synced=False).values_list('pk', flat=True):
+                with transaction.atomic():
+                    doc = Document.objects.get(pk=pk)
+                    if doc.path_synced: continue
+                    doc.reference = adapter.move(doc.reference, storage_key(doc))
+                    doc.path_synced = True
+                    doc.save(update_fields=['reference', 'path_synced'])
+                    count += 1
         except StorageError as error:
             raise CommandError(f'Storage tree sync paused after {count} files: {error}') from error
         self.stdout.write(f'Storage tree synchronized: {count} existing files.')

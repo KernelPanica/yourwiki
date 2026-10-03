@@ -1554,3 +1554,108 @@ msgstr "Импортируйте PDF, Markdown, текст, CSV, Word, draw.io, 
 
 msgid "Choose a file (up to 5 MB; PDFs keep their layout; .docx files become editable wiki documents; .doc files remain downloadable; .wiki.zip bundles up to 50 MB)"
 msgstr "Выберите файл (до 5 МБ; PDF сохраняют исходную вёрстку; .docx преобразуются в редактируемые документы вики; .doc остаются доступными для скачивания; архивы .wiki.zip — до 50 МБ)"
+
+msgid "Use the Google OAuth client saved during installation"
+msgstr "Использовать OAuth-клиент Google, сохранённый при установке"
+
+msgid "Uncheck to enter another client ID and secret. Saved credentials stay on the server."
+msgstr "Снимите флажок, чтобы указать другие client ID и secret. Сохранённые реквизиты остаются на сервере."
+
+msgid "Leave blank to create a new Google Drive folder. An existing folder must be accessible to this OAuth app."
+msgstr "Оставьте пустым для создания новой папки Google Drive. Существующая папка должна быть доступна этому OAuth-приложению."
+
+msgid "Register this redirect URI in your Google OAuth web application:"
+msgstr "Добавьте этот redirect URI в настройки веб-приложения Google OAuth:"
+
+msgid "Connect with Google to obtain a refresh token automatically. No token needs to be copied into this form."
+msgstr "Подключитесь через Google для автоматического получения refresh token. Копировать токен в эту форму не нужно."
+
+msgid "Connect with Google"
+msgstr "Подключить через Google"
+
+msgid "Finish connecting Google Drive"
+msgstr "Завершение подключения Google Drive"
+
+msgid "Continue in the same browser where you started connecting the mount. Your administrator session is required."
+msgstr "Продолжите в том же браузере, где начали подключение точки. Требуется ваш сеанс администратора."
+
+msgid "Finish connecting"
+msgstr "Завершить подключение"
+
+msgid "Back to Mountpoints"
+msgstr "К точкам подключения"
+
+msgid "Google authorization expired or was already used. Start again from Mountpoints."
+msgstr "Авторизация Google истекла или уже использована. Начните заново в разделе точек подключения."
+
+msgid "Google authorization was cancelled. Start again from Mountpoints."
+msgstr "Авторизация Google отменена. Начните заново в разделе точек подключения."
+
+msgid "Could not obtain a Google refresh token. Check the OAuth client and grant offline access, then try again."
+msgstr "Не удалось получить refresh token Google. Проверьте OAuth-клиент, разрешите офлайн-доступ и повторите попытку."
+
+msgid "Open original"
+msgstr "Открыть оригинал"
+
+msgid "File settings"
+msgstr "Настройки файла"
+
+msgid "Download history"
+msgstr "Скачать историю"
+
+msgid "Revision history"
+msgstr "История изменений"
+
+msgid "Keep file history by default"
+msgstr "Хранить историю файлов по умолчанию"
+
+msgid "Inherit"
+msgstr "Наследовать"
+
+msgid "Disabled"
+msgstr "Выключено"
+
+msgid "Save"
+msgstr "Сохранить"
+
+msgid "Export bundle"
+msgstr "Экспортировать пакет"
+
+msgid "Text document format"
+msgstr "Формат текстового документа"
+
+msgid "Applies to text documents. Tables are stored as ODS."
+msgstr "Применяется к текстовым документам. Таблицы сохраняются в ODS."
+
+msgid "History is stored beside the file as filename.extension.json. Disabling history stops new snapshots; existing history is retained."
+msgstr "История хранится рядом с файлом как имя.расширение.json. При отключении новые снимки не создаются; существующая история сохраняется."
+
+msgid "Reload original"
+msgstr "Загрузить оригинал заново"
+
+msgid "If the original was edited outside Yourwiki, export your local edits before reloading. Close all visual editors first. Reloading discards the local editor state and reads the original without changing it."
+msgstr "Если оригинал изменён вне Yourwiki, экспортируйте свои изменения перед перезагрузкой. Сначала закройте все визуальные редакторы. Перезагрузка удаляет локальное состояние редактора и читает оригинал, не изменяя его."
+
+msgid "Discard local editor state and reload the original"
+msgstr "Удалить локальное состояние редактора и загрузить оригинал"
+
+msgid "Export your edits and confirm discarding the local editor state first."
+msgstr "Сначала экспортируйте изменения и подтвердите удаление локального состояния редактора."
+
+msgid "Close active visual editors before reloading the original."
+msgstr "Закройте активные визуальные редакторы перед перезагрузкой оригинала."
+
+msgid "The original file changed in storage. Reload it before saving; your edits have not overwritten it."
+msgstr "Оригинал изменён в хранилище. Загрузите его заново перед сохранением; ваши изменения не перезаписали оригинал."
+
+msgid "This file has no saved history."
+msgstr "У этого файла нет сохранённой истории."
+
+msgid "The document is damaged or uses an unsupported format."
+msgstr "Документ повреждён или использует неподдерживаемый формат."
+
+msgid "Upload rejected by the proxy or server: file too large. Check the file limit and Nginx client_max_body_size."
+msgstr "Прокси или сервер отклонил загрузку: файл слишком велик. Проверьте лимит файла и client_max_body_size в Nginx."
+
+msgid "File history exceeds 50 MB. Download and archive the history, then disable history to continue saving. The original was not overwritten."
+msgstr "История файла превышает 50 МБ. Скачайте и сохраните её в архив, затем отключите историю для продолжения работы. Оригинал не перезаписан."

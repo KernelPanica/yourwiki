@@ -12,8 +12,8 @@ from .views import guarded
 class SiteForm(forms.ModelForm):
     class Meta:
         model = SiteConfiguration
-        exclude = ['id', 'default_document_policy', 'default_collection', 'encrypted_ai_config']
-        labels = {'name':'Workspace name','description':'Workspace description','session_hours':'Session lifetime (hours)',
+        exclude = ['id', 'default_document_policy', 'default_collection', 'encrypted_ai_config', 'encrypted_google_oauth_client']
+        labels = {'revision_history': 'Keep file history by default','name':'Workspace name','description':'Workspace description','session_hours':'Session lifetime (hours)',
             'invite_days':'Default invitation lifetime (days; 0 = no expiry)','invite_uses':'Default invitation uses (0 = unlimited)',
             'login_attempts':'Login attempts per window','login_window_minutes':'Login rate-limit window (minutes)',
             'document_limit_mb':'Document size limit (MB)','image_limit_mb':'Image upload limit (MB)',

@@ -221,6 +221,7 @@ def seed(document, content):
     return ydoc
 
 
+@transaction.atomic
 def ensure_room(document):
     if document.kind == 'file':
         raise ValidationError('Uploaded files do not have a collaborative editor.')
@@ -228,8 +229,23 @@ def ensure_room(document):
     check_available(document)
     room = Collaboration.objects.filter(document=document).first()
     if room and room.state:
-        return room
-    content = active_storage().read(document.reference).decode()
+        from .realtime import connections
+        if room.sequence != room.synced_sequence or connections.get(str(document.pk)):
+            return room
+        from .file_formats import digest
+        raw = active_storage().read(document.reference)
+        if not document.storage_digest or digest(raw) == document.storage_digest:
+            return room
+        room.delete()
+        document.storage_digest = digest(raw)
+        document.revision += 1
+        document.save(update_fields=['storage_digest', 'revision'])
+    from .file_formats import decode, digest
+    raw = active_storage().read(document.reference)
+    content = decode(document, raw)
+    if not document.storage_digest:
+        Document.objects.filter(pk=document.pk, storage_digest='').update(storage_digest=digest(raw))
+        document.storage_digest = digest(raw)
     state = seed(document, content).get_update()
     with transaction.atomic():
         room, _ = Collaboration.objects.get_or_create(document=document)
@@ -275,29 +291,27 @@ def apply_update(user, document_id, encoded, review_id=None):
         return room.sequence
 
 
+@transaction.atomic
 def flush_room(document_id):
     room = Collaboration.objects.select_related('document').filter(document_id=document_id).first()
     if not room or room.sequence <= room.synced_sequence:
         return
-    adapter = active_storage()
     from .services import storage_key
-    key = storage_key(room.document, extension='wiki.json' if unpack(room.snapshot) else None)
-    stem, dot, suffix = key.rpartition('.')
-    key = f'{stem} (revision-{room.document.revision}){dot}{suffix}' if dot else f'{key} (revision-{room.document.revision})'
-    if room.document.folder:
-        adapter.ensure_dir(key.rpartition('/')[0])
-    reference = adapter.write(key, room.snapshot.encode())
-    with transaction.atomic():
-        current = Collaboration.objects.filter(document_id=document_id).first()
-        if current and current.synced_sequence < room.sequence and Document.objects.filter(
-                pk=document_id, reference=room.document.reference,
-                folder_id=room.document.folder_id).update(reference=reference, path_synced=True):
-            current.synced_sequence = room.sequence
-            current.save(update_fields=['synced_sequence'])
-            return
-    adapter.delete(reference)
+    from .file_history import persist
+    document = room.document
+    if not document.file_format and document.kind in ('document', 'table'):
+        document.file_format = 'md' if document.kind == 'document' else 'ods'
+    key = storage_key(document, extension='wiki.json' if not document.file_format and unpack(room.snapshot) else None)
+    document.reference = persist(document, room.snapshot, key, adapter=active_storage())
+    document.path_synced = True
+    document.save(update_fields=['reference', 'path_synced', 'storage_digest', 'history_reference', 'file_format'])
+    room.synced_sequence = room.sequence
+    room.save(update_fields=['synced_sequence'])
 
 
 def current_content(document):
     room = Collaboration.objects.filter(document=document).first()
-    return room.snapshot if room and room.snapshot else active_storage().read(document.reference).decode()
+    if room and room.snapshot and room.sequence != room.synced_sequence:
+        return room.snapshot
+    from .file_formats import decode
+    return decode(document, active_storage().read(document.reference))
