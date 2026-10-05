@@ -28,7 +28,7 @@ document.getElementById('print-live').onclick=()=>window.print();
 window.addEventListener('beforeunload',event=>{if(dirty){event.preventDefault();event.returnValue='';}});
 document.addEventListener('keydown',event=>{if((event.ctrlKey||event.metaKey)&&event.key==='s'){event.preventDefault();document.getElementById('save-live').click();}});
 try{
-  button('Rename',async()=>{const values=await dialog('Rename file',[['title','Title',boot.title]]);if(!values)return;const result=await api(`/api/docs/${boot.id}/metadata`,{method:'POST',body:JSON.stringify(values)});boot.title=result.title;document.querySelector('.live-heading a').textContent='← '+result.title;});
+  button('Rename',async()=>{const values=await dialog('Rename file',[['title','Title',boot.title]]);if(!values)return;const result=await api(`/api/docs/${boot.id}/metadata`,{method:'POST',body:JSON.stringify(values)});boot.title=result.title;document.querySelector('.live-heading a').textContent='← '+result.title;},{parent:boot.kind==='document'?document.querySelector('.live-heading .form-actions'):undefined});
   const factories={document:()=>import('./rich.js').then(m=>m.richEditor),table:()=>import('./sheets.js').then(m=>m.sheetEditor),canvas:()=>import('./canvas.js').then(m=>m.canvasEditor),drawio:()=>import('./drawio.js').then(m=>m.drawioEditor)};
   editor=await (await factories[boot.kind]())();connect();
 }catch(e){error(format('Editor could not start: %(message)s', {message:e.message}));console.error(e);}

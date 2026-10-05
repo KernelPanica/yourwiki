@@ -9,7 +9,7 @@ from django.db import transaction
 
 from wiki.models import Document, Folder, SiteConfiguration, Attachment, PendingDeletion
 from wiki.native import unpack
-from wiki.file_formats import decode, digest
+from wiki.file_formats import decode
 from wiki.services import EXTENSIONS, validate_content
 from wiki.storage import StorageError, active_storage
 
@@ -50,7 +50,10 @@ class Command(BaseCommand):
             native_file = path.name.lower().endswith('.wiki.json')
             suffix = path.suffix.lower()
             kind = next((candidate for candidate, extension in EXTENSIONS.items() if extension == suffix.lstrip('.')), 'file')
-            file_format = suffix.lstrip('.') if suffix in ('.md', '.docx', '.ods') else ''
+            try:
+                file_format = adapter.file_format(reference, key)
+            except StorageError:
+                continue
             if file_format: kind = 'table' if file_format == 'ods' else 'document'
             title = path.name if kind == 'file' else path.stem
             if native_file:
@@ -71,7 +74,7 @@ class Command(BaseCommand):
                 continue
             with transaction.atomic():
                 Document.objects.create(title=title[:200], kind=kind, collection='Imported', owner=owner,
-                                        group=group, folder=folder, reference=reference, file_format=file_format, storage_digest=digest(content),
+                                        group=group, folder=folder, reference=reference, file_format=file_format, storage_digest=adapter.fingerprint(reference, content),
                                         policy=SiteConfiguration.current().default_document_policy,
                                         inherit_permissions=bool(folder), path_synced=True)
             created += 1

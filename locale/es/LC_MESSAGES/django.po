@@ -1650,3 +1650,45 @@ msgstr "El proxy o servidor rechazó la carga: archivo demasiado grande. Comprue
 
 msgid "File history exceeds 50 MB. Download and archive the history, then disable history to continue saving. The original was not overwritten."
 msgstr "El historial supera 50 MB. Descárguelo y archívelo; después desactive el historial para seguir guardando. El original no se sobrescribió."
+
+msgid "Inherit from parent (workspace defaults at root)"
+msgstr "Heredar de la carpeta (valores del espacio en la raíz)"
+
+msgid "Set explicit permissions"
+msgstr "Establecer permisos explícitos"
+
+msgid "Access permissions"
+msgstr "Permisos de acceso al crear"
+
+msgid "Explicit permissions"
+msgstr "Permisos explícitos"
+
+msgid "Inherited access follows future changes to the parent directory. Explicit permissions stay with this item. Administrators always retain access."
+msgstr "Los permisos heredados siguen los cambios de la carpeta superior. Los permisos explícitos se conservan en este elemento. Los administradores siempre tienen acceso."
+
+msgid "Primary group refers to the group selected above. Everyone means other signed-in workspace members. Reading or writing also requires visibility. These settings do not change sharing at the storage provider."
+msgstr "El grupo principal es el seleccionado arriba. Todos son los demás miembros que han iniciado sesión. Leer o escribir también requiere visibilidad. Estos ajustes no cambian el uso compartido en el proveedor de almacenamiento."
+
+msgid "Use / for the workspace root. Permissions inherit from the parent unless you set explicit permissions below."
+msgstr "Use / para la raíz del espacio. Los permisos se heredan de la carpeta si no establece permisos explícitos."
+
+msgid "Permissions for selected groups"
+msgstr "Permisos de los grupos seleccionados"
+
+msgid "Select groups that need separate rules. These rules take priority over the defaults above. For members of several selected groups, the most permissive capability applies."
+msgstr "Seleccione los grupos que necesitan reglas independientes. Estas tienen prioridad sobre los valores anteriores. Para miembros de varios grupos seleccionados se aplica el permiso más amplio."
+
+msgid "Use separate permissions"
+msgstr "Usar permisos independientes"
+
+msgid "Select groups to use separate permissions. Unselected groups follow the owner, primary group and everyone defaults below."
+msgstr "Seleccione grupos para usar permisos independientes. Los demás siguen los valores de propietario, grupo principal y todos indicados abajo."
+
+msgid "Editing"
+msgstr "Edición"
+
+msgid "Insert"
+msgstr "Insertar"
+
+msgid "Home"
+msgstr "Inicio"

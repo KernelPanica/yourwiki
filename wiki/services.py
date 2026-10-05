@@ -66,6 +66,16 @@ def validate_policy(policy):
             raise ValidationError('Invalid permission policy.')
 
 
+def group_policies_from_post(data, groups):
+    actions = ('visible', 'read', 'write')
+    return {str(group.pk): {action: data.get(f'group.{group.pk}.{action}') == 'on'
+                           for action in actions}
+            for group in groups
+            if (data.get(f'group.{group.pk}.enabled') == 'on'
+                if data.get('group_permissions_present') == '1'
+                else any(data.get(f'group.{group.pk}.{action}') == 'on' for action in actions))}
+
+
 def require(doc, user, action):
     if not doc.allows(user, 'visible') or not doc.allows(user, action):
         raise PermissionDenied
@@ -100,8 +110,8 @@ def save_document(user, title, kind, collection, content, group, doc=None, revis
                        inherit_permissions=bool(folder), path_synced=True)
         from .models import SiteConfiguration
         doc.policy = SiteConfiguration.current().default_document_policy
-        doc.file_format = (file_format or 'md') if kind == 'document' else 'ods' if kind == 'table' else ''
-    if file_format and (file_format not in ('md', 'docx', 'ods') or kind == 'document' and file_format not in ('md', 'docx')):
+        doc.file_format = (file_format or 'docx') if kind == 'document' else 'ods' if kind == 'table' else ''
+    if file_format and file_format not in {'document': ('md', 'docx'), 'table': ('ods',)}.get(kind, ()):
         raise ValidationError('Unsupported file format.')
     if not doc.file_format and kind in ('document', 'table'):
         doc.file_format = 'md' if kind == 'document' else 'ods'

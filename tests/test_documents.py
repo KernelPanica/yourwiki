@@ -10,7 +10,7 @@ from wiki.services import save_document,Conflict
 class TestDocuments:
     def test_create_read_edit_export(self,client,workspace):
         client.force_login(workspace['admin'])
-        response=client.post('/api/docs',data=json.dumps({'title':'Created','content':'# Content','group':'team'}),content_type='application/json')
+        response=client.post('/api/docs',data=json.dumps({'title':'Created','content':'# Content','group':'team','file_format':'md'}),content_type='application/json')
         assert response.status_code==201,response.content
         id=response.json()['id']
         assert client.get('/api/docs/'+id).json()['content']=='# Content'
@@ -33,6 +33,7 @@ class TestDocuments:
             from wiki.storage import active_storage
             adapter.return_value.read.side_effect = active_storage().read
             adapter.return_value.location.side_effect = active_storage().location
+            adapter.return_value.fingerprint.side_effect = active_storage().fingerprint
             adapter.return_value.move.side_effect = active_storage().move
             adapter.return_value.write.side_effect=StorageError('Unavailable')
             response=client.post(reverse('edit',args=[document.pk]),{'title':'Changed','collection':'Engineering','content':'UNSAVED TEXT','revision':1})
@@ -132,3 +133,18 @@ class TestDocuments:
         response=client.put(f'/api/docs/{document.pk}',data=json.dumps({'content':'changed','revision':1,'policy':{}}),content_type='application/json')
         assert response.status_code==400
         document.refresh_from_db();assert document.revision==1
+
+
+@pytest.mark.django_db
+def test_api_defaults_to_docx(client, workspace):
+    client.force_login(workspace['admin'])
+    response = client.post('/api/docs', data=json.dumps({
+        'title': 'Default Word API', 'content': '# Content', 'group': 'team',
+    }), content_type='application/json')
+    assert response.status_code == 201
+    document = Document.objects.get(pk=response.json()['id'])
+    assert document.file_format == 'docx'
+    assert document.reference.endswith('.docx')
+    from io import BytesIO
+    from docx import Document as Word
+    assert 'Content' in [p.text for p in Word(BytesIO(active_storage().read(document.reference))).paragraphs]

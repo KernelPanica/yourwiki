@@ -1659,3 +1659,45 @@ msgstr "Прокси или сервер отклонил загрузку: фа
 
 msgid "File history exceeds 50 MB. Download and archive the history, then disable history to continue saving. The original was not overwritten."
 msgstr "История файла превышает 50 МБ. Скачайте и сохраните её в архив, затем отключите историю для продолжения работы. Оригинал не перезаписан."
+
+msgid "Inherit from parent (workspace defaults at root)"
+msgstr "Наследовать от папки (в корне — настройки пространства)"
+
+msgid "Set explicit permissions"
+msgstr "Задать собственные права"
+
+msgid "Access permissions"
+msgstr "Права доступа при создании"
+
+msgid "Explicit permissions"
+msgstr "Собственные права доступа"
+
+msgid "Inherited access follows future changes to the parent directory. Explicit permissions stay with this item. Administrators always retain access."
+msgstr "Наследуемые права обновляются при изменении прав родительской папки. Собственные права сохраняются у этого объекта. Администраторы всегда имеют доступ."
+
+msgid "Primary group refers to the group selected above. Everyone means other signed-in workspace members. Reading or writing also requires visibility. These settings do not change sharing at the storage provider."
+msgstr "Основная группа — группа, выбранная выше. «Все» — остальные вошедшие участники пространства. Для чтения и записи нужна также видимость. Эти настройки не меняют общий доступ у провайдера хранилища."
+
+msgid "Use / for the workspace root. Permissions inherit from the parent unless you set explicit permissions below."
+msgstr "Используйте / для корня пространства. Права наследуются от папки, если не заданы собственные права."
+
+msgid "Permissions for selected groups"
+msgstr "Права выбранных групп"
+
+msgid "Select groups that need separate rules. These rules take priority over the defaults above. For members of several selected groups, the most permissive capability applies."
+msgstr "Выберите группы, которым нужны отдельные правила. Они имеют приоритет над общими правилами выше. Для участников нескольких выбранных групп применяется наиболее разрешающий доступ."
+
+msgid "Use separate permissions"
+msgstr "Использовать собственные права"
+
+msgid "Select groups to use separate permissions. Unselected groups follow the owner, primary group and everyone defaults below."
+msgstr "Выберите группы для настройки собственных прав. Для остальных применяются общие правила владельца, основной группы и всех участников ниже."
+
+msgid "Editing"
+msgstr "Редактирование"
+
+msgid "Insert"
+msgstr "Вставка"
+
+msgid "Home"
+msgstr "Главная"

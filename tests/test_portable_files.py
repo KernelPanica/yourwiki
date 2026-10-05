@@ -80,6 +80,7 @@ def test_ods_formula_styles_sheets_and_foreign_import(workspace):
     imported = unpack(read_ods(output.getvalue()))['data']
     assert len(imported['sheets']) == 2
     assert imported['sheets']['sheet1']['cellData']['1']['0']['f'] == '=SUM(A1:B1)'
+    assert imported['sheets']['sheet1']['cellData']['0']['0']['s'] == {'bl': 1, 'bg': {'rgb': '#ff0000'}}
     for reader in (read_ods, read_docx):
         with pytest.raises(ValidationError): reader(b'not a zip archive')
 
@@ -125,9 +126,9 @@ def test_original_link_read_permissions_and_provider_move(client, workspace, doc
         url.assert_not_called()
     google = GoogleDrive({'root':'root'})
     with patch.object(google, 'headers', return_value={}), patch.object(google, 'directory', return_value='destination'), patch.object(google, 'request') as request:
-        request.return_value.json.return_value = {'parents':['root']}
+        request.return_value.json.return_value = {'parents':['root'], 'ownedByMe':True, 'shared':False}
         assert google.move('original-id', 'Folder/file.ods') == 'original-id'
-        assert [call.args[0] for call in request.call_args_list] == ['GET', 'PATCH']
+        assert [call.args[0] for call in request.call_args_list] == ['GET', 'GET', 'PATCH']
         assert request.call_args.kwargs['params']['removeParents'] == 'root'
         assert request.call_args.kwargs['json'] == {'name':'file.ods'}
 
@@ -197,3 +198,89 @@ def test_text_document_cannot_claim_a_spreadsheet_format(workspace):
     with pytest.raises(ValidationError):
         save_document(workspace['admin'], 'Wrong format', 'document', 'Notes', 'content', workspace['team'], file_format='ods')
     assert not list(workspace['root'].iterdir())
+
+
+def test_legacy_source_read_establishes_external_conflict_baseline(workspace, document):
+    Document.objects.filter(pk=document.pk).update(storage_digest='')
+    document.refresh_from_db()
+    assert current_content(document).startswith('# Hello')
+    active_storage().write(document.reference, b'External edit', document.reference)
+    with pytest.raises(Conflict):
+        save_document(workspace['admin'], document.title, 'document', 'Notes', 'Stale source',
+                      workspace['team'], document, document.revision)
+    assert active_storage().read(document.reference) == b'External edit'
+
+
+def test_stale_room_document_uses_moved_file(workspace, document):
+    from wiki.folders import move_item
+    stale = Document.objects.get(pk=document.pk)
+    ensure_room(document)
+    move_item(workspace['admin'], document, None, rename='Moved')
+    room = ensure_room(stale)
+    assert room.document_id == document.pk
+    assert stale.reference == document.reference
+    assert stale.revision == document.revision
+
+
+def test_document_policy_exposes_and_preserves_inheritance(client, workspace, document):
+    parent = Folder.objects.create(name='Parent', owner=workspace['admin'], group=workspace['team'])
+    document.folder = parent
+    document.inherit_permissions = True
+    document.save()
+    client.force_login(workspace['admin'])
+    page = client.get(f'/documents/{document.pk}/permissions/')
+    assert b'name="inherit_permissions" checked' in page.content
+    response = client.post(f'/documents/{document.pk}/permissions/', {
+        'group': workspace['team'].pk, 'inherit_permissions': 'on',
+        'owner.visible': 'on', 'owner.read': 'on', 'owner.write': 'on',
+    })
+    assert response.status_code == 302
+    document.refresh_from_db()
+    assert document.inherit_permissions
+    parent.policy['group']['read'] = False
+    parent.save()
+    assert not Document.objects.get(pk=document.pk).allows(workspace['member'], 'read')
+
+
+def test_failed_save_restores_existing_history_and_rename(workspace, document):
+    from wiki.storage import StorageError
+    document.revision_history = True
+    document.save()
+    document = save_document(workspace['admin'], document.title, 'document', 'Notes', 'Second',
+                             workspace['team'], document, document.revision)
+    adapter = active_storage()
+    previous = adapter.read(document.reference)
+    previous_history = adapter.read(document.history_reference)
+    write = adapter.write
+    def fail_main(key, data, reference=None, **kwargs):
+        if key.endswith('.md'):
+            raise StorageError('Offline')
+        return write(key, data, reference, **kwargs)
+    from wiki.file_history import persist
+    with patch.object(adapter, 'write', side_effect=fail_main):
+        with pytest.raises(StorageError, match='Offline'):
+            persist(document, 'Third', 'Renamed.md', adapter=adapter)
+    assert adapter.read(document.reference) == previous
+    assert adapter.read(document.history_reference) == previous_history
+    assert not (workspace['root'] / 'Renamed.md').exists()
+    assert not (workspace['root'] / 'Renamed.md.json').exists()
+
+
+@pytest.mark.parametrize('kind,file_format', [('table', 'md'), ('table', 'docx'), ('file', 'ods')])
+def test_formats_must_match_the_file_kind(workspace, kind, file_format):
+    with pytest.raises(ValidationError, match='Unsupported file format'):
+        save_document(workspace['admin'], 'Wrong', kind, 'Notes', '', workspace['team'],
+                      file_format=file_format)
+    assert not list(workspace['root'].iterdir())
+
+
+@pytest.mark.parametrize('kind', ['table', 'canvas', 'drawio', 'file'])
+def test_creation_form_applies_text_format_only_to_documents(client, workspace, kind):
+    client.force_login(workspace['admin'])
+    response = client.post('/documents/new/', {
+        'title': 'New ' + kind, 'kind': kind, 'group': workspace['team'].pk,
+        'file_format': 'docx', 'content': '', 'path': '/',
+    })
+    assert response.status_code == 302
+    doc = Document.objects.get(title='New ' + kind)
+    assert doc.file_format == ('ods' if kind == 'table' else '')

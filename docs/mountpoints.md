@@ -48,7 +48,7 @@ read-only.
 ## Moves and credentials
 
 Drag files or ordinary directories onto destinations in the explorer, or use
-their Move action with keyboard or touch. Same-mount moves use provider rename/move operations. Cross-mount moves verify the destination bytes, commit the catalog, then delete the originals through the retry queue. History and attachments move too. Older independent revisions and external backups are retained.
+their Move action with keyboard or touch. Moves use provider rename/move operations, including compatible mounts on the same filesystem, Drive account, OneDrive drive, SFTP/SMB server, or GitHub repository and branch. Incompatible moves fail without copying and deleting files. History and attachments move too. Older independent revisions and external backups are retained.
 
 Mountpoints and directories containing mounts cannot be renamed or moved.
 Move their files out and unmount before reorganizing those paths. The root
@@ -57,7 +57,7 @@ file references or pending cleanup tasks. It retains the provider files and
 the logical empty directory.
 
 **Credentials** updates authentication without changing the provider identity
-or root. To change providers, create a new mount and move files to it.
+or root. To change providers, export and import files into a new mount; a move between unrelated providers is unavailable.
 The legacy `/storage/` URL opens mount management.
 
 Back up the SQLite database, encryption key, and every provider's content.

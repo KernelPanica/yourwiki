@@ -52,10 +52,11 @@ def test_root_and_longest_mount_routing_preserve_existing_references(workspace, 
 
 
 @pytest.mark.django_db(transaction=True)
-def test_cross_mount_moves_copy_attachments_and_empty_subdirectories(workspace, document, tmp_path):
+def test_cross_mount_moves_relocate_attachments_and_empty_subdirectories(workspace, document, tmp_path):
     destination, root = mount(workspace, tmp_path, '/Remote')
     adapter = active_storage()
     attachment = Attachment.objects.create(document=document, reference=adapter.write('old-image.png', b'image'), content_type='image/png')
+    inode = (workspace['root'] / document.reference).stat().st_ino
     directory = Folder.objects.create(name='Notes', owner=workspace['admin'], group=workspace['team'])
     Folder.objects.create(name='Empty', parent=directory, owner=workspace['admin'], group=workspace['team'])
     document.folder = directory
@@ -64,6 +65,7 @@ def test_cross_mount_moves_copy_attachments_and_empty_subdirectories(workspace, 
     document.refresh_from_db()
     attachment.refresh_from_db()
     assert document.reference.startswith(f'mount:{destination.pk}:Notes/')
+    assert (root / document.reference.split(':', 2)[2]).stat().st_ino == inode
     assert attachment.reference.startswith(f'mount:{destination.pk}:Notes/.attachments/')
     assert (root/'Notes/Empty').is_dir()
     assert adapter.read(attachment.reference) == b'image'
@@ -78,7 +80,7 @@ def test_failed_move_preserves_original_file(workspace, document, tmp_path):
     destination, _ = mount(workspace, tmp_path, '/Remote')
     before = document.reference
     adapter = active_storage()
-    with patch('wiki.folders.active_storage', return_value=adapter), patch.object(adapter, 'write', side_effect=StorageError('offline')):
+    with patch('wiki.folders.active_storage', return_value=adapter), patch.object(adapter, 'move', side_effect=StorageError('offline')):
         with pytest.raises(StorageError):
             move_item(workspace['admin'], document, destination.folder)
     document.refresh_from_db()

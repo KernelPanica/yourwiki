@@ -34,3 +34,23 @@
 .pdf-controls{display:flex;flex-wrap:wrap;align-items:center;gap:16px;margin:16px 0;border:1px solid var(--line);border-radius:8px}.pdf-controls label{display:flex;align-items:center;gap:8px;margin:0}.pdf-controls input{width:70px}.pdf-controls select,.pdf-controls input{margin:0;width:auto}.pdf-frame{position:relative;height:75vh;min-height:360px;background:#525659}.pdf-frame #pdf-container{position:absolute;inset:0;overflow:auto}.pdf-frame .pdfViewer{line-height:normal;color:#000;color-scheme:light}.pdf-frame input,.pdf-frame textarea,.pdf-frame select{min-height:0;box-shadow:none;margin:0;max-width:none}.pdf-frame .annotationLayer section{margin:0;padding:0}
 
 .file-grid-card{position:relative}.file-grid-card>.quick-card{height:100%;padding-right:64px}.file-grid-card>.icon-button{position:absolute;top:16px;right:16px}
+.creation-permissions{margin:24px 0;padding-top:24px;border-top:1px solid var(--line-soft)}.creation-permissions fieldset{min-width:0;margin:16px 0;padding:16px;border:1px solid var(--line-soft);border-radius:8px}.creation-permissions legend{padding:0 8px;font-weight:600}.creation-permissions .policy-table{margin:16px 0 0}.creation-permissions input[type=checkbox]{width:20px;height:20px}.creation-permissions .checkbox-hit{min-height:44px}
+@media(max-width:520px){.creation-permissions fieldset{padding:8px}.creation-permissions .permission-matrix{min-width:0;table-layout:fixed}.creation-permissions .permission-matrix th,.creation-permissions .permission-matrix td{padding:4px;font-size:12px;overflow-wrap:anywhere}.creation-permissions .permission-matrix th:first-child{min-width:0;width:34%}.creation-permissions .checkbox-hit{gap:0}.creation-permissions input[type=checkbox]{flex:none}}
+
+/* Keep long names and translated controls within their layout columns. */
+main,.workspace-menu-panel,.directory-menu-panel{overflow-wrap:anywhere}
+.topbar{gap:16px}.topbar-start{flex:1}.workspace-menu{flex:none}
+.heading-row>div,.document-toolbar>div,.form-actions>*,.setting-row>*,.invitation-row>*{min-width:0}
+.button{max-width:100%;white-space:normal;text-align:center}
+label.checkbox-hit{display:inline-flex;gap:8px;max-width:100%;margin:0;min-width:0;font-weight:400}
+label.checkbox-hit input[type=checkbox],label.checkbox-hit input[type=radio]{flex:none}
+.permission-matrix{table-layout:fixed}.permission-matrix th:first-child{width:40%;min-width:0}
+.permission-matrix th{overflow-wrap:anywhere}.permission-matrix th .checkbox-hit{justify-content:flex-start}
+.workspace-menu-panel,.directory-menu-panel{max-width:calc(100vw - 32px)}
+@media(max-width:520px){
+  .permission-matrix{min-width:0}.permission-matrix th,.permission-matrix td{padding:4px;font-size:12px}.permission-matrix .group-avatar{margin:0 0 8px}
+  .permission-matrix label.checkbox-hit{gap:4px}.permission-matrix input[type=checkbox]{margin:4px}
+  .form-actions>label{flex-basis:100%}.directory-menu-panel{position:fixed;top:80px;right:16px;max-height:calc(100dvh - 96px)}
+}
+.folder-settings-link{margin-bottom:16px}
+@media(max-width:520px){.creation-permissions .permission-matrix th:first-child{width:42%}}

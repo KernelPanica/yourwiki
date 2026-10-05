@@ -29,12 +29,12 @@ export function button(label, action, {write=true, parent=toolbar}={}) {
   el.addEventListener('click',()=>Promise.resolve().then(action).catch(e=>error(e.message)));
   parent.append(el);return el;
 }
-export function select(label, values, action) {
+export function select(label, values, action, parent=toolbar) {
   label=t(label);
   const wrap=document.createElement('label');wrap.className='toolbar-label';wrap.textContent=label;
   const el=document.createElement('select');el.setAttribute('aria-label',label);el.dataset.write='';el.disabled=!boot.write;
   for(const [value,text] of values){const option=new Option(t(text),value);el.add(option);}
-  el.onchange=()=>action(el.value);wrap.append(el);toolbar.append(wrap);return el;
+  el.onchange=()=>action(el.value);wrap.append(el);parent.append(wrap);return el;
 }
 export function dialog(title, fields) {
   const el=document.getElementById('editor-dialog'), container=document.getElementById('dialog-fields');

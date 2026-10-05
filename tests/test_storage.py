@@ -25,6 +25,9 @@ def test_cloud_crud_contract(provider):
         calls.append((method,url,kwargs))
         if url.endswith('/token'):return Reply({'access_token':'access','refresh_token':'rotated'})
         if provider=='google':
+            if method == 'GET' and 'fields' in kwargs.get('params', {}):
+                return Reply({'id':url.rsplit('/',1)[-1], 'ownedByMe':True, 'shared':False,
+                              'mimeType':'application/vnd.google-apps.folder' if url.endswith('/root') else 'application/octet-stream'})
             if method=='POST':
                 assert kwargs['params']['uploadType']=='multipart'
                 raw=kwargs['data'];boundary=kwargs['headers']['Content-Type'].split('boundary=')[1].encode()
@@ -34,10 +37,16 @@ def test_cloud_crud_contract(provider):
             if method=='GET':assert kwargs['params']['alt']=='media';return Reply(content=files['id'])
             if method=='DELETE':files.pop('id');return Reply()
         if provider=='onedrive':
+            if method == 'GET' and url.endswith('/permissions'):return Reply({'value':[]})
+            if method == 'GET' and url == adapter.base:return Reply({'id':'drive','owner':{'user':{'id':'owner'}}})
+            if method == 'GET' and kwargs.get('params', {}).get('$select'):return Reply({'id':'root'})
             if method=='PUT':files['id']=kwargs['data'];return Reply({'id':'id'})
             if method=='GET':return Reply(content=files['id'])
             if method=='DELETE':files.pop('id');return Reply()
         if provider=='github':
+            if method == 'GET' and url.endswith('/user'):return Reply({'login':'owner'})
+            if method == 'GET' and url.endswith('/owner/repo'):return Reply({'private':True,'owner':{'login':'owner','type':'User'}})
+            if method == 'GET' and url.endswith('/collaborators'):return Reply([{'login':'owner'}])
             if method=='PUT':
                 body=kwargs['json']
                 assert body['branch']=='main'
@@ -108,6 +117,8 @@ def test_remote_directory_paths_use_provider_folders():
     calls=[]
     def google_request(method,url,**kw):
         calls.append((method,url,kw))
+        if method == 'GET' and 'fields' in kw.get('params', {}) and not url.endswith('/files'):
+            return Reply({'ownedByMe':True,'shared':False})
         if method=='GET':return Reply({'files':[]})
         if kw.get('json') and kw['json'].get('mimeType')=='application/vnd.google-apps.folder':
             return Reply({'id':'folder-'+kw['json']['name']})
@@ -125,6 +136,9 @@ def test_remote_directory_paths_use_provider_folders():
     urls=[]
     def onedrive_request(method,url,**kw):
         urls.append((method,url))
+        if method == 'GET' and url.endswith('/permissions'):return Reply({'value':[]})
+        if method == 'GET' and url == onedrive.base:return Reply({'owner':{'user':{'id':'owner'}}})
+        if method == 'GET' and kw.get('params', {}).get('$select'):return Reply({'id':'root'})
         return Reply({'id':'folder-'+kw['json']['name']} if method=='POST' else {'id':'file'},status_code=404 if method=='GET' else 200)
     onedrive.request=onedrive_request
     onedrive.ensure_dir('Projects/Notes')
@@ -141,3 +155,53 @@ def test_http_errors_do_not_leak_provider_details(monkeypatch):
     broken=Mock();broken.read.side_effect=OSError('secret path')
     with pytest.raises(StorageError) as error:SafeAdapter(broken).read('x')
     assert 'secret path' not in str(error.value)
+
+@pytest.mark.parametrize('permissions', [
+    {'value':[{'link':{'scope':'anonymous'}}]},
+    {'value':[{'grantedToV2':{'user':{'id':'another'}}}]},
+    {'value':[], '@odata.nextLink':'https://example.com/next'},
+    {},
+])
+def test_onedrive_refuses_unverified_or_shared_items(permissions):
+    adapter = OneDrive({'root':'root'})
+    adapter.headers = lambda: {}
+    calls = []
+    def request(method, url, **kwargs):
+        calls.append(method)
+        if url.endswith('/permissions'): return Reply(permissions)
+        if url == adapter.base: return Reply({'owner':{'user':{'id':'owner'}}})
+        return Reply({'id':'file','webUrl':'https://onedrive.live.com/file'})
+    adapter.request = request
+    with pytest.raises(StorageError): adapter.original_url('file')
+    assert set(calls) == {'GET'}
+
+@pytest.mark.parametrize('private,owner,collaborators', [
+    (False, 'owner', [{'login':'owner'}]),
+    (True, 'another', [{'login':'owner'}]),
+    (True, 'owner', [{'login':'owner'}, {'login':'another'}]),
+])
+def test_github_refuses_public_or_shared_repositories(private, owner, collaborators):
+    adapter = GitHub({'repository':'owner/repo','token':'token','branch':'main','root':''})
+    calls = []
+    def request(method, url, **kwargs):
+        calls.append(method)
+        if url.endswith('/user'): return Reply({'login':'owner'})
+        if url.endswith('/collaborators'): return Reply(collaborators)
+        return Reply({'private':private, 'owner':{'login':owner,'type':'User'}})
+    adapter.request = request
+    with pytest.raises(StorageError): adapter.original_url('file.md')
+    assert set(calls) == {'GET'}
+
+
+def test_cross_filesystem_move_keeps_original_without_copy(tmp_path):
+    import errno
+    from unittest.mock import patch
+    from pathlib import Path
+    source = Local({'root':str(tmp_path / 'source')})
+    destination = Local({'root':str(tmp_path / 'destination')})
+    reference = source.write('original.md', b'original content')
+    with patch.object(Path, 'rename', side_effect=OSError(errno.EXDEV, 'Cross-device link')):
+        with pytest.raises(StorageError, match='no copy'):
+            source.move_to(reference, destination, 'moved.md')
+    assert source.read(reference) == b'original content'
+    assert not destination.path('moved.md').exists()

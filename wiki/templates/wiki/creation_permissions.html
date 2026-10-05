@@ -1,0 +1,33 @@
+{% load i18n %}
+{% if form.permission_names %}
+<section class="creation-permissions" data-creation-permissions>
+  <h2>{% translate "Access permissions" %}</h2>
+  <label for="{{ form.permissions_mode.id_for_label }}">{{ form.permissions_mode.label }}</label>
+  {{ form.permissions_mode }}{{ form.permissions_mode.errors }}
+  <p class="muted">{% translate "Inherited access follows future changes to the parent directory. Explicit permissions stay with this item. Administrators always retain access." %}</p>
+  <fieldset data-explicit-permissions>
+    <legend>{% translate "Explicit permissions" %}</legend>
+    <p class="muted">{% translate "Primary group refers to the group selected above. Everyone means other signed-in workspace members. Reading or writing also requires visibility. These settings do not change sharing at the storage provider." %}</p>
+    <div class="permission-table-wrap">
+      <table class="policy-table permission-matrix">
+        <thead><tr><th scope="col">{% translate "Who" %}</th><th scope="col">{% translate "Visible" %}</th><th scope="col">{% translate "Read" %}</th><th scope="col">{% translate "Write" %}</th></tr></thead>
+        <tbody>{% for label, fields in form.permission_rows %}
+          <tr><th scope="row">{{ label }}</th>{% for field in fields %}<td><label class="checkbox-hit" for="{{ field.id_for_label }}">{{ field }}</label>{{ field.errors }}</td>{% endfor %}</tr>
+        {% endfor %}</tbody>
+      </table>
+    </div>
+    {% if form.permission_group_rows %}
+    <h3>{% translate "Permissions for selected groups" %}</h3>
+    <p class="muted">{% translate "Select groups that need separate rules. These rules take priority over the defaults above. For members of several selected groups, the most permissive capability applies." %}</p>
+    <div class="permission-table-wrap">
+      <table class="policy-table permission-matrix">
+        <thead><tr><th scope="col">{% translate "Group" %}</th><th scope="col">{% translate "Visible" %}</th><th scope="col">{% translate "Read" %}</th><th scope="col">{% translate "Write" %}</th></tr></thead>
+        <tbody>{% for group, enabled, fields in form.permission_group_rows %}
+          <tr data-group-permission-row><th scope="row"><label class="checkbox-hit" for="{{ enabled.id_for_label }}">{{ enabled }}{{ group.name }}</label></th>{% for field in fields %}<td><label class="checkbox-hit" for="{{ field.id_for_label }}">{{ field }}</label>{{ field.errors }}</td>{% endfor %}</tr>
+        {% endfor %}</tbody>
+      </table>
+    </div>
+    {% endif %}
+  </fieldset>
+</section>
+{% endif %}

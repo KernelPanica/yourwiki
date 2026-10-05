@@ -96,7 +96,7 @@ class AccessPolicy:
             return True
         source = self.effective_source()
         policy, group_id = source.policy, source.group_id
-        if isinstance(source, Folder):
+        if isinstance(source, (Folder, Document)):
             grants = source.group_policies or {}
             allowed = [rules.get(action) is True for gid, rules in grants.items()
                        if user.groups.filter(pk=gid).exists()]
@@ -136,6 +136,7 @@ class Document(AccessPolicy, models.Model):
     owner = models.ForeignKey(User, on_delete=models.PROTECT)
     group = models.ForeignKey(Group, on_delete=models.PROTECT)
     policy = models.JSONField(default=default_policy)
+    group_policies = models.JSONField(default=dict)
     revision = models.PositiveIntegerField(default=1)
     reference = models.TextField()
     starred = models.BooleanField(default=False)

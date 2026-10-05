@@ -223,6 +223,8 @@ def seed(document, content):
 
 @transaction.atomic
 def ensure_room(document):
+    # Callers may have loaded the document before a rename or another save.
+    document.refresh_from_db()
     if document.kind == 'file':
         raise ValidationError('Uploaded files do not have a collaborative editor.')
     from .source import check_available
@@ -232,20 +234,19 @@ def ensure_room(document):
         from .realtime import connections
         if room.sequence != room.synced_sequence or connections.get(str(document.pk)):
             return room
-        from .file_formats import digest
         raw = active_storage().read(document.reference)
-        if not document.storage_digest or digest(raw) == document.storage_digest:
+        if not document.storage_digest or active_storage().fingerprint(document.reference, raw) == document.storage_digest:
             return room
         room.delete()
-        document.storage_digest = digest(raw)
+        document.storage_digest = active_storage().fingerprint(document.reference, raw)
         document.revision += 1
         document.save(update_fields=['storage_digest', 'revision'])
-    from .file_formats import decode, digest
+    from .file_formats import decode
     raw = active_storage().read(document.reference)
     content = decode(document, raw)
     if not document.storage_digest:
-        Document.objects.filter(pk=document.pk, storage_digest='').update(storage_digest=digest(raw))
-        document.storage_digest = digest(raw)
+        Document.objects.filter(pk=document.pk, storage_digest='').update(storage_digest=active_storage().fingerprint(document.reference, raw))
+        document.storage_digest = active_storage().fingerprint(document.reference, raw)
     state = seed(document, content).get_update()
     with transaction.atomic():
         room, _ = Collaboration.objects.get_or_create(document=document)
@@ -309,9 +310,17 @@ def flush_room(document_id):
     room.save(update_fields=['synced_sequence'])
 
 
+@transaction.atomic
 def current_content(document):
+    document = Document.objects.get(pk=document.pk)
     room = Collaboration.objects.filter(document=document).first()
     if room and room.snapshot and room.sequence != room.synced_sequence:
         return room.snapshot
     from .file_formats import decode
-    return decode(document, active_storage().read(document.reference))
+    raw = active_storage().read(document.reference)
+    content = decode(document, raw)
+    # Legacy files need a baseline before a source editor can detect changes
+    # made outside Yourwiki between opening and saving the file.
+    if not document.storage_digest:
+        Document.objects.filter(pk=document.pk, storage_digest='').update(storage_digest=active_storage().fingerprint(document.reference, raw))
+    return content

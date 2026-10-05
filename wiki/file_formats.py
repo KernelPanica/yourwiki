@@ -179,10 +179,33 @@ def write_ods(content, title):
 def read_ods(data):
     ns = {'o': 'urn:oasis:names:tc:opendocument:xmlns:office:1.0', 't': 'urn:oasis:names:tc:opendocument:xmlns:table:1.0', 'm': 'urn:oasis:names:tc:opendocument:xmlns:meta:1.0'}
     attr = lambda node, namespace, name, default=None: node.get('{'+ns[namespace]+'}'+name, default)
+    ns.update({'s': 'urn:oasis:names:tc:opendocument:xmlns:style:1.0', 'f': 'urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0'})
+    styles = {}
     with checked_archive(data) as archive:
         if archive.read('mimetype').decode() != ODS_MIME:
             raise ValidationError('Choose an ODS spreadsheet.')
         visible = archive.read('content.xml')
+        for xml in [visible] + ([archive.read('styles.xml')] if 'styles.xml' in archive.namelist() else []):
+            for node in fromstring(xml).findall('.//s:style', ns):
+                style = {}
+                for props in node:
+                    for attribute, key, expected in [('font-weight', 'bl', 'bold'), ('font-style', 'it', 'italic')]:
+                        if attr(props, 'f', attribute) == expected:
+                            style[key] = 1
+                    for attribute, key in [('color', 'cl'), ('background-color', 'bg')]:
+                        color = attr(props, 'f', attribute)
+                        if color and color != 'transparent':
+                            style[key] = {'rgb': color}
+                    size = attr(props, 'f', 'font-size', '')
+                    if size.endswith('pt'):
+                        style['fs'] = float(size[:-2])
+                    family = attr(props, 'f', 'font-family')
+                    if family:
+                        style['ff'] = family
+                    align = attr(props, 'f', 'text-align')
+                    if align in ('left', 'center', 'right'):
+                        style['ht'] = {'left': 1, 'center': 2, 'right': 3}[align]
+                styles[attr(node, 's', 'name')] = (attr(node, 's', 'parent-style-name'), style)
         if 'meta.xml' in archive.namelist():
             for prop in fromstring(archive.read('meta.xml')).findall('.//m:user-defined', ns):
                 if attr(prop, 'm', 'name') == 'yourwiki':
@@ -190,10 +213,17 @@ def read_ods(data):
                     if content:
                         return content
     workbook = {'id': 'workbook', 'name': 'Workbook', 'sheetOrder': [], 'sheets': {}, 'styles': {}}
+    def cell_style(name, seen=None):
+        seen = set() if seen is None else seen
+        if name not in styles or name in seen:
+            return {}
+        seen.add(name)
+        parent, own = styles[name]
+        return {**cell_style(parent, seen), **own}
     for number, table in enumerate(fromstring(visible).findall('.//t:table', ns)):
         if number >= 20:
             raise ValidationError('A workbook supports 1–20 sheets.')
-        cells = {}; row_index = 0; columns = 1
+        cells = {}; row_index = 0; columns = 1; merges = []
         for row in table.findall('.//t:table-row', ns):
             values = {}; col = 0
             for node in row:
@@ -209,11 +239,19 @@ def read_ods(data):
                 elif value_type:
                     value = attr(node, 'o', 'date-value') or attr(node, 'o', 'time-value') or ''.join(node.itertext())
                 f = attr(node, 't', 'formula')
+                style = cell_style(attr(node, 't', 'style-name'))
+                row_span = int(attr(node, 't', 'number-rows-spanned', '1'))
+                column_span = int(attr(node, 't', 'number-columns-spanned', '1'))
+                if row_span != 1 or column_span != 1:
+                    if not (1 <= row_span <= 2000 - row_index and 1 <= column_span <= 200 - col) or count != 1:
+                        raise ValidationError('Invalid merged cell range.')
+                    merges.append({'startRow': row_index, 'endRow': row_index + row_span - 1, 'startColumn': col, 'endColumn': col + column_span - 1})
+                    columns = max(columns, col + column_span)
                 if value is not None or f:
                     if col + count > 200:
                         raise ValidationError('Each sheet supports up to 2,000 rows and 200 columns.')
                     for c in range(col, col + count):
-                        values[str(c)] = {'v': value, **({'f': formula(f, False)} if f else {})}
+                        values[str(c)] = {'v': value, **({'f': formula(f, False)} if f else {}), **({'s': style} if style else {})}
                     columns = max(columns, col + count)
                 col += count
             count = int(attr(row, 't', 'number-rows-repeated', '1'))
@@ -227,7 +265,7 @@ def read_ods(data):
             row_index += count
         sid = f'sheet{number+1}'
         workbook['sheetOrder'].append(sid)
-        workbook['sheets'][sid] = {'id': sid, 'name': attr(table, 't', 'name', sid), 'rowCount': max(200, max((int(r)+1 for r in cells), default=1)), 'columnCount': max(26, columns), 'cellData': cells}
+        workbook['sheets'][sid] = {'id': sid, 'name': attr(table, 't', 'name', sid), 'rowCount': max(200, max((int(r)+1 for r in cells), default=1), max((m['endRow']+1 for m in merges), default=1)), 'columnCount': max(26, columns), 'cellData': cells, 'mergeData': merges}
     content = pack('table', workbook)
     validate_native('table', unpack(content))
     return content

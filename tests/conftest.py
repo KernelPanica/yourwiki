@@ -27,4 +27,4 @@ def workspace(db,settings,tmp_path):
 @pytest.fixture
 def document(workspace):
     from wiki.services import save_document
-    return save_document(workspace['admin'],'A useful document','document','Engineering','# Hello\n\nSome knowledge.',workspace['team'])
+    return save_document(workspace['admin'],'A useful document','document','Engineering','# Hello\n\nSome knowledge.',workspace['team'],file_format='md')

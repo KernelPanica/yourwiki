@@ -64,7 +64,12 @@ def test_path_creation_empty_files_and_uploads(client, workspace):
         doc = Document.objects.get(title='Empty '+kind)
         assert doc.folder == child and doc.inherit_permissions
         content = active_storage().read(doc.reference)
-        if kind in ('document', 'file'): assert content == b''
+        if kind == 'file': assert content == b''
+        if kind == 'document':
+            from io import BytesIO
+            from docx import Document as Word
+            assert doc.file_format == 'docx'
+            assert not any(p.text for p in Word(BytesIO(content)).paragraphs)
         if kind == 'table':
             from wiki.file_formats import read_ods
             assert read_ods(content)
@@ -108,7 +113,7 @@ def test_provider_tree_tracks_nested_files_moves_and_legacy_revisions(client, wo
     parent = Folder.objects.get(name='Projects')
     child = Folder.objects.get(name='Notes')
     assert (root/'Projects'/'Notes').is_dir()
-    created = save_document(workspace['admin'], 'Plan', 'document', 'old internal value', 'hello', workspace['team'], folder=child)
+    created = save_document(workspace['admin'], 'Plan', 'document', 'old internal value', 'hello', workspace['team'], folder=child, file_format='md')
     assert created.reference.startswith('Projects/Notes/')
     assert active_storage().read(created.reference) == b'hello'
     assert client.post(f'/move/document/{document.pk}/', {'destination':child.pk}).status_code == 302
@@ -123,7 +128,7 @@ def test_provider_tree_tracks_nested_files_moves_and_legacy_revisions(client, wo
     created.refresh_from_db()
     assert created.reference.startswith('Archive/Projects/Memos/')
     assert client.post(f'/move/folder/{parent.pk}/', {'destination':child.pk}).status_code == 400
-    other = save_document(workspace['admin'], 'Old root', 'document', 'legacy', 'content', workspace['team'])
+    other = save_document(workspace['admin'], 'Old root', 'document', 'legacy', 'content', workspace['team'], file_format='md')
     other.path_synced = False
     other.save(update_fields=['path_synced'])
     old = other.reference

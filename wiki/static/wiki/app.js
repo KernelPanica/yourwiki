@@ -1,5 +1,23 @@
 const t = window.gettext;
 const format = (message, values) => window.interpolate(t(message), values, true);
+document.querySelectorAll('[data-creation-permissions]').forEach(section => {
+  const mode = section.querySelector('[name="permissions_mode"]');
+  const rules = section.querySelector('[data-explicit-permissions]');
+  section.querySelectorAll('[data-group-permission-row]').forEach(row => {
+    const enabled = row.querySelector('[data-group-permission-enabled]');
+    const updateGroup = () => row.querySelectorAll('[data-group-permission-rule]').forEach(input => {
+      input.disabled = !enabled.checked;
+    });
+    enabled.addEventListener('change', updateGroup);
+    updateGroup();
+  });
+  const update = () => {
+    rules.hidden = mode.value !== 'custom';
+    rules.disabled = mode.value !== 'custom';
+  };
+  mode.addEventListener('change', update);
+  update();
+});
 // Small progressive enhancements; all data and access decisions stay in Django.
 const sidebar = document.querySelector('#workspace-sidebar');
 const sidebarToggle = document.querySelector('[data-sidebar-open]');

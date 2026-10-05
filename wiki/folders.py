@@ -99,11 +99,11 @@ def create_directory(request):
             elif Folder.objects.filter(parent=parent, name__iexact=form.cleaned_data['name']).exists():
                 form.add_error('name', 'This name is unavailable in that directory.')
             else:
-                group = request.user.groups.first() or (Group.objects.first() if request.user.is_superuser else None)
+                group = form.cleaned_data.get('group') or request.user.groups.first() or (Group.objects.first() if request.user.is_superuser else None)
                 if not group:
                     raise PermissionDenied
                 folder = Folder.objects.create(name=form.cleaned_data['name'], parent=parent,
-                                               owner=request.user, group=group)
+                                               owner=request.user, group=group, **form.creation_permissions())
                 active_storage().ensure_dir(storage_path(folder))
                 return redirect('folder', id=folder.pk)
     return render(request, 'wiki/new_directory.html', {'form': form, 'section': 'New directory'},
@@ -168,20 +168,11 @@ def move_item(user, item, destination, rename=None):
     else:
         descendants = [item]
     staged = []
-    from .models import PendingDeletion
-    from .services import cleanup_storage
     def relocate(record, field, key):
-        from .storage import MAX_BYTES, HISTORY_MAX_BYTES
-        limit = HISTORY_MAX_BYTES if field == 'history_reference' else MAX_BYTES
         original = getattr(record, field)
         old_key = adapter.location(original)
-        same_mount = adapter.reference(original)[0].pk == adapter.resolve(key)[0].pk
-        reference = adapter.move(original, key) if same_mount else adapter.write(key, adapter.read(original, limit=limit), limit=limit)
-        staged.append((record, field, reference, old_key, same_mount))
-        if not same_mount:
-            if adapter.read(reference, limit=limit) != adapter.read(original, limit=limit):
-                raise ValidationError('The moved file could not be verified. The original was retained.')
-            PendingDeletion.objects.create(reference=original)
+        reference = adapter.move(original, key)
+        staged.append((record, field, reference, old_key))
         setattr(record, field, reference)
         record.save(update_fields=[field])
     try:
@@ -200,19 +191,19 @@ def move_item(user, item, destination, rename=None):
                     relocate(attachment, 'reference', f'{new_dir + "/" if new_dir else ""}.attachments/{name}')
                 doc.path_synced = True
                 doc.revision += 1
-                doc.save(update_fields=['path_synced', 'revision'])
+                raw = adapter.read(doc.reference)
+                doc.storage_digest = adapter.fingerprint(doc.reference, raw)
+                doc.save(update_fields=['path_synced', 'revision', 'storage_digest'])
             if isinstance(item, Folder):
                 item.parent, item.name = destination, rename or item.name
                 item.save(update_fields=['parent', 'name'])
             else:
                 item.folder, item.title = destination, rename or item.title
                 item.save(update_fields=['folder', 'title'])
-            transaction.on_commit(cleanup_storage)
     except Exception:
-        for record, field, reference, old_key, same_mount in reversed(staged):
+        for record, field, reference, old_key in reversed(staged):
             try:
-                if same_mount: adapter.move(reference, old_key)
-                else: adapter.delete(reference)
+                adapter.move(reference, old_key)
             except Exception:
                 import logging
                 logging.getLogger('wiki').exception('Move rollback needs recovery for %s', record.pk)
@@ -309,18 +300,19 @@ def move(request, kind, id):
 @guarded
 @require_http_methods(['GET', 'POST'])
 def folder_policy(request, id):
+    from .services import group_policies_from_post
     if not request.user.is_superuser: raise PermissionDenied
     folder = target_folder(request.user, id, 'visible')
     groups = Group.objects.all() if request.user.is_superuser else request.user.groups.all()
     if request.method == 'POST':
         folder.inherit_permissions = request.POST.get('inherit_permissions') == 'on'
         folder.policy = {s: {a: request.POST.get(s+'.'+a) == 'on' for a in ('visible','read','write')} for s in ('owner','group','everyone')}
-        folder.group_policies = {str(group.pk): {a: request.POST.get(f'group.{group.pk}.{a}') == 'on' for a in ('visible','read','write')} for group in groups}
+        folder.group_policies = group_policies_from_post(request.POST, groups)
         primary = groups.filter(pk=request.POST.get('group')).first() or folder.group
         folder.group = primary
         folder.save(update_fields=['group', 'inherit_permissions', 'policy', 'group_policies'])
         return redirect('folder', id=folder.pk)
-    group_rows = [(group, folder.group_policies.get(str(group.pk), {})) for group in groups]
+    group_rows = [(group, folder.group_policies.get(str(group.pk), {}), str(group.pk) in folder.group_policies) for group in groups]
     return render(request, 'wiki/policy.html', {'doc': folder, 'groups': groups, 'group_rows':group_rows,
         'rules': [(s, list(rule.items())) for s, rule in folder.policy.items()]})
 

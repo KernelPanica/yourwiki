@@ -21,8 +21,9 @@ class Command(BaseCommand):
                     doc = Document.objects.get(pk=pk)
                     if doc.path_synced: continue
                     doc.reference = adapter.move(doc.reference, storage_key(doc))
+                    doc.storage_digest = adapter.fingerprint(doc.reference, adapter.read(doc.reference))
                     doc.path_synced = True
-                    doc.save(update_fields=['reference', 'path_synced'])
+                    doc.save(update_fields=['reference', 'path_synced', 'storage_digest'])
                     count += 1
         except StorageError as error:
             raise CommandError(f'Storage tree sync paused after {count} files: {error}') from error

@@ -83,3 +83,16 @@ YOURWIKI_STORAGE_TEST_CONFIG=/private/storage-test.json \
 ```
 
 SFTP overwrites use the OpenSSH `posix-rename` extension so an interrupted upload cannot truncate the original. Servers without this extension reject replacement safely. SMB and local storage also replace a completed temporary file atomically.
+
+Opening a legacy file establishes its storage checksum before source editing. A
+later save checks both the catalog revision and that checksum; if another client
+or the provider changed the file, reload it before saving. Unsaved collaborative
+updates remain in the database until the file has been written successfully.
+
+History is disabled by default and follows the file, parent directories, mount,
+and workspace settings. When enabled, previous bytes are stored in
+`name.extension.json`. A failed file write rolls back history changes and any
+rename; if the provider also refuses recovery, the server logs the recovery
+failure. Keep provider backups for outages that prevent both writing and rollback.
+
+Google Drive objects and folders must be owned by the connected account and unshared; shared drives are rejected. Native Google Sheets use ODS only as the API import/export format and retain their object ID. OneDrive requires the connected account to own the drive and each managed item to have no sharing grants to other accounts. GitHub requires a private personal repository owned by the token account with no other collaborators. Privacy is checked on access; Yourwiki never makes objects public or revokes existing sharing. Remove sharing at the provider before connecting an existing location. SFTP/SMB permissions remain under server administration.

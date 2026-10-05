@@ -191,7 +191,10 @@ def editor(request, id=None):
                 if not doc and data.get('folder'):
                     require(data['folder'], request.user, 'write')
                 from .models import SiteConfiguration
-                saved = save_document(request.user, data['title'], data['kind'], doc.collection if doc else SiteConfiguration.current().default_collection, data['content'], data['group'], doc, data.get('revision'), source_token=source_token, folder=data.get('folder'), file_format=data.get('file_format') or None)
+                with transaction.atomic():
+                    saved = save_document(request.user, data['title'], data['kind'], doc.collection if doc else SiteConfiguration.current().default_collection, data['content'], data['group'], doc, data.get('revision'), source_token=source_token, folder=data.get('folder'), file_format=data.get('file_format') or None)
+                    if not doc:
+                        form.apply_permissions(saved)
                 messages.success(request, 'Document saved.')
                 return redirect('document' if saved.kind == 'file' else 'live', id=saved.pk)
             except (ValidationError, Conflict, StorageError, OperationalError) as error:
@@ -219,7 +222,7 @@ def upload_file(request):
             with transaction.atomic():
                 from .folders import target_folder
                 folder = target_folder(request.user, form.cleaned_data['folder']) if form.cleaned_data['folder'] else resolve_path(request.user, form.cleaned_data['path'])
-                group = request.user.groups.first() or (Group.objects.first() if request.user.is_superuser else None)
+                group = form.cleaned_data.get('group') or request.user.groups.first() or (Group.objects.first() if request.user.is_superuser else None)
                 if not group: raise PermissionDenied
                 if upload.name.lower().endswith('.docx'):
                     from .file_formats import read_docx as to_native
@@ -233,6 +236,7 @@ def upload_file(request):
                         from .pdf import process_pdf
                         process_pdf(content)
                     doc = save_document(request.user, upload.name, 'file', 'Uploads', content, group, folder=folder)
+                form.apply_permissions(doc)
             return redirect('document', id=doc.pk)
     return render(request, 'wiki/upload.html', {'form':form, 'section':'Upload file'}, status=400 if form.errors else 200)
 
@@ -278,7 +282,7 @@ def import_document(request):
             kind = native.get('kind') if native else None
         if not kind: raise ValidationError('Unsupported file type.')
         title = upload.name if kind == 'file' else upload.name.rsplit('.',1)[0]
-        doc = save_document(request.user, title, kind, 'Imported', content, group, file_format='docx' if ext == 'docx' else None)
+        doc = save_document(request.user, title, kind, 'Imported', content, group, file_format=ext if ext in ('md', 'docx') else None)
         return redirect('document', id=doc.pk)
     return render(request,'wiki/import.html',{'section':'Import'})
 
@@ -355,6 +359,7 @@ def remove(request,id):
 @guarded
 @require_http_methods(['GET','POST'])
 def policy(request,id):
+    from .services import group_policies_from_post
     if not request.user.is_superuser: raise PermissionDenied
     doc=document_for(request.user,id,'visible')
     groups=Group.objects.all() if request.user.is_superuser else request.user.groups.all()
@@ -366,11 +371,13 @@ def policy(request,id):
             current = document_for(request.user,id,'visible')
             if not (request.user.is_superuser or current.owner_id==request.user.pk): raise PermissionDenied
             current.policy, current.group=rules,chosen
+            current.group_policies = group_policies_from_post(request.POST, groups)
             current.inherit_permissions = request.POST.get('inherit_permissions') == 'on'
-            current.save(update_fields=['policy','group','inherit_permissions'])
+            current.save(update_fields=['policy','group','inherit_permissions','group_policies'])
         messages.success(request,'Permissions saved.')
         return redirect('library')
-    return render(request,'wiki/policy.html',{'doc':doc,'groups':groups,'rules':[(s,[(a,doc.policy[s][a]) for a in ('visible','read','write')]) for s in ('owner','group','everyone')]})
+    group_rows = [(group, doc.group_policies.get(str(group.pk), {}), str(group.pk) in doc.group_policies) for group in groups]
+    return render(request,'wiki/policy.html',{'doc':doc,'groups':groups,'group_rows':group_rows,'rules':[(s,[(a,doc.policy[s][a]) for a in ('visible','read','write')]) for s in ('owner','group','everyone')]})
 
 
 @guarded
@@ -588,7 +595,7 @@ def file_settings(request, id):
             raise ValidationError('Export your edits and confirm discarding the local editor state first.')
         from .realtime import connections
         from .source import check_available
-        from .file_formats import decode, digest
+        from .file_formats import decode
         from .models import Collaboration
         with transaction.atomic():
             doc = document_for(request.user, id, 'write')
@@ -598,7 +605,7 @@ def file_settings(request, id):
             raw = active_storage().read(doc.reference)
             if doc.kind != 'file': decode(doc, raw)
             Collaboration.objects.filter(document=doc).delete()
-            doc.storage_digest = digest(raw)
+            doc.storage_digest = active_storage().fingerprint(doc.reference, raw)
             doc.revision += 1
             doc.save(update_fields=['storage_digest', 'revision'])
         return redirect('document', id=doc.pk)

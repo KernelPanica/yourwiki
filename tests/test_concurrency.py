@@ -30,3 +30,30 @@ def test_single_use_invite_is_atomic(workspace):
     assert sorted(results)==['denied','ok']
     invite.refresh_from_db();assert invite.uses==1
     assert User.objects.filter(username__startswith='concurrent').count()==1
+
+
+@pytest.mark.django_db(transaction=True)
+def test_two_file_saves_cannot_overwrite_each_other(workspace, document):
+    from wiki.models import Document
+    from wiki.services import Conflict, save_document
+    from wiki.storage import active_storage
+    barrier = threading.Barrier(2)
+    def save(number):
+        close_old_connections()
+        stale = Document.objects.get(pk=document.pk)
+        barrier.wait()
+        try:
+            save_document(workspace['admin'], stale.title, stale.kind, stale.collection,
+                          f'Client {number}', workspace['team'], stale, stale.revision)
+            return ('saved', number)
+        except Conflict:
+            return ('conflict', number)
+        finally:
+            close_old_connections()
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(save, [1, 2]))
+    assert sorted(status for status, _ in results) == ['conflict', 'saved']
+    winner = next(number for status, number in results if status == 'saved')
+    document.refresh_from_db()
+    assert document.revision == 2
+    assert active_storage().read(document.reference) == f'Client {winner}'.encode()

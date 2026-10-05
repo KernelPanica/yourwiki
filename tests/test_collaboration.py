@@ -32,6 +32,32 @@ def test_concurrent_text_merges_and_retry_is_idempotent(workspace,document):
     assert derive(reopened,'document')==room.snapshot
 
 
+@pytest.mark.parametrize('file_format', ['md', 'docx'])
+def test_two_writers_merge_and_save_without_history(workspace, file_format):
+    from wiki.file_formats import decode
+    from wiki.storage import active_storage
+    document = save_document(workspace['admin'], 'Shared', 'document', 'Notes',
+                             'Shared paragraph', workspace['team'], file_format=file_format)
+    document.inherit_permissions = False
+    document.policy = {scope: {'visible': True, 'read': True, 'write': scope != 'everyone'}
+                       for scope in ('owner', 'group', 'everyone')}
+    document.save(update_fields=['inherit_permissions', 'policy'])
+    room = ensure_room(document)
+    # Both clients edit the same initial state before receiving the other's update.
+    alice, bob = edit_state(room, 'Alice '), edit_state(room, 'Bob ')
+    apply_update(workspace['admin'], document.pk, alice)
+    apply_update(workspace['member'], document.pk, bob)
+    flush_room(document.pk)
+    document.refresh_from_db()
+    saved = decode(document, active_storage().read(document.reference))
+    assert 'Alice ' in saved and 'Bob ' in saved
+    assert 'Shared paragraph' in saved
+    assert not document.history_reference
+    assert not list(workspace['root'].rglob('*.json'))
+    room.refresh_from_db()
+    assert room.sequence == room.synced_sequence
+
+
 def test_storage_failure_does_not_lose_acknowledged_edits(workspace,document):
     room=ensure_room(document)
     apply_update(workspace['admin'],document.pk,edit_state(room,'Durable '))
@@ -40,6 +66,7 @@ def test_storage_failure_does_not_lose_acknowledged_edits(workspace,document):
         from wiki.storage import active_storage
         storage.return_value.read.side_effect = active_storage().read
         storage.return_value.location.side_effect = active_storage().location
+        storage.return_value.fingerprint.side_effect = active_storage().fingerprint
         storage.return_value.write.side_effect=OSError('offline')
         with pytest.raises(OSError):flush_room(document.pk)
     room.refresh_from_db();document.refresh_from_db()
