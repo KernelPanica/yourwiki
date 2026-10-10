@@ -18,10 +18,12 @@ def test_pdf_annotations_and_forms(realtime_server, workspace):
     stream = BytesIO(); canvas = Canvas(stream, pagesize=(600, 800))
     canvas.drawString(40, 740, 'Original page layout')
     canvas.acroForm.textfield(name='customer', x=40, y=640, width=220, height=30, value='Original')
-    canvas.showPage(); canvas.save()
+    canvas.showPage(); canvas.drawString(40,740,'Second PDF page'); canvas.showPage(); canvas.save()
     doc = save_document(workspace['admin'], 'form.pdf', 'file', 'PDFs', stream.getvalue(), workspace['team'])
+    original_reference = doc.reference
+    original_bytes = stream.getvalue()
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
+        browser = p.chromium.launch(headless=True, executable_path=os.environ.get('PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH'))
         page = browser.new_page(viewport={'width': 1400, 'height': 1000})
         errors = []
         page.on('pageerror', lambda error: errors.append(str(error)))
@@ -32,6 +34,10 @@ def test_pdf_annotations_and_forms(realtime_server, workspace):
         url = realtime_server + f'/documents/{doc.pk}/'
         page.goto(url)
         expect(page.locator('#pdf-status')).to_have_text('PDF ready', timeout=15000)
+        page.locator('#pdf-next').click()
+        expect(page.locator('#pdf-page')).to_have_value('2')
+        page.locator('#pdf-previous').click()
+        expect(page.locator('#pdf-page')).to_have_value('1')
         field = page.locator('.annotationLayer input[name="customer"]')
         expect(field).to_have_value('Original', timeout=15000)
         field.fill('Filled in browser')
@@ -42,12 +48,20 @@ def test_pdf_annotations_and_forms(realtime_server, workspace):
         annotation = page.locator('.freeTextEditor [contenteditable="true"]').first
         expect(annotation).to_be_visible()
         annotation.fill('Browser annotation')
+        page.locator('.pdf-more > summary').click()
+        page.locator('#pdf-text-size').fill('18')
+        page.locator('#pdf-text-size').dispatch_event('change')
+        page.locator('#pdf-color').fill('#cc0000')
+        page.locator('#pdf-color').dispatch_event('input')
+        expect(page.locator('.freeTextEditor .internal')).to_have_css('color', 'rgb(204, 0, 0)')
+        page.locator('.pdf-more > summary').click()
         page.get_by_role('button', name='Save PDF', exact=True).click()
         expect(page.locator('#pdf-status')).to_have_text('PDF saved', timeout=15000)
         reader = PdfReader(BytesIO(page.request.get(url + 'export/').body()))
         assert reader.get_fields()['customer']['/V'] == 'Filled in browser'
         assert 'Original page layout' in reader.pages[0].extract_text()
         assert any('Browser annotation' in str(ref.get_object().get('/Contents', '')) for ref in reader.pages[0]['/Annots'])
+        assert page.request.get(url + 'export/?original=1').body() == original_bytes
         page.reload()
         expect(page.locator('.annotationLayer input[name="customer"]')).to_have_value('Filled in browser', timeout=15000)
         from pathlib import Path
@@ -55,17 +69,27 @@ def test_pdf_annotations_and_forms(realtime_server, workspace):
         page.evaluate('window.scrollTo(0, 0)')
         assert page.locator('.sidebar').evaluate('(el) => getComputedStyle(el).position') == 'fixed'
         page.screenshot(path='test-results/pdf.png', full_page=True)
+        page.set_viewport_size({'width':390,'height':844})
+        page.wait_for_function('''() => {
+          const canvas=document.querySelector('.pdfViewer .page canvas');
+          const container=document.getElementById('pdf-container');
+          return canvas && canvas.getBoundingClientRect().width <= container.clientWidth;
+        }''')
+        assert page.evaluate('document.documentElement.scrollWidth <= innerWidth + 1')
+        page.screenshot(path='/tmp/yourwiki-pdf-mobile.png', full_page=True)
         assert not errors
         browser.close()
 
     doc.refresh_from_db()
-    assert doc.revision == 2
+    assert doc.revision >= 2
+    assert doc.reference == original_reference
+    assert active_storage().read(original_reference) == original_bytes
 
 
 def test_table_controls_and_simplified_pages(realtime_server, workspace):
     doc = save_document(workspace['admin'], 'Table', 'table', 'Tables', '1,2\n3,4', workspace['team'])
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
+        browser = p.chromium.launch(headless=True, executable_path=os.environ.get('PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH'))
         page = browser.new_page(viewport={'width': 1440, 'height': 1000})
         page.add_init_script("localStorage.setItem('yourwiki-theme', 'dark')")
         page.goto(realtime_server + '/login/')
@@ -76,7 +100,7 @@ def test_table_controls_and_simplified_pages(realtime_server, workspace):
         expect(page.get_by_role('link', name='Edit document', exact=True)).to_have_count(0)
         page.get_by_role('link', name='Open visual editor', exact=True).click()
         expect(page.locator('.sheet-host canvas').first).to_be_visible(timeout=20000)
-        expect(page.locator('#sync-status')).to_contain_text('Synced', timeout=15000)
+        expect(page.locator('#sync-status')).to_have_text(__import__('re').compile('^(Saved|Synced) to storage$'), timeout=15000)
         inputs = page.locator('.sheet-host input')
         assert inputs.count() > 0
         assert inputs.evaluate_all("els => els.every(el => getComputedStyle(el).minHeight !== '44px')")

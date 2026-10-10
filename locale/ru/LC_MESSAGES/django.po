@@ -1701,3 +1701,517 @@ msgstr "Вставка"
 
 msgid "Home"
 msgstr "Главная"
+
+msgid "Document menu"
+msgstr "Меню документа"
+
+msgid "View"
+msgstr "Вид"
+
+msgid "Format"
+msgstr "Формат"
+
+msgid "Tools"
+msgstr "Инструменты"
+
+msgid "Ruler"
+msgstr "Линейка"
+
+msgid "Document outline"
+msgstr "Оглавление"
+
+msgid "Headings appear here"
+msgstr "Здесь появятся заголовки документа"
+
+msgid "Back to file"
+msgstr "Вернуться к файлу"
+
+msgid "Clear formatting"
+msgstr "Очистить форматирование"
+
+msgid "Edit menu"
+msgstr "Правка"
+
+msgid "File name"
+msgstr "Имя файла"
+
+msgid "File format"
+msgstr "Формат файла"
+
+msgid "From file name"
+msgstr "Из имени файла"
+
+msgid "Choose the document format."
+msgstr "Выберите формат документа."
+
+msgid "The format follows the selected file type."
+msgstr "Формат определяется выбранным типом файла."
+
+msgid "Enter a file name before the extension."
+msgstr "Введите имя файла перед расширением."
+
+msgid "Folders"
+msgstr "Папки"
+
+msgid "Search all files"
+msgstr "Поиск по всем файлам"
+
+msgid "General"
+msgstr "Общие"
+
+msgid "More"
+msgstr "Ещё"
+
+msgid "Full screen"
+msgstr "На весь экран"
+
+msgid "Exit full screen"
+msgstr "Выйти из полноэкранного режима"
+
+msgid "File type"
+msgstr "Тип файла"
+
+msgid "Manage accounts and invitation privileges. Group membership is managed on the Groups page."
+msgstr "Управляйте учётными записями и приглашениями. Состав групп настраивается в разделе «Группы»."
+
+msgid "Invite people"
+msgstr "Пригласить участников"
+
+msgid "Admin"
+msgstr "Администратор"
+
+msgid "No groups"
+msgstr "Нет групп"
+
+msgid "No members found."
+msgstr "Участники не найдены."
+
+msgid "Create groups and manage their members. File and folder permissions are configured separately."
+msgstr "Создавайте группы и выбирайте участников. Права на файлы и папки настраиваются отдельно."
+
+msgid "Manage group"
+msgstr "Настроить группу"
+
+msgid "Create a group to organize access for your team."
+msgstr "Создайте группу, чтобы настроить общий доступ для команды."
+
+msgid "Choose who belongs to this group. Changes affect access granted to the group."
+msgstr "Выберите участников группы. Изменения повлияют на доступ, предоставленный этой группе."
+
+msgid "Find a member"
+msgstr "Найти участника"
+
+msgid "Name or username"
+msgstr "Имя или логин"
+
+msgid "Save group"
+msgstr "Сохранить группу"
+
+msgid "Back to groups"
+msgstr "К списку групп"
+
+msgid "Delete group"
+msgstr "Удалить группу"
+
+msgid "Group saved."
+msgstr "Группа сохранена."
+
+msgid "Group membership is managed on the group page."
+msgstr "Состав группы настраивается на её странице."
+
+msgid "Manage groups"
+msgstr "Настроить группы"
+
+msgid "A group with this name already exists."
+msgstr "Группа с таким именем уже существует."
+
+#, python-format
+msgid "More actions for %(title)s"
+msgstr "Другие действия: %(title)s"
+
+msgid "Loading diagram…"
+msgstr "Загрузка схемы…"
+
+msgid "Could not open the diagram. Download the original file to view it locally."
+msgstr "Не удалось открыть схему. Скачайте исходный файл для просмотра на компьютере."
+
+msgid "Previous page"
+msgstr "Предыдущая страница"
+
+msgid "Next page"
+msgstr "Следующая страница"
+
+msgid "Text size"
+msgstr "Размер текста"
+
+msgid "Line width"
+msgstr "Толщина линии"
+
+msgid "Access"
+msgstr "Доступ"
+
+msgid "Folder settings"
+msgstr "Настройки папки"
+
+msgid "Access is inherited from the parent folder, or workspace defaults at the root. Change access later in file or folder settings."
+msgstr "Права наследуются от родительской папки, а в корне — от настроек пространства. Изменить доступ можно в настройках файла или папки."
+
+msgid "Read makes this item visible and allows opening and downloading it. Write also grants Read. Administrators retain access."
+msgstr "Чтение позволяет видеть, открывать и скачивать объект. Запись автоматически даёт чтение. Администраторы сохраняют доступ."
+
+msgid "Inherited from"
+msgstr "Наследуется от"
+
+msgid "Inherit access from parent folder (workspace defaults at root)"
+msgstr "Наследовать доступ от родительской папки (в корне — от настроек пространства)"
+
+msgid "Custom access"
+msgstr "Собственные права"
+
+msgid "Selected group rules override the defaults above. For several matching groups, permissions are combined."
+msgstr "Правила выбранных групп имеют приоритет над общими. Права нескольких подходящих групп объединяются."
+
+msgid "An administrator can change access to this item."
+msgstr "Доступ к этому объекту может изменить администратор."
+
+msgid "Read makes items visible. Write includes Read. Manage access in file or folder settings."
+msgstr "Чтение делает объекты видимыми. Запись включает чтение. Управление доступом находится в настройках файла или папки."
+
+msgid "Join a group before creating files."
+msgstr "Для создания файлов нужно состоять в группе."
+
+msgid "Provider accounts"
+msgstr "Аккаунты провайдеров"
+
+msgid "Provider accounts and original access"
+msgstr "Аккаунты провайдеров и доступ к оригиналам"
+
+msgid "Provider accounts and synchronization"
+msgstr "Аккаунты провайдеров и синхронизация"
+
+msgid "Original access"
+msgstr "Доступ к оригиналам"
+
+msgid "Connect account"
+msgstr "Подключить аккаунт"
+
+msgid "Disconnect and revoke access"
+msgstr "Отключить и отозвать доступ"
+
+msgid "Configure OAuth clients"
+msgstr "Настроить OAuth-клиенты"
+
+msgid "OAuth callback URL"
+msgstr "Адрес возврата OAuth"
+
+msgid "Retry synchronization"
+msgstr "Повторить синхронизацию"
+
+msgid "No access"
+msgstr "Нет доступа"
+
+msgid "pending"
+msgstr "Ожидает"
+
+msgid "synced"
+msgstr "Синхронизировано"
+
+msgid "failed"
+msgstr "Ошибка"
+
+msgid "revoked"
+msgstr "Отозвано"
+
+msgid "No external permissions have been synchronized yet."
+msgstr "Внешние разрешения ещё не синхронизированы."
+
+msgid "Connect your own account to open originals with the same access as in Yourwiki. Local, SMB and SFTP use Yourwiki permissions only."
+msgstr "Подключите свой аккаунт для доступа к оригиналам по правам Yourwiki. Local, SMB и SFTP используют только права Yourwiki."
+
+msgid "An administrator must configure OAuth before accounts can be connected."
+msgstr "Для подключения аккаунтов администратор должен настроить OAuth."
+
+msgid "GitHub permissions apply to the entire repository, including files hidden by Yourwiki. Personal private repositories cannot grant read-only collaborator access; such grants remain failed instead of giving write access."
+msgstr "Права GitHub действуют на весь репозиторий, включая скрытые в Yourwiki файлы. Личный приватный репозиторий не поддерживает доступ участника только для чтения: такая выдача завершится ошибкой без предоставления записи."
+
+msgid "The connected owner retains ownership at the provider."
+msgstr "Подключённый владелец сохраняет право собственности у провайдера."
+
+msgid "Accept the repository invitation in GitHub to access the original."
+msgstr "Примите приглашение в репозиторий GitHub для доступа к оригиналу."
+
+msgid "Finish connecting your account"
+msgstr "Завершение подключения аккаунта"
+
+msgid "Continue in the browser where you started authorization. Confirm your profile name to finish."
+msgstr "Продолжите в браузере, где вы начали авторизацию. Для завершения подтвердите имя профиля."
+
+msgid "Authorization was cancelled. Start again from your account."
+msgstr "Авторизация отменена. Начните подключение заново из своего аккаунта."
+
+msgid "Link a verified provider account to access the original."
+msgstr "Подключите подтверждённый аккаунт провайдера для доступа к оригиналу."
+
+msgid "Provider revocation failed. External access may remain; retry synchronization."
+msgstr "Не удалось отозвать права у провайдера. Внешний доступ может сохраняться; повторите синхронизацию."
+
+msgid "Provider synchronization failed. Local permissions are saved; external access may differ. Retry synchronization."
+msgstr "Сбой синхронизации с провайдером. Локальные права сохранены; внешний доступ может отличаться. Повторите синхронизацию."
+
+msgid "GitHub personal repositories cannot grant read-only collaborator access. Use Yourwiki to read this file."
+msgstr "Личный репозиторий GitHub не поддерживает доступ участника только для чтения. Читайте файл через Yourwiki."
+
+msgid "Microsoft tenant"
+msgstr "Организация Microsoft (tenant)"
+
+msgid "Client ID"
+msgstr "Client ID"
+
+msgid "Provider drive identity could not be verified. Retry synchronization."
+msgstr "Не удалось проверить идентификатор диска провайдера. Повторите синхронизацию."
+
+msgid "Original no longer in the workspace"
+msgstr "Оригинала больше нет в рабочем пространстве"
+
+msgid "OAuth client saved. Register the callback URL shown below with the provider."
+msgstr "OAuth-клиент сохранён. Зарегистрируйте указанный ниже адрес возврата у провайдера."
+
+msgid "Synchronization finished. Check pending and failed permissions below."
+msgstr "Синхронизация завершена. Проверьте ожидающие разрешения и ошибки ниже."
+
+msgid "The original document changed"
+msgstr "Исходный документ изменён"
+
+msgid "Automatic saving is paused. Leaving this page will not save your changes to the original. Keep a copy before reloading."
+msgstr "Автосохранение остановлено. При выходе ваши изменения не будут записаны в оригинал. Сохраните копию перед перезагрузкой."
+
+msgid "Copy changes"
+msgstr "Скопировать изменения"
+
+msgid "Download local snapshot"
+msgstr "Скачать локальный снимок"
+
+msgid "Save a copy"
+msgstr "Сохранить копию"
+
+msgid "Discard and reload original"
+msgstr "Отбросить правки и перечитать оригинал"
+
+msgid "Conflict · automatic saving paused"
+msgstr "Конфликт · автосохранение остановлено"
+
+msgid "Saved locally · storage unavailable"
+msgstr "Сохранено локально · хранилище недоступно"
+
+msgid "The original changed. Automatic saving is paused; copy or download your edits before reloading."
+msgstr "Оригинал изменён. Автосохранение остановлено; скопируйте или скачайте правки перед перезагрузкой."
+
+msgid "Write access was revoked. Download your edits before leaving."
+msgstr "Право записи отозвано. Скачайте свои изменения перед выходом."
+
+msgid "Storage is unavailable. Your pending changes are retained; retry saving."
+msgstr "Хранилище недоступно. Незаписанные изменения сохранены; повторите запись."
+
+msgid "Changes are not yet saved to storage."
+msgstr "Изменения ещё не записаны в хранилище."
+
+msgid "Clipboard unavailable. A local snapshot was downloaded."
+msgstr "Буфер обмена недоступен. Локальный снимок скачан."
+
+msgid "Discard local changes and reload the original? Other active editors must be closed."
+msgstr "Отбросить локальные правки и перечитать оригинал? Другие активные редакторы должны быть закрыты."
+
+msgid "Discard local changes and reload the original?"
+msgstr "Отбросить локальные правки и перечитать оригинал?"
+
+msgid "Could not reload the original."
+msgstr "Не удалось перечитать оригинал."
+
+msgid "Changes save automatically after a short pause. Use Download current PDF to keep a local copy of unsaved edits."
+msgstr "Изменения сохраняются автоматически после короткой паузы. Кнопка «Скачать текущий PDF» сохраняет локальную копию незаписанных правок."
+
+msgid "Recovery snapshot (.recovery.json)"
+msgstr "Снимок восстановления (.recovery.json)"
+
+msgid "Finish setting up your account"
+msgstr "Завершите настройку аккаунта"
+
+msgid "Connect your storage account so that Yourwiki permissions also apply when you open the original files. This step is required before entering the workspace."
+msgstr "Авторизуйтесь в своём аккаунте хранилища, чтобы права Yourwiki действовали и при открытии оригиналов файлов. Этот шаг обязателен перед входом в рабочее пространство."
+
+msgid "Connected account"
+msgstr "Подключённый аккаунт"
+
+msgid "Choose another account"
+msgstr "Выбрать другой аккаунт"
+
+msgid "Authorize"
+msgstr "Авторизоваться"
+
+msgid "Local, SMB and SFTP storage uses Yourwiki permissions. No provider authorization is required."
+msgstr "Для Local, SMB и SFTP действуют права Yourwiki. Авторизация у провайдера не требуется."
+
+msgid "Access synchronization"
+msgstr "Синхронизация прав"
+
+msgid "GitHub repository invitations must be accepted in GitHub. Failed permissions require administrator assistance; write access is never substituted for read access."
+msgstr "Приглашение в репозиторий нужно принять на GitHub. При ошибке выдачи прав обратитесь к администратору; право чтения не заменяется правом записи."
+
+msgid "Synchronize access and continue"
+msgstr "Синхронизировать права и продолжить"
+
+msgid "Connect every required provider account before continuing."
+msgstr "Перед продолжением авторизуйтесь у всех необходимых провайдеров."
+
+msgid "Access synchronization is unavailable. Retry or contact an administrator."
+msgstr "Синхронизация прав недоступна. Повторите попытку или обратитесь к администратору."
+
+msgid "Provider access is not ready. Check the permissions below, accept any invitation, then retry."
+msgstr "Доступ у провайдера ещё не готов. Проверьте права ниже, примите приглашение, если оно есть, и повторите попытку."
+
+msgid "Pages"
+msgstr "Страниц"
+
+msgid "Pan"
+msgstr "Перемещение"
+
+msgid "Drag to move around the PDF"
+msgstr "Перетаскивайте для перемещения по PDF"
+
+msgid "Row numbers"
+msgstr "Номера строк"
+
+msgid "Worksheets"
+msgstr "Листы"
+
+msgid "%(rows)s rows · %(columns)s columns"
+msgstr "%(rows)s строк · %(columns)s столбцов"
+
+msgid "Preview limited to 2,000 rows and 200 columns. Open the editor to see the full worksheet."
+msgstr "Просмотр ограничен 2000 строками и 200 столбцами. Откройте редактор, чтобы увидеть лист целиком."
+
+msgid "The original changed. Download your edits before reloading."
+msgstr "Оригинал изменился. Скачайте свои правки перед перезагрузкой."
+
+msgid "Your session expired. Sign in again."
+msgstr "Сессия истекла. Войдите снова."
+
+msgid "Access denied or session expired. Reload the page and try again."
+msgstr "Нет доступа или сессия истекла. Обновите страницу и повторите попытку."
+
+msgid "This item is no longer available."
+msgstr "Этот объект больше недоступен."
+
+msgid "The item changed. Review the current version before retrying."
+msgstr "Объект изменился. Проверьте текущую версию перед повторной попыткой."
+
+msgid "The file is too large. Choose a smaller file."
+msgstr "Файл слишком большой. Выберите файл меньшего размера."
+
+msgid "Too many requests. Wait a moment and try again."
+msgstr "Слишком много запросов. Подождите и повторите попытку."
+
+msgid "Storage is temporarily unavailable. Your input has been kept."
+msgstr "Хранилище временно недоступно. Введённые данные сохранены в форме."
+
+msgid "The request could not be completed. Check whether the action finished before retrying."
+msgstr "Запрос не удалось завершить. Перед повторной попыткой проверьте, выполнилось ли действие."
+
+msgid "The action could not be completed. Your input has been kept."
+msgstr "Не удалось выполнить действие. Введённые данные сохранены."
+
+msgid "Dismiss error"
+msgstr "Закрыть сообщение об ошибке"
+
+msgid "The request timed out. Check whether the action finished before retrying."
+msgstr "Время ожидания истекло. Перед повторной попыткой проверьте, выполнилось ли действие."
+
+msgid "Connection lost. Your input has been kept. Check whether the action finished before retrying."
+msgstr "Соединение потеряно. Введённые данные сохранены. Перед повторной попыткой проверьте, выполнилось ли действие."
+
+msgid "The server returned an invalid response. Check whether the action finished before retrying."
+msgstr "Сервер вернул некорректный ответ. Перед повторной попыткой проверьте, выполнилось ли действие."
+
+msgid "Check the highlighted fields."
+msgstr "Проверьте отмеченные поля."
+
+msgid "Uploaded %(count)s file(s). %(message)s"
+msgstr "Загружено файлов: %(count)s. %(message)s"
+
+msgid "Your session expired. Reload the page before submitting again."
+msgstr "Сессия истекла. Обновите страницу перед повторной отправкой."
+
+msgid "A preview or interface component could not be loaded. Reload the page or download the original file."
+msgstr "Не удалось загрузить предпросмотр или часть интерфейса. Обновите страницу или скачайте оригинал файла."
+
+msgid "Heading 4"
+msgstr "Заголовок 4"
+
+msgid "Heading 5"
+msgstr "Заголовок 5"
+
+msgid "Heading 6"
+msgstr "Заголовок 6"
+
+msgid "Left"
+msgstr "Слева"
+
+msgid "Center"
+msgstr "По центру"
+
+msgid "Right"
+msgstr "Справа"
+
+msgid "Justify"
+msgstr "По ширине"
+
+msgid "Quote"
+msgstr "Цитата"
+
+msgid "Increase indent"
+msgstr "Увеличить отступ"
+
+msgid "Decrease indent"
+msgstr "Уменьшить отступ"
+
+msgid "Line spacing"
+msgstr "Межстрочный интервал"
+
+msgid "Single"
+msgstr "Одинарный"
+
+msgid "Double"
+msgstr "Двойной"
+
+msgid "Remove link"
+msgstr "Удалить ссылку"
+
+msgid "Add row before"
+msgstr "Добавить строку выше"
+
+msgid "Add column before"
+msgstr "Добавить столбец слева"
+
+msgid "Header row"
+msgstr "Строка заголовков"
+
+msgid "Header column"
+msgstr "Столбец заголовков"
+
+msgid "Cell background"
+msgstr "Заливка ячейки"
+
+msgid "Clear cell background"
+msgstr "Убрать заливку ячейки"
+
+msgid "Word count"
+msgstr "Статистика документа"
+
+msgid "Words"
+msgstr "Слова"
+
+msgid "Characters"
+msgstr "Символы"
+
+msgid "Spreadsheet action failed: %(message)s"
+msgstr "Не удалось выполнить действие с таблицей: %(message)s"

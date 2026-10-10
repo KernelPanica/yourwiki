@@ -50,7 +50,6 @@ class MountForm(HistoryForm):
                     label='Use the Google OAuth client saved during installation',
                     help_text='Uncheck to enter another client ID and secret. Saved credentials stay on the server.')
         if mount:
-            self.fields['revision_history'].initial = '' if mount.revision_history is None else 'on' if mount.revision_history else 'off'
             self.fields['path'].initial = mount.path
             self.fields['path'].disabled = True
         for name in FIELDS[provider]:
@@ -176,6 +175,9 @@ def mountpoints(request):
                     prefix = f'mount:{mount.pk}:'
                     if mount.path == '/' or mount.folder.children.exists() or mount.folder.documents.exists() or any(model.objects.filter(reference__startswith=prefix).exists() for model in (Document, Attachment, PendingDeletion)):
                         raise ValidationError('Move all contents out and finish pending cleanup before unmounting. The root mount cannot be removed.')
+                    if mount.provider_grants.exclude(status='revoked').exists():
+                        raise ValidationError('Revoke and synchronize provider permissions before unmounting.')
+                    mount.provider_grants.all().delete()
                     mount.delete()
                 messages.success(request, 'Unmounted. The empty directory and provider files are retained.')
             return redirect('mountpoints')
@@ -187,21 +189,18 @@ def mountpoints(request):
                 state, verifier = secrets.token_urlsafe(32), secrets.token_urlsafe(64)
                 request.session['google_mount_oauth'] = encrypt({'state': state, 'verifier': verifier,
                     'created': time.time(), 'user': request.user.pk, 'path': form.cleaned_data['path'],
-                    'history': form.cleaned_data['revision_history'], 'config': form.config, 'redirect_uri': google_callback_uri()})
+                    'config': form.config, 'redirect_uri': google_callback_uri()})
                 return redirect(authorization_url(form.config, google_callback_uri(), state, verifier))
             # Refresh tokens returned by a probe are included in the encrypted config.
             SafeAdapter(ADAPTERS[provider](form.config, lambda updated: form.config.update(updated))).probe()
             if editing:
-                editing.revision_history = form.cleaned_data['revision_history']
                 editing.encrypted_config = encrypt(form.config)
-                editing.save(update_fields=['encrypted_config', 'revision_history'])
+                editing.save(update_fields=['encrypted_config'])
                 if editing.path == '/':
                     Workspace.objects.filter(pk=1).update(encrypted_config=editing.encrypted_config)
                 messages.success(request, 'Mount credentials updated and connection verified.')
             else:
                 mounted = create_mount(request.user, form.cleaned_data['path'], form.config)
-                mounted.revision_history = form.cleaned_data['revision_history']
-                mounted.save(update_fields=['revision_history'])
                 messages.success(request, 'Mount connected. Create or upload files in its directory.')
             return redirect('mountpoints')
     return render(request, 'wiki/mounts.html', {'mounts':MountPoint.objects.select_related('folder'),
@@ -250,7 +249,5 @@ def google_callback(request):
         adapter.create_root(pending['path'].rsplit('/', 1)[-1])
     adapter.probe()
     mounted = create_mount(request.user, pending['path'], config)
-    mounted.revision_history = pending.get('history')
-    mounted.save(update_fields=['revision_history'])
     messages.success(request, _('Mount connected. Create or upload files in its directory.'))
     return redirect('mountpoints')

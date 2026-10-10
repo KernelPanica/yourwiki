@@ -1,0 +1,13 @@
+{% extends 'wiki/base.html' %}{% load i18n %}{% block content %}
+<div class="page-heading"><h1>{% translate "Provider accounts" %}</h1><p>{% translate "Connect your own account to open originals with the same access as in Yourwiki. Local, SMB and SFTP use Yourwiki permissions only." %}</p></div>
+{% for row in rows %}<section class="settings-card"><h2>{{ row.label }}</h2>
+{% if row.identity %}<p>{% firstof row.identity.email row.identity.login %}</p><form method="post" action="{% url 'identity-unlink' row.provider %}">{% csrf_token %}<button class="button">{% translate "Disconnect and revoke access" %}</button></form>
+{% elif row.configured %}<form method="post" action="{% url 'identity-connect' row.provider %}">{% csrf_token %}<button class="button primary">{% translate "Connect account" %}</button></form>
+{% else %}<p>{% translate "An administrator must configure OAuth before accounts can be connected." %}</p>{% endif %}
+{% if user.is_superuser %}<p>{% translate "OAuth callback URL" %}: <code class="break-anywhere">{{ row.callback }}</code></p>{% endif %}</section>{% endfor %}
+<section class="settings-card"><h2>{% translate "Original access" %}</h2>
+<p>{% translate "GitHub permissions apply to the entire repository, including files hidden by Yourwiki. Personal private repositories cannot grant read-only collaborator access; such grants remain failed instead of giving write access." %}</p>
+{% include 'wiki/provider_grants.html' %}
+{% if user.is_superuser %}<form method="post" action="{% url 'provider-retry' %}">{% csrf_token %}<button class="button">{% translate "Retry synchronization" %}</button></form>{% endif %}</section>
+{% if user.is_superuser %}<details class="settings-card"><summary>{% translate "Configure OAuth clients" %}</summary><form method="post">{% csrf_token %}{{ client_form.as_p }}<button class="button primary">{% translate "Save" %}</button></form></details>{% endif %}
+<a class="button" href="{% url 'account' %}">{% translate "Your account" %}</a>{% endblock %}

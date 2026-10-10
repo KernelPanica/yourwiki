@@ -120,54 +120,109 @@ def unflatten(mapping):
 def diagram_data(text):
     import base64, zlib
     from urllib.parse import unquote
-    from defusedxml.ElementTree import fromstring
-    root = fromstring(text)
-    diagrams = list(root.findall('diagram')) if root.tag == 'mxfile' else [root]
-    data = {'pages':{}, 'order':[]}
+    root = diagram_parse(text)
+    local = lambda element: element.tag.rsplit('}', 1)[-1] if isinstance(element.tag, str) else ''
+    diagrams = [child for child in root if local(child) == 'diagram'] if local(root) == 'mxfile' else [root]
+    data = {'pages':{}, 'order':[], 'xml':element_data(root)}
     for i, page in enumerate(diagrams):
         pid = page.get('id') or f'page-{i}'
-        model = page if page.tag == 'mxGraphModel' else page.find('mxGraphModel')
+        model = page if local(page) == 'mxGraphModel' else next((child for child in page if local(child) == 'mxGraphModel'), None)
+        page_xml = element_data(page)
         if model is None and page.text:
             decoder = zlib.decompressobj(-15)
             raw = decoder.decompress(base64.b64decode(page.text), 5*1024*1024+1)
             if len(raw) > 5*1024*1024 or not decoder.eof: raise ValidationError('Diagram is too large.')
-            model = fromstring(unquote(raw.decode()))
+            model = diagram_parse(unquote(raw.decode()))
+            page_xml['text'] = None
+            page_xml['children'].insert(0, {'slot':'model'})
         if model is None: raise ValidationError('Invalid diagram page.')
-        cells = {}
-        for cell in model.find('root'):
-            cid = cell.get('id') or (cell.find('mxCell').get('id') if cell.find('mxCell') is not None else secrets.token_hex(8))
-            cells[cid] = element_data(cell)
-        data['pages'][pid] = {'name':page.get('name', f'Page {i+1}'), 'attrs':dict(model.attrib), 'cells':cells}
+        graph_root = next((child for child in model if local(child) == 'root'), None)
+        if graph_root is None: raise ValidationError('Invalid diagram root.')
+        cells, order = {}, []
+        root_xml = element_data(graph_root)
+        for index, cell in enumerate(graph_root):
+            nested = next((child for child in cell if local(child) == 'mxCell'), None)
+            cid = cell.get('id') or (nested.get('id') if nested is not None else None)
+            if cid:
+                if cid in cells: raise ValidationError('Duplicate diagram cell identity.')
+                cells[cid] = element_data(cell)
+                order.append(cid)
+                root_xml['children'][index] = {'slot':'cell', 'id':cid}
+        model_xml = element_data(model)
+        model_xml['children'][list(model).index(graph_root)] = {'slot':'root'}
+        if page is model:
+            page_xml = {'slot':'model'}
+        else:
+            for index, child in enumerate(page):
+                if child is model: page_xml['children'][index] = {'slot':'model'}
+        data['pages'][pid] = {'name':page.get('name', f'Page {i+1}'), 'attrs':dict(model.attrib), 'cells':cells,
+                              'order':order, 'xml':page_xml, 'model':model_xml, 'root':root_xml}
+        if pid in data['order']: raise ValidationError('Duplicate diagram page identity.')
         data['order'].append(pid)
+        if page is root:
+            data['xml'] = {'slot':'page', 'id':pid}
+        else:
+            data['xml']['children'][list(root).index(page)] = {'slot':'page', 'id':pid}
     return data
 
 
+def diagram_parse(text):
+    from xml.etree.ElementTree import fromstring, TreeBuilder
+    from defusedxml.ElementTree import DefusedXMLParser
+    return fromstring(text, parser=DefusedXMLParser(target=TreeBuilder(insert_comments=True, insert_pis=True)))
+
+
 def element_data(element):
-    return {'tag':element.tag,'attrs':dict(element.attrib),'text':element.text,'tail':element.tail,'children':[element_data(c) for c in element]}
+    from xml.etree.ElementTree import Comment, ProcessingInstruction
+    tag = '#comment' if element.tag is Comment else '#pi' if element.tag is ProcessingInstruction else element.tag
+    return {'tag':tag,'attrs':dict(element.attrib),'text':element.text,'tail':element.tail,'children':[element_data(c) for c in element]}
 
 
 def data_element(value):
     if isinstance(value,str):
-        from defusedxml.ElementTree import fromstring
-        return fromstring(value)
-    element=Element(value['tag'],{k:str(v) for k,v in value.get('attrs',{}).items()})
+        return diagram_parse(value)
+    from xml.etree.ElementTree import Comment, ProcessingInstruction
+    tag = value['tag']
+    element=Element(Comment if tag == '#comment' else ProcessingInstruction if tag == '#pi' else tag,
+                    {k:str(v) for k,v in value.get('attrs',{}).items()})
     element.text,element.tail=value.get('text'),value.get('tail')
     for child in value.get('children',[]):element.append(data_element(child))
     return element
 
 
 def diagram_xml(data):
-    from defusedxml.ElementTree import fromstring
-    root = Element('mxfile')
+    import copy
+    def fill(template, slot, values, order):
+        result = copy.deepcopy(template)
+        children, used = [], set()
+        for child in result.get('children', []):
+            if child.get('slot') == slot:
+                key = child.get('id', slot)
+                if key in values:
+                    children.append(copy.deepcopy(values[key])); used.add(key)
+            else: children.append(child)
+        children.extend(copy.deepcopy(values[key]) for key in order if key in values and key not in used)
+        result['children'] = children
+        return result
+    pages = {}
     for pid in data.get('order', []):
         page = data.get('pages', {}).get(pid)
         if not page: continue
-        diagram = SubElement(root, 'diagram', {'id': pid, 'name': page.get('name', 'Page')})
-        model = SubElement(diagram, 'mxGraphModel', {k:str(v) for k,v in page.get('attrs', {}).items()})
-        cells = SubElement(model, 'root')
-        for cid, value in sorted(page.get('cells', {}).items(), key=lambda pair: (pair[0] not in ('0','1'), pair[0])):
-            cells.append(data_element(value))
-    return tostring(root, encoding='unicode')
+        cells = page.get('cells', {})
+        order = page.get('order', []) + [key for key in cells if key not in page.get('order', [])]
+        root = fill(page.get('root', {'tag':'root'}), 'cell', cells, order)
+        model = fill(page.get('model', {'tag':'mxGraphModel'}), 'root', {'root':root}, ['root'])
+        model['attrs'] = {**model.get('attrs', {}), **page.get('attrs', {})}
+        template = page.get('xml', {'tag':'diagram'})
+        if template.get('slot') == 'model':
+            pages[pid] = model
+        else:
+            diagram = fill(template, 'model', {'model':model}, ['model'])
+            diagram['attrs'] = {**diagram.get('attrs', {}), 'id':pid, 'name':page.get('name', 'Page')}
+            pages[pid] = diagram
+    template = data.get('xml', {'tag':'mxfile'})
+    root = pages[template['id']] if template.get('slot') == 'page' else fill(template, 'page', pages, data.get('order', []))
+    return tostring(data_element(root), encoding='unicode')
 
 
 def derive(doc, kind):
@@ -175,15 +230,18 @@ def derive(doc, kind):
         return pack(kind, xml_json(doc.get('content', type=XmlFragment))[0])
     data = unflatten(doc.get('objects', type=Map).to_py())
     if kind == 'canvas':
-        return json.dumps({**data.get('extra', {}), 'nodes':list(data.get('nodes', {}).values()), 'edges':list(data.get('edges', {}).values())})
+        from .graphics import canvas_nodes
+        return json.dumps({**data.get('extra', {}), 'nodes':canvas_nodes(data), 'edges':list(data.get('edges', {}).values())})
     if kind == 'drawio':
         return diagram_xml(data)
     layout = data.pop('_layout', {})
+    data['_axes'] = {}
     for sid, sheet in data.get('sheets', {}).items():
         if sid not in layout: continue
         axes = layout[sid]
         rows = sorted(axes['rows'], key=lambda k:(axes['rows'][k],k))
         cols = sorted(axes['cols'], key=lambda k:(axes['cols'][k],k))
+        data['_axes'][sheet.get('name', sid)] = {'id':sid, 'rows':rows, 'cols':cols}
         ri,ci = {v:str(i) for i,v in enumerate(rows)},{v:str(i) for i,v in enumerate(cols)}
         sheet['cellData'] = {ri[r]:{ci[c]:v for c,v in values.items() if c in ci} for r,values in sheet.get('cellData',{}).items() if r in ri}
         sheet['rowCount'],sheet['columnCount'] = len(rows),len(cols)
@@ -208,6 +266,7 @@ def seed(document, content):
     else:
         if document.kind == 'table':
             data = native['data'] if native else {'id':str(document.pk), 'name':document.title, 'appVersion':'0.25.1', 'locale':'enUS', 'sheetOrder':['sheet1'], 'styles':{}, 'sheets':{'sheet1':{'id':'sheet1','name':'Sheet 1','rowCount':200,'columnCount':26,'cellData':{str(r):{str(c):{'v':v} for c,v in enumerate(row)} for r,row in enumerate(csv.reader(io.StringIO(content)))}}}}
+            data.pop('_axes', None)
             data['_layout'] = {}
             for sid,sheet in data['sheets'].items():
                 data['_layout'][sid] = {'rows':{f'r{i}':i for i in range(max(sheet.get('rowCount',200),len(sheet.get('cellData',{}))))},'cols':{f'c{i}':i for i in range(sheet.get('columnCount',26))}}
@@ -247,16 +306,19 @@ def ensure_room(document):
     if not document.storage_digest:
         Document.objects.filter(pk=document.pk, storage_digest='').update(storage_digest=active_storage().fingerprint(document.reference, raw))
         document.storage_digest = active_storage().fingerprint(document.reference, raw)
-    state = seed(document, content).get_update()
+    seeded = seed(document, content)
+    state = seeded.get_update()
     with transaction.atomic():
         room, _ = Collaboration.objects.get_or_create(document=document)
         if not room.state:
             room.state, room.snapshot = state, content
+            if document.kind == 'table':
+                room.saved_structure = unpack(derive(seeded, 'table'))['data'].get('_axes', {})
             room.save()
     return room
 
 
-def apply_update(user, document_id, encoded, review_id=None):
+def apply_update(user, document_id, encoded, review_id=None, *, generation=None):
     try:
         update = base64.b64decode(encoded, validate=True)
     except Exception:
@@ -269,6 +331,9 @@ def apply_update(user, document_id, encoded, review_id=None):
         from .source import check_available
         check_available(document)
         room = Collaboration.objects.get(document=document)
+        if generation is not None and str(room.generation) != str(generation):
+            from .services import Conflict
+            raise Conflict('The original changed. Download your edits before reloading.')
         ydoc = Doc(); ydoc.apply_update(bytes(room.state)); ydoc.apply_update(update)
         snapshot = derive(ydoc, document.kind)
         from .models import SiteConfiguration
@@ -289,25 +354,23 @@ def apply_update(user, document_id, encoded, review_id=None):
         document.updated_at = timezone.now()
         document.revision += 1
         document.save(update_fields=['format_version','updated_at','revision'])
+        from .saves import stage
+        stage(document,user,snapshot,'collaboration',document.revision,sequence=room.sequence)
         return room.sequence
 
 
-@transaction.atomic
 def flush_room(document_id):
-    room = Collaboration.objects.select_related('document').filter(document_id=document_id).first()
-    if not room or room.sequence <= room.synced_sequence:
-        return
-    from .services import storage_key
-    from .file_history import persist
-    document = room.document
-    if not document.file_format and document.kind in ('document', 'table'):
-        document.file_format = 'md' if document.kind == 'document' else 'ods'
-    key = storage_key(document, extension='wiki.json' if not document.file_format and unpack(room.snapshot) else None)
-    document.reference = persist(document, room.snapshot, key, adapter=active_storage())
-    document.path_synced = True
-    document.save(update_fields=['reference', 'path_synced', 'storage_digest', 'history_reference', 'file_format'])
-    room.synced_sequence = room.sequence
-    room.save(update_fields=['synced_sequence'])
+    from .models import SaveSession
+    from .saves import stage, commit
+    with transaction.atomic():
+        room = Collaboration.objects.select_related('document__owner').filter(document_id=document_id).first()
+        if not room or room.sequence <= room.synced_sequence:
+            return
+        session=SaveSession.objects.filter(document_id=document_id,client_id='collaboration').first()
+        if not session:
+            # Upgrade a pre-SaveSession room without discarding its pending state.
+            session=stage(room.document,room.document.owner,room.snapshot,'collaboration',room.document.revision,sequence=room.sequence)
+    return commit(session.pk,adapter=active_storage())
 
 
 @transaction.atomic

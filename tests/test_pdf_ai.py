@@ -50,23 +50,25 @@ def test_pdf_upload_view_fill_and_conflict(client, workspace, url):
     assert response.status_code == 200
     doc.refresh_from_db()
     assert doc.revision == 2
-    edited = active_storage().read(doc.reference)
+    assert active_storage().read(doc.reference) == source
+    edited = client.get(f'/documents/{doc.pk}/export/').content
     reader = PdfReader(BytesIO(edited))
     assert reader.get_fields()['customer']['/V'] == 'Updated customer'
     assert reader.pages[0].extract_text() == PdfReader(BytesIO(source)).pages[0].extract_text()
     assert client.post(save_url, {'revision': 1, 'file': SimpleUploadedFile('report.pdf', source)}).status_code == 409
     doc.refresh_from_db()
-    assert active_storage().read(doc.reference) == edited
+    assert active_storage().read(doc.reference) == source
+    assert client.get(f'/documents/{doc.pk}/export/').content == edited
     assert 'Updated customer' in process_pdf(edited, extract=True)['text']
     assert client.post(save_url, {'revision': 2, 'file': SimpleUploadedFile('report.pdf', b'not a PDF')}).status_code == 400
     csrf_client = Client(enforce_csrf_checks=True); csrf_client.force_login(workspace['admin'])
     assert csrf_client.post(save_url, {}).status_code == 500
     client.force_login(workspace['member'])
     assert b'pdf-save"' not in client.get(f'/documents/{doc.pk}/').content
-    assert client.post(save_url, {}).status_code == 500
+    assert client.post(save_url, {}).status_code == 403
     client.force_login(workspace['outsider'])
-    assert client.get(f'/documents/{doc.pk}/export/?inline=1').status_code == 500
-    assert client.get(f'/documents/{doc.pk}/summary/').status_code == 500
+    assert client.get(f'/documents/{doc.pk}/export/?inline=1').status_code == 404
+    assert client.get(f'/documents/{doc.pk}/summary/').status_code == 404
 
 
 def test_pdf_validation_and_scans(client, workspace):
@@ -141,5 +143,5 @@ def test_ai_settings_encryption_and_pdf_summary(client, workspace):
     assert response.status_code == 400 and b'secret-provider-key' not in response.content
     client.force_login(workspace['outsider'])
     with patch('wiki.ai.requests.post') as post:
-        assert client.post(f'/documents/{doc.pk}/summary/', {'provider': 'openai'}).status_code == 500
+        assert client.post(f'/documents/{doc.pk}/summary/', {'provider': 'openai'}).status_code == 404
         post.assert_not_called()

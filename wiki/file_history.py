@@ -7,10 +7,23 @@ from .file_formats import digest, encode
 from .storage import active_storage, bounded, StorageError, HISTORY_MAX_BYTES
 
 
-def persist(document, content, key, *, new=False, adapter=None):
+def persist(document, content, key, *, new=False, adapter=None, user=None):
     from .services import Conflict
     adapter = adapter or active_storage()
-    data = bounded(encode(document, content))
+    from . import write_journal
+    write_journal.recover_moves(document, adapter)
+    recovered = write_journal.recover(document, adapter, content)
+    if recovered:
+        return recovered
+    strict_styles = False
+    if document.file_format == 'ods':
+        from .storage import MountedStorage, GoogleDrive
+        if isinstance(adapter, MountedStorage):
+            mount, _ = adapter.resolve(key) if new else adapter.reference(document.reference)
+            strict_styles = mount.provider != 'google'
+        else:
+            strict_styles = not isinstance(adapter, GoogleDrive)
+    data = bounded(encode(document, content, strict_styles=strict_styles))
     reference = None if new else document.reference
     previous = None if new else adapter.read(reference)
     if not new and document.storage_digest and adapter.fingerprint(reference, previous) != document.storage_digest:
@@ -29,7 +42,9 @@ def persist(document, content, key, *, new=False, adapter=None):
                     raise ValueError()
                 if not history['entries'] or history['entries'][-1]['sha256'] != digest(previous):
                     history['entries'].append({'saved_at': timezone.now().isoformat(), 'revision': document.revision,
-                        'sha256': digest(previous), 'content_base64': base64.b64encode(previous).decode()})
+                        'author': {'id':user.pk, 'name':user.label} if user else None,
+                        'sha256': digest(previous), 'state_reference':reference,
+                        'content_base64': base64.b64encode(previous).decode()})
             except (ValueError, KeyError, TypeError, AttributeError):
                 raise StorageError('Invalid file history. Save cancelled to protect existing history.') from None
             # ponytail: one bounded history file; archive it when the 50 MiB limit is reached.
@@ -45,11 +60,28 @@ def persist(document, content, key, *, new=False, adapter=None):
             if not ref: continue
             old_key = adapter.location(ref)
             if old_key != target:
+                write_journal.prepare_move(document, adapter, ref, target, field)
                 ref = adapter.move(ref, target)
                 moved.append((ref, old_key))
                 if field == 'reference': reference = ref
                 else: document.history_reference = ref
-        reference = adapter.write(key, data, reference)
+        if moved and previous is not None:
+            after_move = adapter.read(reference)
+            if not write_journal._equivalent(document, after_move, previous):
+                raise Conflict('The original changed while being renamed. Your edits have not overwritten it.')
+            previous = after_move
+            document.storage_digest = adapter.fingerprint(reference, previous)
+        if previous is not None and document.kind == 'table' and document.file_format == 'ods':
+            from .models import Collaboration
+            structure = Collaboration.objects.filter(document=document).values_list('saved_structure', flat=True).first()
+            reference = write_journal.perform(document,user,adapter,key,data,reference,document.storage_digest,
+                content=content,operation='table',previous=previous,structure=structure)
+        else:
+            reference = write_journal.perform(document,user,adapter,key,data,reference,document.storage_digest,content=content)
+    except write_journal.WriteUncertain:
+        # Remote success is possible; moving back or deleting history would make
+        # reconciliation impossible. Keep the journal and recovery artifacts.
+        raise
     except Exception:
         for ref, old_key in reversed(moved):
             try:

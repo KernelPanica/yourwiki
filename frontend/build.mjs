@@ -1,7 +1,7 @@
 import { build } from 'esbuild';
 import { cp, mkdir, readFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
-const result=await build({entryPoints: ['frontend/editor.js', 'frontend/pdf.js'], bundle: true, minify: true, metafile:true,
+const result=await build({entryPoints: ['frontend/editor.js', 'frontend/pdf.js', 'frontend/document-preview.js'], bundle: true, minify: true, metafile:true,
   outdir: 'wiki/static/wiki/dist', format: 'esm', splitting:true, target: 'es2022',
   loader: {'.woff': 'file', '.woff2': 'file', '.ttf': 'file', '.svg': 'dataurl', '.gif': 'dataurl'},
   plugins: [{name: 'namespace-pdf-sidebar', setup(build) {

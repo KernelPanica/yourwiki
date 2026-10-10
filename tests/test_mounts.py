@@ -57,7 +57,7 @@ def test_cross_mount_moves_relocate_attachments_and_empty_subdirectories(workspa
     adapter = active_storage()
     attachment = Attachment.objects.create(document=document, reference=adapter.write('old-image.png', b'image'), content_type='image/png')
     inode = (workspace['root'] / document.reference).stat().st_ino
-    directory = Folder.objects.create(name='Notes', owner=workspace['admin'], group=workspace['team'])
+    directory = Folder.objects.create(inherit_permissions=False, name='Notes', owner=workspace['admin'], group=workspace['team'])
     Folder.objects.create(name='Empty', parent=directory, owner=workspace['admin'], group=workspace['team'])
     document.folder = directory
     document.save()
@@ -126,7 +126,7 @@ def test_mount_boundaries_cannot_hide_files_or_move_with_parent(client, workspac
         create_mount(workspace['admin'], '/Parent', {'provider':'local', 'root':str(tmp_path)})
     with pytest.raises(ValidationError):
         create_mount(workspace['admin'], '/Parent/../Escape', {'provider':'local', 'root':str(tmp_path)})
-    folder = Folder.objects.create(name='Occupied', owner=workspace['admin'], group=workspace['team'])
+    folder = Folder.objects.create(inherit_permissions=False, name='Occupied', owner=workspace['admin'], group=workspace['team'])
     document.folder = folder
     document.save()
     with pytest.raises(ValidationError):
@@ -137,6 +137,7 @@ def test_mount_path_is_not_disclosed_through_shared_child(client, workspace, tmp
     remote, _ = mount(workspace, tmp_path, '/Private/Shared')
     private = remote.folder.parent
     private.policy['group']['visible'] = False
+    private.inherit_permissions=False
     private.save()
     shared = remote.folder
     shared.inherit_permissions = False
@@ -153,7 +154,7 @@ def test_folder_grants_support_multiple_groups(workspace):
     reviewers = Group.objects.create(name='reviewers')
     editors = Group.objects.create(name='editors')
     user = workspace['member']; user.groups.add(reviewers)
-    folder = Folder.objects.create(name='Shared', owner=workspace['admin'], group=workspace['team'], group_policies={str(reviewers.pk): {'visible':True,'read':True,'write':False}, str(editors.pk): {'visible':True,'read':True,'write':True}})
+    folder = Folder.objects.create(inherit_permissions=False, name='Shared', owner=workspace['admin'], group=workspace['team'], group_policies={str(reviewers.pk): {'visible':True,'read':True,'write':False}, str(editors.pk): {'visible':True,'read':True,'write':True}})
     assert folder.allows(user, 'visible') and folder.allows(user, 'read') and not folder.allows(user, 'write')
     user.groups.add(editors)
     assert folder.allows(user, 'write')

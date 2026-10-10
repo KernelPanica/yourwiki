@@ -2,6 +2,7 @@ from datetime import timedelta
 from functools import wraps
 import hashlib
 import json
+import logging
 import secrets
 from django.conf import settings
 from django.contrib import messages
@@ -9,7 +10,7 @@ from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.models import Group
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import IntegrityError, OperationalError, transaction
-from django.http import HttpResponse, JsonResponse
+from django.http import HttpResponse, JsonResponse, Http404
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
@@ -18,12 +19,22 @@ from .forms import DocumentForm, InviteForm, MemberForm, RegistrationForm
 from .middleware import deny
 from .models import Document, Invitation, LoginAttempt, User, Workspace
 from .previews import preview, image_type
+from .acl import normalize_policy, normalize_rule, ResourcePermissionDenied
 from .services import Conflict, EXTENSIONS, redeem_invitation, require, save_document, validate_policy, delete_document
 from .storage import StorageError, active_storage
+
+log = logging.getLogger('wiki.actions')
 
 
 def denied(request, *args, **kwargs):
     return deny(request)
+
+
+def csrf_failure(request, reason=''):
+    # Keep the site's existing denial status; disclose no CSRF internals.
+    response = failure(request, 'Your session expired. Reload the page before submitting again.', 500)
+    response['X-Yourwiki-Error'] = 'csrf'
+    return response
 
 
 @require_POST
@@ -45,6 +56,10 @@ def guarded(view):
     def wrapped(request, *args, **kwargs):
         try:
             return view(request, *args, **kwargs)
+        except Http404:
+            return failure(request, 'Not found.', 404)
+        except ResourcePermissionDenied:
+            return failure(request, 'Access denied.', 403)
         except PermissionDenied:
             return deny(request)
         except StorageError as error:
@@ -55,17 +70,20 @@ def guarded(view):
             return failure(request, str(error), 409)
         except (ValidationError, ValueError, TypeError) as error:
             return failure(request, '; '.join(error.messages) if isinstance(error, ValidationError) else 'Invalid request.', 400)
+        except Exception:
+            log.exception('Action failed: %s %s', request.method, request.path)
+            return failure(request, 'The request could not be completed. Check whether the action finished before retrying.', 500)
     return wrapped
 
 
 def failure(request, message, status):
-    if request.path.startswith('/api/'):
+    if request.path.startswith('/api/') or 'application/json' in request.headers.get('Accept', ''):
         return JsonResponse({'error': message}, status=status)
     return render(request, 'wiki/error.html', {'error_title': 'Unable to complete request', 'error_message': message}, status=status)
 
 
 def visible_docs(user):
-    return [d for d in Document.objects.select_related('owner','group') if d.allows(user, 'visible')]
+    return [d for d in Document.objects.select_related('owner','group') if d.allows(user, 'read')]
 
 
 def document_for(user, id, action='read'):
@@ -106,7 +124,7 @@ def sign_in(request):
     LoginAttempt.objects.filter(key=key).delete()
     login(request, user)
     request.session.set_expiry(site.session_hours * 3600)
-    return redirect('library')
+    return redirect('folders')
 
 
 @require_POST
@@ -139,14 +157,24 @@ def library(request):
 def detail(request, id):
     doc = document_for(request.user, id)
     if doc.kind == 'file' and doc.title.lower().endswith('.pdf'):
-        return render(request, 'wiki/pdf.html', {'doc': doc, 'can_write': doc.allows(request.user, 'write'),
-            'pdf_bootstrap': {'id': str(doc.pk), 'title': doc.title, 'revision': doc.revision, 'write': doc.allows(request.user, 'write')}})
+        with transaction.atomic():
+            doc=document_for(request.user,id)
+            raw=active_storage().read(doc.reference)
+            fingerprint=active_storage().fingerprint(doc.reference,raw)
+            if fingerprint!=doc.storage_digest:
+                if doc.storage_digest:doc.revision+=1
+                doc.storage_digest=fingerprint
+                doc.save(update_fields=['storage_digest','revision'])
+        from .pdf_layers import layer_state
+        return render(request, 'wiki/pdf.html', {'doc': doc, 'section':doc.title, 'can_write': doc.allows(request.user, 'write'),
+            'pdf_bootstrap': {'id': str(doc.pk), 'title': doc.title, 'revision': doc.revision,
+                'layer_state': layer_state(doc, raw), 'write': doc.allows(request.user, 'write')}})
     if doc.kind == 'file':
         return render(request, 'wiki/file.html', {'doc':doc, 'is_image':bool(image_type(active_storage().read(doc.reference))), 'can_write':doc.allows(request.user,'write'), 'can_policy':request.user.is_superuser})
     from .collaboration import current_content
     content = current_content(doc)
     try:
-        rendered = preview(doc.kind, content)
+        rendered = {'drawio_source': content} if doc.kind == 'drawio' else preview(doc.kind, content)
     except Exception:
         rendered = {'preview_error': 'Preview unavailable. You can export the original file or edit its source.'}
     return render(request, 'wiki/document.html', {'doc':doc, 'can_write':doc.allows(request.user,'write'), 'can_policy':request.user.is_superuser, **rendered})
@@ -222,7 +250,7 @@ def upload_file(request):
             with transaction.atomic():
                 from .folders import target_folder
                 folder = target_folder(request.user, form.cleaned_data['folder']) if form.cleaned_data['folder'] else resolve_path(request.user, form.cleaned_data['path'])
-                group = form.cleaned_data.get('group') or request.user.groups.first() or (Group.objects.first() if request.user.is_superuser else None)
+                group = folder.group if folder else request.user.groups.first() or (Group.objects.first() if request.user.is_superuser else None)
                 if not group: raise PermissionDenied
                 if upload.name.lower().endswith('.docx'):
                     from .file_formats import read_docx as to_native
@@ -238,6 +266,8 @@ def upload_file(request):
                     doc = save_document(request.user, upload.name, 'file', 'Uploads', content, group, folder=folder)
                 form.apply_permissions(doc)
             return redirect('document', id=doc.pk)
+    if request.method == 'POST' and form.errors and 'application/json' in request.headers.get('Accept', ''):
+        return JsonResponse({'error':'Check the highlighted fields.', 'errors':form.errors.get_json_data()}, status=400)
     return render(request, 'wiki/upload.html', {'form':form, 'section':'Upload file'}, status=400 if form.errors else 200)
 
 
@@ -247,12 +277,18 @@ def import_document(request):
     if request.method == 'POST':
         upload = request.FILES.get('file')
         is_bundle=upload and upload.name.endswith('.wiki.zip')
-        if not upload or upload.size > (50 if is_bundle else 5)*1024*1024:
+        is_recovery=upload and upload.name.endswith('.recovery.json')
+        if not upload or upload.size > (50 if is_bundle else 20 if is_recovery else 5)*1024*1024:
             raise ValidationError('Choose a file smaller than 5 MB.')
         ext = upload.name.rsplit('.',1)[-1].lower()
         kind = {'md':'document','txt':'document','csv':'table','ods':'table','canvas':'canvas','drawio':'drawio','xml':'drawio','doc':'file','docx':'file','pdf':'file'}.get(ext)
         group = request.user.groups.first() or (Group.objects.first() if request.user.is_superuser else None)
         if not group: raise ValidationError('Ask an administrator to add you to a group first.')
+        if is_recovery:
+            from .recovery import decode_snapshot
+            kind,content,file_format=decode_snapshot(upload.read())
+            doc=save_document(request.user,upload.name[:-14]+' (recovered)',kind,'Imports',content,group,file_format=file_format)
+            return redirect('document',id=doc.pk)
         if is_bundle:
             from .bundles import import_bundle
             doc=import_bundle(request.user,group,upload)
@@ -294,6 +330,9 @@ def export_document(request,id):
         from django.utils.http import content_disposition_header
         content = active_storage().read(doc.reference)
         is_pdf = doc.title.lower().endswith('.pdf') and content.startswith(b'%PDF-')
+        if is_pdf and request.GET.get('original') != '1':
+            from .pdf_layers import saved_pdf
+            content = saved_pdf(doc, earlier_annotations=request.GET.get('annotations') == '1')
         mime = 'application/pdf' if is_pdf else image_type(content)
         response = HttpResponse(content, content_type=mime or 'application/octet-stream')
         response['Content-Disposition'] = content_disposition_header(not (mime and request.GET.get('inline') == '1'), doc.title)
@@ -359,25 +398,9 @@ def remove(request,id):
 @guarded
 @require_http_methods(['GET','POST'])
 def policy(request,id):
-    from .services import group_policies_from_post
-    if not request.user.is_superuser: raise PermissionDenied
-    doc=document_for(request.user,id,'visible')
-    groups=Group.objects.all() if request.user.is_superuser else request.user.groups.all()
-    if request.method=='POST':
-        chosen = groups.filter(pk=request.POST.get('group')).first()
-        if not chosen: raise ValidationError('Choose an allowed group.')
-        rules={s:{a:request.POST.get(s+'.'+a)=='on' for a in ('visible','read','write')} for s in ('owner','group','everyone')}
-        with transaction.atomic():
-            current = document_for(request.user,id,'visible')
-            if not (request.user.is_superuser or current.owner_id==request.user.pk): raise PermissionDenied
-            current.policy, current.group=rules,chosen
-            current.group_policies = group_policies_from_post(request.POST, groups)
-            current.inherit_permissions = request.POST.get('inherit_permissions') == 'on'
-            current.save(update_fields=['policy','group','inherit_permissions','group_policies'])
-        messages.success(request,'Permissions saved.')
-        return redirect('library')
-    group_rows = [(group, doc.group_policies.get(str(group.pk), {}), str(group.pk) in doc.group_policies) for group in groups]
-    return render(request,'wiki/policy.html',{'doc':doc,'groups':groups,'group_rows':group_rows,'rules':[(s,[(a,doc.policy[s][a]) for a in ('visible','read','write')]) for s in ('owner','group','everyone')]})
+    # Keep bookmarked URLs, but only one settings form owns ACL mutation.
+    document_for(request.user, id)
+    return redirect(reverse('file-settings', args=[id]) + '#access')
 
 
 @guarded
@@ -431,30 +454,15 @@ def redeem(request,token):
             login(request,user)
             from .models import SiteConfiguration
             request.session.set_expiry(SiteConfiguration.current().session_hours * 3600)
-            return redirect('library')
+            return redirect('provider-setup')
     return render(request,'wiki/register.html',{'form':form},status=400 if form.errors else 200)
 
 
 @guarded
-@require_http_methods(['GET','POST'])
+@require_http_methods(['GET'])
 def members(request):
     if not request.user.is_superuser: raise PermissionDenied
-    if request.method=='POST':
-        action=request.POST.get('action','create')
-        group=Group.objects.filter(pk=request.POST.get('group')).first() if action != 'create' else None
-        if action == 'rename':
-            name=request.POST.get('name','').strip()
-            if not group or not name or len(name)>150: raise ValidationError('Provide a valid group and name.')
-            group.name=name;group.save(update_fields=['name']);return redirect('groups')
-        if action == 'delete':
-            if not group: raise ValidationError('Choose a group.')
-            if User.objects.filter(groups=group).exists() or Document.objects.filter(group=group).exists(): raise ValidationError('Remove members and document assignments before deleting this group.')
-            group.delete();return redirect('groups')
-        name=request.POST.get('name','').strip()
-        if not name or len(name)>150: raise ValidationError('Provide a group name of at most 150 characters.')
-        Group.objects.get_or_create(name=name)
-        return redirect('members')
-    return render(request,'wiki/members.html',{'members':User.objects.all(),'groups':Group.objects.all(),'section':'Members'})
+    return render(request,'wiki/members.html',{'members':User.objects.prefetch_related('groups').order_by('username'),'section':'Members'})
 
 
 @guarded
@@ -469,7 +477,7 @@ def groups(request):
             if not name or len(name)>150: raise ValidationError('Provide a group name of at most 150 characters.')
             group.name=name;group.save(update_fields=['name'])
         elif action == 'delete' and group:
-            if User.objects.filter(groups=group).exists() or Document.objects.filter(group=group).exists(): raise ValidationError('Remove members and document assignments before deleting this group.')
+            if User.objects.filter(groups=group).exists() or Document.objects.filter(group=group).exists() or group.folder_set.exists(): raise ValidationError('Remove members and document assignments before deleting this group.')
             group.delete()
         elif action == 'create':
             name=request.POST.get('name','').strip()
@@ -477,7 +485,25 @@ def groups(request):
             Group.objects.get_or_create(name=name)
         else: raise ValidationError('Invalid group action.')
         return redirect('groups')
-    return render(request,'wiki/groups.html',{'groups':Group.objects.all(),'section':'Groups'})
+    return render(request,'wiki/groups.html',{'groups':Group.objects.prefetch_related('user_set', 'folder_set').order_by('name'),'section':'Groups'})
+
+
+@guarded
+@require_http_methods(['GET','POST'])
+def group_detail(request, id):
+    if not request.user.is_superuser: raise PermissionDenied
+    from .forms import GroupMembershipForm
+    group = get_object_or_404(Group, pk=id)
+    form = GroupMembershipForm(request.POST or None, group=group,
+        initial={'name':group.name, 'members':group.user_set.all()})
+    if request.method == 'POST' and form.is_valid():
+        with transaction.atomic():
+            group.name = form.cleaned_data['name']
+            group.save(update_fields=['name'])
+            group.user_set.set(form.cleaned_data['members'])
+        messages.success(request, 'Group saved.')
+        return redirect('group', id=group.pk)
+    return render(request, 'wiki/group.html', {'form':form, 'group':group, 'section':'Groups'}, status=400 if form.errors else 200)
 
 
 @guarded
@@ -493,7 +519,6 @@ def member(request,id):
             with transaction.atomic():
                 for key in ('display_name','is_active','can_invite'): setattr(person,key,form.cleaned_data[key])
                 person.save()
-                person.groups.set(form.cleaned_data['groups'])
                 person.invite_groups.set(form.cleaned_data['invite_groups'])
             return redirect('members')
     return render(request,'wiki/member.html',{'form':form,'person':person,'section':'Members'},status=400 if form.errors else 200)
@@ -504,8 +529,8 @@ def account(request):
 
 
 def serialized(doc,user):
-    folder = doc.folder if doc.folder_id and doc.folder.allows(user, 'visible') and doc.folder.allows(user, 'read') else None
-    return {'id':str(doc.pk),'title':doc.title,'kind':doc.kind,'owner':doc.owner.username,'group':doc.group.name,'policy':doc.policy,'effective_policy':doc.effective_policy()[0],'inherit_permissions':doc.inherit_permissions,'folder':str(folder.pk) if folder else None,'file_format':doc.file_format,'format_version':doc.format_version,'revision':doc.revision,'starred':doc.starred,'updated_at':doc.updated_at.isoformat(),'access':{k:doc.allows(user,k) for k in ('visible','read','write')}}
+    folder = doc.folder if doc.folder_id and doc.folder.allows(user, 'read') else None
+    return {'id':str(doc.pk),'title':doc.title,'kind':doc.kind,'owner':doc.owner.username,'group':doc.group.name,'policy':normalize_policy(doc.policy),'group_policies':{key:normalize_rule(rule) for key,rule in doc.group_policies.items()},'effective_policy':doc.effective_policy()[0],'inherit_permissions':doc.inherit_permissions,'folder':str(folder.pk) if folder else None,'file_format':doc.file_format,'format_version':doc.format_version,'revision':doc.revision,'starred':doc.starred,'updated_at':doc.updated_at.isoformat(),'access':{k:doc.allows(user,k) for k in ('read','write')}}
 
 
 @guarded
@@ -514,12 +539,16 @@ def api_documents(request):
     if request.method=='GET': return JsonResponse([serialized(d,request.user) for d in visible_docs(request.user)],safe=False)
     data=json.loads(request.body)
     if not isinstance(data,dict): raise ValidationError('Use a JSON object.')
-    groups=Group.objects.all() if request.user.is_superuser else request.user.groups.all()
-    group=groups.filter(name=data.get('group','team')).first()
-    if not group: raise PermissionDenied
-    if 'collection' in data: raise ValidationError('Labels are no longer supported.')
+    from .folders import target_folder, resolve_path
     from .models import SiteConfiguration
-    doc=save_document(request.user,data.get('title',''),data.get('kind','document'),SiteConfiguration.current().default_collection,data.get('content',''),group,file_format=data.get('file_format'))
+    if 'collection' in data: raise ValidationError('Labels are no longer supported.')
+    if any(key in data for key in ('policy','group_policies','inherit_permissions')):
+        raise ValidationError('New files inherit access. Use file settings to change permissions.')
+    with transaction.atomic():
+        folder = target_folder(request.user,data.get('folder')) if data.get('folder') else resolve_path(request.user,data.get('path','/'))
+        group = folder.group if folder else request.user.groups.first() or (Group.objects.first() if request.user.is_superuser else None)
+        if not group: raise PermissionDenied
+        doc=save_document(request.user,data.get('title',''),data.get('kind','document'),SiteConfiguration.current().default_collection,data.get('content',''),group,folder=folder,file_format=data.get('file_format'))
     return JsonResponse(serialized(doc,request.user),status=201)
 
 
@@ -538,26 +567,20 @@ def api_document(request,id):
     data=json.loads(request.body)
     if not isinstance(data,dict): raise ValidationError('Use a JSON object.')
     if 'collection' in data: raise ValidationError('Labels are no longer supported.')
-    if any(k in data for k in ('content','title')) and any(k in data for k in ('policy','group','starred')):
+    if any(k in data for k in ('content','title')) and any(k in data for k in ('policy','group','group_policies','inherit_permissions','starred')):
         raise ValidationError('Save content and access metadata in separate requests.')
     if 'content' in data or 'title' in data:
         if 'content' not in data: raise ValidationError('Supply the complete content with a revision when saving.')
         doc=save_document(request.user,data.get('title',doc.title),doc.kind,doc.collection,data['content'],doc.group,doc,data.get('revision'))
-    if 'policy' in data or 'group' in data or 'starred' in data:
+    if {'policy','group','group_policies','inherit_permissions','starred'} & data.keys():
+        from .acl import apply_api_access
         with transaction.atomic():
             doc=document_for(request.user,id,'write')
-            if 'policy' in data or 'group' in data:
-                if not (request.user.is_superuser or doc.owner_id==request.user.pk): raise PermissionDenied
-                if 'policy' in data: validate_policy(data['policy']); doc.policy=data['policy']
-                if 'group' in data:
-                    groups=Group.objects.all() if request.user.is_superuser else request.user.groups.all()
-                    group=groups.filter(name=data['group']).first()
-                    if not group: raise PermissionDenied
-                    doc.group=group
+            fields = apply_api_access(doc,data,request.user)
             if 'starred' in data:
                 if type(data['starred']) is not bool: raise ValidationError('Starred must be a boolean.')
-                doc.starred=data['starred']
-            doc.save(update_fields=['policy','group','starred'])
+                doc.starred=data['starred'];fields.append('starred')
+            doc.save(update_fields=fields)
     return JsonResponse(serialized(doc,request.user))
 
 
@@ -575,21 +598,28 @@ def save_pdf(request, id):
         raise ValidationError('Use a PDF file no larger than 5 MB.')
     content = upload.read()
     process_pdf(content)
-    # Serialize revision checking and writes, so stale PDF tabs cannot overwrite a save.
-    with transaction.atomic():
-        doc = document_for(request.user, id, 'write')
-        require(doc, request.user, 'read')
-        saved = save_document(request.user, doc.title, 'file', doc.collection, content,
-                              doc.group, doc, int(request.POST.get('revision', '0')))
-    return JsonResponse({'revision': saved.revision})
+    from .saves import stage
+    from .pdf_layers import commit_layer
+    client_id=request.POST.get('client_id') or 'default'
+    session=stage(doc,request.user,content,f'pdf:{request.user.pk}:{client_id}',int(request.POST.get('revision','0')))
+    try:
+        commit_layer(session.pk, replace_stale_layer=request.POST.get('replace_stale_layer') == '1')
+    except OSError:
+        return failure(request, 'Annotation storage is unavailable. Your pending edits are retained.', 503)
+    session.refresh_from_db()
+    return JsonResponse({'revision': session.saved_revision})
 
 
 @guarded
 @require_http_methods(['GET', 'POST'])
 def file_settings(request, id):
-    from .forms import HistoryForm
     doc = document_for(request.user, id, 'write')
-    form = HistoryForm(request.POST or None, initial={'revision_history': '' if doc.revision_history is None else 'on' if doc.revision_history else 'off'})
+    from .acl import settings_context, save_settings_access
+    if request.method == 'POST' and request.POST.get('action') == 'access':
+        with transaction.atomic():
+            doc = document_for(request.user,id,'write')
+            save_settings_access(doc,request.POST,request.user)
+        return redirect(reverse('file-settings',args=[id])+'#access')
     if request.method == 'POST' and request.POST.get('action') == 'reload':
         if request.POST.get('discard') != 'on':
             raise ValidationError('Export your edits and confirm discarding the local editor state first.')
@@ -604,17 +634,19 @@ def file_settings(request, id):
                 raise Conflict('Close active visual editors before reloading the original.')
             raw = active_storage().read(doc.reference)
             if doc.kind != 'file': decode(doc, raw)
+            from .write_journal import discard
+            discard(doc)
             Collaboration.objects.filter(document=doc).delete()
+            from .models import SaveSession
+            SaveSession.objects.filter(document=doc).delete()
             doc.storage_digest = active_storage().fingerprint(doc.reference, raw)
             doc.revision += 1
             doc.save(update_fields=['storage_digest', 'revision'])
         return redirect('document', id=doc.pk)
 
-    if request.method == 'POST' and form.is_valid():
-        doc.revision_history = form.cleaned_data['revision_history']
-        doc.save(update_fields=['revision_history'])
-        return redirect('document', id=doc.pk)
-    return render(request, 'wiki/file_settings.html', {'doc': doc, 'form': form, 'history_enabled': doc.history_enabled()})
+    if request.method == 'POST':
+        raise ValidationError('Version history is controlled globally in site settings.')
+    return render(request, 'wiki/file_settings.html', {'doc': doc, 'history_enabled': doc.history_enabled(), **settings_context(doc,request.user)})
 
 
 @guarded
@@ -627,4 +659,28 @@ def file_history(request, id):
     from .storage import HISTORY_MAX_BYTES
     response = HttpResponse(active_storage().read(doc.history_reference, limit=HISTORY_MAX_BYTES), content_type='application/json')
     response['Content-Disposition'] = content_disposition_header(True, doc.title + '.' + (doc.file_format or 'file') + '.json')
+    return response
+
+
+@guarded
+@require_http_methods(['GET', 'PUT'])
+def api_file_content(request, id):
+    """Binary read/write for every provider, through the same authorization gate."""
+    doc = document_for(request.user,id,'read' if request.method=='GET' else 'write')
+    if request.method == 'GET':
+        response = export_document(request,id)
+        response['ETag'] = f'"{doc.revision}"'
+        return response
+    if doc.kind != 'file':
+        raise ValidationError('Use the document content API for editable documents.')
+    expected = request.headers.get('If-Match','').strip('"')
+    if not expected.isdigit():
+        raise ValidationError('Supply the current revision in If-Match.')
+    content=request.body
+    if doc.title.lower().endswith('.pdf'):
+        from .pdf import process_pdf
+        process_pdf(content)
+    doc=save_document(request.user,doc.title,doc.kind,doc.collection,content,doc.group,doc,int(expected))
+    response=JsonResponse(serialized(doc,request.user))
+    response['ETag']=f'"{doc.revision}"'
     return response

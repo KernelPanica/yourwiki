@@ -1,0 +1,27 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>html,body{margin:0;height:100%;font-family:Arial,sans-serif;background:white}#diagram{position:absolute;inset:32px 0 0;overflow:auto}</style>
+<script>
+window.DRAWIO_BASE_URL='/static/drawio';
+window.PROXY_URL='';
+window.STYLE_PATH='/static/drawio/styles';
+window.SHAPES_PATH='/static/drawio/shapes';
+window.STENCIL_PATH='/static/drawio/stencils';
+window.DRAW_MATH_URL='/static/drawio/math4/es5';
+window.GRAPH_IMAGE_PATH='/static/drawio/img';
+window.mxImageBasePath='/static/drawio/mxgraph/images';
+window.mxBasePath='/static/drawio/mxgraph';
+</script><script src="/static/drawio/js/viewer.min.js"></script></head>
+<body><div id="diagram"></div><script>
+let viewer;
+window.addEventListener('message',event=>{
+ if(event.source!==parent || event.origin!==location.origin || event.data?.action!=='show-diagram' || viewer)return;
+ try {
+  const xml=mxUtils.parseXml(event.data.xml);
+  if(xml.getElementsByTagName('parsererror').length)throw Error('Invalid XML');
+  viewer=new GraphViewer(document.getElementById('diagram'),xml.documentElement,{highlight:'#2563eb',nav:true,resize:false,toolbar:'pages zoom layers', 'toolbar-nohide':true,'toolbar-position':'top',lightbox:false,'auto-fit':true,center:true,border:24});
+  window.yourwikiViewer=viewer;
+  parent.postMessage({event:'diagram-ready'},location.origin);
+ }catch(error){parent.postMessage({event:'diagram-error'},location.origin);}
+});
+parent.postMessage({event:typeof GraphViewer==='function'?'viewer-ready':'diagram-error'},location.origin);
+</script></body></html>

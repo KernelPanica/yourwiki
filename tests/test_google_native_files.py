@@ -8,11 +8,11 @@ from unittest.mock import patch
 import pytest
 from django.core.management import call_command
 from wiki.crypto import encrypt
-from wiki.models import Document, Folder, MountPoint
+from wiki.models import Document, Folder, MountPoint, SiteConfiguration
 from wiki.services import save_document, Conflict
 from wiki.storage import GoogleDrive, StorageError, active_storage, HISTORY_MAX_BYTES
 from wiki.file_formats import write_ods, read_ods
-from wiki.native import unpack
+from wiki.native import unpack, pack
 
 pytestmark = pytest.mark.django_db
 
@@ -32,6 +32,8 @@ class Drive:
                               'ownedByMe':True, 'shared':False, 'owners':[{'permissionId':'account'}], 'version':'1'}}
         self.calls = []
         self.uploads = {}
+        self.notes = {}
+        self.sheet_ids = {}
 
     def import_file(self, reference, metadata, data):
         ref = reference or f'file-{len(self.files)}'
@@ -43,6 +45,97 @@ class Drive:
     def request(self, method, url, **kwargs):
         self.calls.append((method, url, kwargs))
         assert '/permissions' not in url, 'Yourwiki must never change Google sharing.'
+        if url.startswith('https://sheets.googleapis.com/v4/spreadsheets/'):
+            ref = url.rsplit('/',1)[1].removesuffix(':batchUpdate')
+            book = unpack(read_ods(self.files[ref]['data']))['data']
+            order = book['sheetOrder']
+            ids = self.sheet_ids.setdefault(ref,{sid:i for i,sid in enumerate(order)})
+            def sheet_key(numeric_id):
+                return next(sid for sid in order if ids[sid] == numeric_id)
+            if method == 'GET':
+                return Response({'sheets':[{'properties':{'sheetId':ids[sid], 'title':book['sheets'][sid]['name'],
+                    'gridProperties':{key:book['sheets'][sid][key] for key in ('rowCount','columnCount')}}} for sid in order]})
+            assert method == 'POST' and url.endswith(':batchUpdate')
+            for request in kwargs['json']['requests']:
+                if 'addSheet' in request:
+                    props = request['addSheet']['properties']
+                    sid = 'native-' + str(props['sheetId'])
+                    assert props['sheetId'] not in ids.values()
+                    assert props['title'] not in [s['name'] for s in book['sheets'].values()]
+                    ids[sid] = props['sheetId']
+                    order.append(sid)
+                    book['sheets'][sid] = {'name':props['title'],**props['gridProperties'],'cellData':{}}
+                    continue
+                if 'deleteSheet' in request:
+                    sid = sheet_key(request['deleteSheet']['sheetId'])
+                    assert len(order)>1
+                    order.remove(sid)
+                    del book['sheets'][sid]
+                    del ids[sid]
+                    continue
+                if 'updateSheetProperties' in request:
+                    props = request['updateSheetProperties']['properties']
+                    sid = sheet_key(props['sheetId'])
+                    if 'title' in props:
+                        assert props['title'] not in [s['name'] for key,s in book['sheets'].items() if key != sid]
+                        book['sheets'][sid]['name'] = props['title']
+                    if 'index' in props:
+                        order.remove(sid)
+                        order.insert(props['index'],sid)
+                    continue
+                if 'appendDimension' in request:
+                    continue
+                if 'updateCells' not in request:
+                    operation, payload = next(iter(request.items()))
+                    span = payload.get('range', payload.get('source'))
+                    sheet = book['sheets'][sheet_key(span['sheetId'])]
+                    is_row = span['dimension'] == 'ROWS'
+                    count_key = 'rowCount' if is_row else 'columnCount'
+                    size = sheet[count_key]
+                    identities = list(range(size))
+                    start, end = span['startIndex'], span['endIndex']
+                    if operation == 'insertDimension':
+                        identities[start:start] = [None]*(end-start)
+                    elif operation == 'deleteDimension':
+                        del identities[start:end]
+                    elif operation == 'moveDimension':
+                        block = identities[start:end]
+                        del identities[start:end]
+                        dest = payload['destinationIndex']
+                        if dest > start: dest -= end-start
+                        identities[dest:dest] = block
+                    else: raise AssertionError(operation)
+                    indexes = {old:new for new,old in enumerate(identities) if old is not None}
+                    cells = {}
+                    for r,row in sheet.get('cellData', {}).items():
+                        for c,value in row.items():
+                            index = int(r if is_row else c)
+                            if index not in indexes: continue
+                            nr,nc = (indexes[index],int(c)) if is_row else (int(r),indexes[index])
+                            cells.setdefault(str(nr), {})[str(nc)] = value
+                    notes = {}
+                    for (r,c),note in self.notes.get(ref, {}).items():
+                        index = r if is_row else c
+                        if index in indexes:
+                            notes[(indexes[index],c) if is_row else (r,indexes[index])] = note
+                    self.notes[ref] = notes
+                    sheet['cellData'] = cells
+                    sheet[count_key] = len(identities)
+                    continue
+                update = request['updateCells']
+                start = update['start']
+                cells = book['sheets'][sheet_key(start['sheetId'])].setdefault('cellData', {})
+                for offset,row in enumerate(update['rows']):
+                    for column,value in enumerate(row['values']):
+                        cell = cells.setdefault(str(start['rowIndex']+offset), {}).setdefault(str(start['columnIndex']+column), {})
+                        assert update['fields'] == 'userEnteredValue', 'Extend mock for format integration tests'
+                        cell.pop('v',None); cell.pop('f',None)
+                        entered = value.get('userEnteredValue', {})
+                        if 'formulaValue' in entered:
+                            cell['f'] = entered['formulaValue']
+                        elif entered:
+                            cell['v'] = next(iter(entered.values()))
+            return self.import_file(ref, {}, write_ods(pack('table',book), 'Workbook'))
         params = kwargs.get('params', {})
         ref = url.split('/files/', 1)[1].split('/')[0] if '/files/' in url else None
         if method == 'PUT' and url in self.uploads:
@@ -116,8 +209,7 @@ def test_native_sheet_id_url_history_and_external_conflict(workspace, google):
     assert cells['1']['0']['v'] == 'Unicode Привет'
     doc = save_document(user, 'Budget', 'table', 'Notes', 'Name,Total\nUpdated,99', team, doc, doc.revision)
     assert doc.reference == ref
-    doc.revision_history = True
-    doc.save()
+    SiteConfiguration.objects.update_or_create(pk=1,defaults={'revision_history':True})
     doc = save_document(user, 'Budget', 'table', 'Notes', 'Name,Total\nThird,100', team, doc, doc.revision)
     assert drive.files[doc.history_reference]['name'] == 'Budget.ods.json'
     history = json.loads(active_storage().read(doc.history_reference, limit=HISTORY_MAX_BYTES))
@@ -180,3 +272,134 @@ def test_large_google_history_uses_resumable_upload(workspace, google):
     ref = adapter.write('history.bin.json', data, limit=HISTORY_MAX_BYTES)
     assert adapter.read(ref, limit=HISTORY_MAX_BYTES) == data
     assert len(drive.uploads) == 1
+
+
+def test_cell_edit_uses_native_batch_and_keeps_id(workspace, google):
+    drive, _ = google
+    user, team = workspace['admin'], workspace['team']
+    doc = save_document(user, 'Budget', 'table', 'Notes', 'Keep,1', team)
+    ref = doc.reference
+    drive.calls.clear()
+    doc = save_document(user, 'Budget', 'table', 'Notes', 'Keep,2', team, doc, doc.revision)
+    batches = [call for call in drive.calls if call[1].endswith(':batchUpdate')]
+    assert len(batches) == 1
+    assert not any(call[2].get('params', {}).get('uploadType') for call in drive.calls)
+    assert doc.reference == ref
+    cells = unpack(read_ods(active_storage().read(ref)))['data']['sheets']['sheet1']['cellData']
+    assert cells['0']['0']['v'] == 'Keep' and cells['0']['1']['v'] == '2'
+    # A second save must accept the version returned after the first batch.
+    save_document(user, 'Budget', 'table', 'Notes', 'Keep,3', team, doc, doc.revision)
+
+
+def test_batch_failure_never_falls_back_to_import(workspace, google):
+    drive, _ = google
+    user, team = workspace['admin'], workspace['team']
+    doc = save_document(user, 'Budget', 'table', 'Notes', 'Keep,1', team)
+    before = drive.files[doc.reference]['data']
+    original = drive.request
+    def fail(method, url, **kwargs):
+        if url.endswith(':batchUpdate'):
+            raise StorageError('Temporary Sheets failure')
+        return original(method, url, **kwargs)
+    with patch.object(GoogleDrive, 'request', side_effect=fail):
+        with pytest.raises(StorageError, match='result is unknown'):
+            save_document(user, 'Budget', 'table', 'Notes', 'Keep,2', team, doc, doc.revision)
+    assert drive.files[doc.reference]['data'] == before
+
+
+def test_renaming_native_table_still_uses_batch_without_import(workspace, google):
+    drive,_=google
+    doc=save_document(workspace['admin'],'Before','table','Notes','A,1',workspace['team'])
+    reference=doc.reference
+    drive.calls.clear()
+    saved=save_document(workspace['admin'],'After','table','Notes','A,2',workspace['team'],doc,doc.revision)
+    assert saved.reference==reference
+    assert any(call[1].endswith(':batchUpdate') for call in drive.calls)
+    assert not any(call[2].get('params',{}).get('uploadType') for call in drive.calls)
+
+
+def test_batch_rejects_change_after_original_fingerprint(workspace, google):
+    drive, _ = google
+    user, team = workspace['admin'], workspace['team']
+    doc = save_document(user, 'Budget', 'table', 'Notes', 'Keep,1', team)
+    original = GoogleDrive.write_table
+    def concurrent_edit(adapter, key, data, reference, previous, **kwargs):
+        drive.import_file(reference, {}, write_ods('External,9', 'Budget'))
+        drive.calls.clear()
+        return original(adapter, key, data, reference, previous, **kwargs)
+    with patch.object(GoogleDrive, 'write_table', concurrent_edit):
+        with pytest.raises(Conflict):
+            save_document(user, 'Budget', 'table', 'Notes', 'Keep,2', team, doc, doc.revision)
+    assert not any(call[0] in ('POST','PATCH','PUT') for call in drive.calls)
+
+
+@pytest.mark.parametrize('lost_ack', [False, True])
+def test_collaborative_structure_baseline_advances_only_after_provider_save(workspace, google, lost_ack):
+    from pycrdt import Doc, Map
+    import base64
+    from wiki.collaboration import ensure_room, apply_update, flush_room
+    from wiki.models import Collaboration
+    drive, _ = google
+    user, team = workspace['admin'], workspace['team']
+    doc = save_document(user, 'Budget', 'table', 'Notes', 'A\nB', team)
+    room = ensure_room(doc)
+    drive.notes[doc.reference] = {(1,0):'Provider-only note'}
+    original_structure = room.saved_structure
+    assert original_structure['Sheet 1']['rows'][:2] == ['r0','r1']
+    ydoc = Doc(); ydoc.apply_update(bytes(room.state))
+    objects = ydoc.get('objects', type=Map)
+    objects[json.dumps(['_layout','sheet1','rows','inserted'],separators=(',',':'))] = 0.5
+    objects[json.dumps(['sheets','sheet1','cellData','inserted','c0','v'],separators=(',',':'))] = 'new'
+    apply_update(user,doc.pk,base64.b64encode(ydoc.get_update()).decode())
+    room.refresh_from_db()
+    assert room.saved_structure == original_structure
+    original = drive.request
+    def fail(method,url,**kwargs):
+        if url.endswith(':batchUpdate'):
+            if lost_ack: original(method,url,**kwargs)
+            raise StorageError('offline')
+        return original(method,url,**kwargs)
+    with patch.object(GoogleDrive, 'request', side_effect=fail):
+        with pytest.raises(StorageError): flush_room(doc.pk)
+    room.refresh_from_db()
+    assert room.saved_structure == original_structure
+    flush_room(doc.pk)
+    room = Collaboration.objects.get(pk=doc.pk)
+    assert room.saved_structure['Sheet 1']['rows'][:3] == ['r0','inserted','r1']
+    assert drive.notes[doc.reference] == {(2,0):'Provider-only note'}
+    content = unpack(read_ods(active_storage().read(doc.reference)))['data']
+    assert [content['sheets']['sheet1']['cellData'][str(i)]['0']['v'] for i in range(3)] == ['A','new','B']
+    # A subsequent ordinary edit must not insert the same row a second time.
+    objects[json.dumps(['sheets','sheet1','cellData','inserted','c0','v'],separators=(',',':'))] = 'again'
+    apply_update(user,doc.pk,base64.b64encode(ydoc.get_update()).decode())
+    drive.calls.clear()
+    flush_room(doc.pk)
+    batches = [c[2]['json']['requests'] for c in drive.calls if c[1].endswith(':batchUpdate')]
+    assert len(batches) == 1 and all('updateCells' in req for req in batches[0])
+
+
+def test_sheet_topology_is_one_native_batch_with_stable_provider_ids(workspace, google):
+    drive, _ = google
+    def book(items):
+        return {'sheetOrder':[sid for sid,name in items],
+                'sheets':{sid:{'name':name,'rowCount':2,'columnCount':2,
+                               'cellData':{'0':{'0':{'v':sid}}}} for sid,name in items},
+                '_axes':{name:{'id':sid,'rows':['r0','r1'],'cols':['c0','c1']} for sid,name in items}}
+    previous = book([('a','Alpha'),('b','Beta'),('c','Gone')])
+    original = write_ods(pack('table',previous),'Book')
+    ref = drive.import_file(None,{'name':'Book','parents':['root'],'mimeType':GoogleDrive.sheet_mime},original).json()['id']
+    adapter = active_storage()
+    # Export is the authoritative provider snapshot, without YourWiki identities.
+    exported = adapter.read(ref)
+    target = book([('b','Alpha'),('d','New'),('a','Beta')])
+    drive.calls.clear()
+    adapter.write_table('Book.ods',write_ods(pack('table',target),'Book'),ref,exported,structure=previous['_axes'])
+    batches = [call for call in drive.calls if call[1].endswith(':batchUpdate')]
+    assert len(batches) == 1
+    assert not any(call[2].get('params',{}).get('uploadType') for call in drive.calls)
+    result = unpack(read_ods(drive.files[ref]['data']))['data']
+    assert [result['sheets'][sid]['name'] for sid in result['sheetOrder']] == ['Alpha','New','Beta']
+    assert [result['sheets'][sid]['cellData']['0']['0']['v'] for sid in result['sheetOrder']] == ['b','d','a']
+    ids = drive.sheet_ids[ref]
+    assert ids[result['sheetOrder'][0]] == 1
+    assert ids[result['sheetOrder'][2]] == 0

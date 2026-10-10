@@ -23,27 +23,12 @@ def test_creation_permissions_controls(realtime_server, workspace, settings, url
         page.get_by_label('Password', exact=True).fill('Correct-password-8923')
         page.get_by_role('button', name='Sign in', exact=True).click()
         page.goto(realtime_server + url)
-        rules = page.locator('[data-explicit-permissions]')
-        expect(rules).to_be_hidden()
-        page.locator('#id_permissions_mode').select_option('custom')
-        expect(rules).to_be_visible()
-        enabled = page.locator(f'#id_permission_team_{reviewers.pk}_enabled')
-        read = page.locator(f'#id_permission_team_{reviewers.pk}_read')
-        expect(read).to_be_disabled()
-        enabled.check()
-        expect(read).to_be_enabled()
-        expect(read).to_be_checked()
-        page.locator(f'#id_permission_team_{reviewers.pk}_write').check()
-        page.locator('#id_permissions_mode').select_option('inherit')
-        expect(rules).to_be_hidden()
-        page.locator('#id_permissions_mode').select_option('custom')
-        expect(read).to_be_checked()
+        expect(page.locator('[data-explicit-permissions]')).to_have_count(0)
+        expect(page.locator('[name="group"]')).to_have_count(0)
         assert page.evaluate('document.documentElement.scrollWidth <= window.innerWidth + 1')
-        assert page.locator('.creation-permissions .permission-table-wrap').evaluate_all(
-            'elements => elements.every(element => element.scrollWidth <= element.clientWidth + 1)')
         if url == '/documents/new/':
             page.get_by_label('Title', exact=True).fill('Browser permissions')
-            page.locator('#id_kind').select_option('file')
+            page.locator('[data-create-kind="file"]').click()
         elif url == '/folders/new/':
             page.get_by_label('Name', exact=True).fill('Browser permissions')
         else:
@@ -58,5 +43,5 @@ def test_creation_permissions_controls(realtime_server, workspace, settings, url
         assert not errors
         browser.close()
     item = Folder.objects.get(name='Browser permissions') if url == '/folders/new/' else Document.objects.get(title='Browser permissions')
-    assert not item.inherit_permissions
-    assert item.group_policies[str(reviewers.pk)] == {'visible': True, 'read': True, 'write': True}
+    assert item.inherit_permissions
+    assert item.group_policies == {}

@@ -45,7 +45,7 @@ SESSION_COOKIE_SAMESITE = 'Strict'
 SESSION_COOKIE_AGE = 86400
 SESSION_SAVE_EVERY_REQUEST = False
 CSRF_TRUSTED_ORIGINS = [PUBLIC_URL]
-CSRF_FAILURE_VIEW = 'wiki.views.denied'
+CSRF_FAILURE_VIEW = 'wiki.views.csrf_failure'
 # Compose binds only to loopback; the documented proxy must overwrite this header.
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 SECURE_CONTENT_TYPE_NOSNIFF = True

@@ -15,9 +15,10 @@ from wiki.collaboration import ensure_room, current_content
 pytestmark = pytest.mark.django_db
 
 
-def test_history_inheritance_stale_save_and_physical_rename(workspace, document):
+def test_global_history_stale_save_and_physical_rename(workspace, document):
+    SiteConfiguration.objects.update_or_create(pk=1,defaults={'revision_history':True})
     user, team = workspace['admin'], workspace['team']
-    root = Folder.objects.create(name='Root', owner=user, group=team, revision_history=True)
+    root = Folder.objects.create(inherit_permissions=False, name='Root', owner=user, group=team, revision_history=True)
     child = Folder.objects.create(name='Child', parent=root, owner=user, group=team)
     document.folder = child
     document.save()
@@ -32,10 +33,12 @@ def test_history_inheritance_stale_save_and_physical_rename(workspace, document)
     assert active_storage().read(saved.reference) == b'second'
     child.revision_history = False
     child.save()
+    SiteConfiguration.objects.filter(pk=1).update(revision_history=False)
     saved = save_document(user, saved.title, 'document', 'Notes', 'third', team, saved, saved.revision)
     assert len(json.loads(active_storage().read(saved.history_reference))['entries']) == 1
     saved.revision_history = True
     saved.save()
+    SiteConfiguration.objects.filter(pk=1).update(revision_history=True)
     saved = save_document(user, saved.title, 'document', 'Notes', 'fourth', team, saved, saved.revision)
     assert len(json.loads(active_storage().read(saved.history_reference))['entries']) == 2
 
@@ -100,9 +103,10 @@ def test_external_conflict_and_explicit_reload(client, workspace, document):
 
 def test_recursive_acl_owner_and_group_overrides(workspace):
     user, member, team = workspace['admin'], workspace['member'], workspace['team']
-    root = Folder.objects.create(name='Root', owner=user, group=team)
+    root = Folder.objects.create(inherit_permissions=False, name='Root', owner=user, group=team)
     child = Folder.objects.create(name='Child', parent=root, owner=member, group=team)
-    doc = save_document(member, 'Inherited', 'document', 'Notes', 'text', team, folder=child)
+    doc = save_document(user, 'Inherited', 'document', 'Notes', 'text', team, folder=child)
+    doc.owner=member;doc.save(update_fields=['owner'])
     assert not doc.allows(member, 'write')  # Creating a child does not grant ownership of inherited ACLs.
     root.group_policies = {str(team.pk): {'visible':True,'read':True,'write':True}}
     root.save()
@@ -138,20 +142,22 @@ def test_history_settings_require_write(client, workspace, document):
     assert client.post(f'/documents/{document.pk}/file-settings/', {'revision_history':'on'}).status_code != 302
     client.force_login(workspace['admin'])
     assert client.get(f'/documents/{document.pk}/file-settings/').status_code == 200
-    assert client.post(f'/documents/{document.pk}/file-settings/', {'revision_history':'on'}).status_code == 302
+    assert client.post(f'/documents/{document.pk}/file-settings/', {'revision_history':'on'}).status_code == 400
     document.refresh_from_db()
-    assert document.history_enabled()
+    assert not document.history_enabled()
+    assert document.revision_history is None
 
 
 def test_failed_first_history_save_is_retryable(workspace, document):
-    from wiki.storage import StorageError
+    SiteConfiguration.objects.update_or_create(pk=1,defaults={'revision_history':True})
+    from wiki.storage import StorageError, StorageRejected
     document.revision_history = True
     document.save()
     adapter = active_storage()
     original = adapter.read(document.reference)
     write = adapter.write
     def fail_main(key, data, reference=None, **kwargs):
-        if key.endswith('.md'): raise StorageError('Offline')
+        if key.endswith('.md'): raise StorageRejected('Offline')
         return write(key, data, reference, **kwargs)
     from wiki.file_history import persist
     with patch.object(adapter, 'write', side_effect=fail_main):
@@ -165,6 +171,7 @@ def test_failed_first_history_save_is_retryable(workspace, document):
 def test_history_can_hold_a_full_size_file(workspace):
     from wiki.storage import HISTORY_MAX_BYTES
     doc = save_document(workspace['admin'], 'large.bin', 'file', 'Notes', b'x'*(5*1024*1024), workspace['team'])
+    SiteConfiguration.objects.update_or_create(pk=1,defaults={'revision_history':True})
     doc.revision_history = True
     doc.save()
     doc = save_document(workspace['admin'], doc.title, 'file', 'Notes', b'new', workspace['team'], doc, doc.revision)
@@ -223,15 +230,15 @@ def test_stale_room_document_uses_moved_file(workspace, document):
 
 
 def test_document_policy_exposes_and_preserves_inheritance(client, workspace, document):
-    parent = Folder.objects.create(name='Parent', owner=workspace['admin'], group=workspace['team'])
+    parent = Folder.objects.create(inherit_permissions=False, name='Parent', owner=workspace['admin'], group=workspace['team'])
     document.folder = parent
     document.inherit_permissions = True
     document.save()
     client.force_login(workspace['admin'])
-    page = client.get(f'/documents/{document.pk}/permissions/')
-    assert b'name="inherit_permissions" checked' in page.content
-    response = client.post(f'/documents/{document.pk}/permissions/', {
-        'group': workspace['team'].pk, 'inherit_permissions': 'on',
+    page = client.get(f'/documents/{document.pk}/file-settings/')
+    assert b'data-inherit-access checked' in page.content
+    response = client.post(f'/documents/{document.pk}/file-settings/', {
+        'action':'access', 'group': workspace['team'].pk, 'inherit_permissions': 'on',
         'owner.visible': 'on', 'owner.read': 'on', 'owner.write': 'on',
     })
     assert response.status_code == 302
@@ -243,7 +250,8 @@ def test_document_policy_exposes_and_preserves_inheritance(client, workspace, do
 
 
 def test_failed_save_restores_existing_history_and_rename(workspace, document):
-    from wiki.storage import StorageError
+    SiteConfiguration.objects.update_or_create(pk=1,defaults={'revision_history':True})
+    from wiki.storage import StorageError, StorageRejected
     document.revision_history = True
     document.save()
     document = save_document(workspace['admin'], document.title, 'document', 'Notes', 'Second',
@@ -254,7 +262,7 @@ def test_failed_save_restores_existing_history_and_rename(workspace, document):
     write = adapter.write
     def fail_main(key, data, reference=None, **kwargs):
         if key.endswith('.md'):
-            raise StorageError('Offline')
+            raise StorageRejected('Offline')
         return write(key, data, reference, **kwargs)
     from wiki.file_history import persist
     with patch.object(adapter, 'write', side_effect=fail_main):

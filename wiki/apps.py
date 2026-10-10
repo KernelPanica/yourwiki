@@ -11,3 +11,5 @@ class WikiConfig(AppConfig):
     name = 'wiki'
     def ready(self):
         connection_created.connect(sqlite_settings, dispatch_uid='wiki.sqlite')
+        from .provider_grants import connect_signals
+        connect_signals()

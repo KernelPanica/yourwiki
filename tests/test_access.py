@@ -42,26 +42,27 @@ class TestAccess:
     def test_reader_and_hidden_documents(self,client,workspace,document):
         client.force_login(workspace['member'])
         assert client.get(f'/api/docs/{document.pk}').status_code==200
-        assert client.put(f'/api/docs/{document.pk}',data=json.dumps({'content':'overwrite','revision':1}),content_type='application/json').status_code==500
-        assert client.delete(f'/api/docs/{document.pk}').status_code==500
-        for name in ('policy','edit','delete'):
-            assert client.get(reverse(name,args=[document.pk])).status_code==500
+        assert client.put(f'/api/docs/{document.pk}',data=json.dumps({'content':'overwrite','revision':1}),content_type='application/json').status_code== 403
+        assert client.delete(f'/api/docs/{document.pk}').status_code==403
+        for name in ('edit','delete'):
+            assert client.get(reverse(name,args=[document.pk])).status_code==403
+        assert client.get(reverse('policy',args=[document.pk])).status_code==302
         client.force_login(workspace['outsider'])
         assert client.get('/api/docs').json()==[]
-        assert client.get(f'/api/docs/{document.pk}').status_code==500
-        assert client.get(reverse('export',args=[document.pk])).status_code==500
+        assert client.get(f'/api/docs/{document.pk}').status_code==404
+        assert client.get(reverse('export',args=[document.pk])).status_code==404
         assert client.get('/members/').status_code==500
         assert client.get('/invitations/').status_code==500
         assert client.get('/storage/').status_code==500
 
-    def test_policy_independence_and_scope_precedence(self,workspace,document):
+    def test_rw_implication_and_scope_precedence(self,workspace,document):
         doc=document
         doc.owner=workspace['member']
         doc.policy['owner']={'visible':True,'read':False,'write':True}
         doc.policy['group']={'visible':False,'read':True,'write':False}
         doc.policy['everyone']={'visible':True,'read':True,'write':True}
         doc.save()
-        assert not doc.allows(workspace['member'],'read')
+        assert doc.allows(workspace['member'],'read')
         assert doc.allows(workspace['member'],'write')
         assert doc.allows(workspace['outsider'],'read')
         assert doc.allows(workspace['admin'],'read')

@@ -1692,3 +1692,517 @@ msgstr "Insertar"
 
 msgid "Home"
 msgstr "Inicio"
+
+msgid "Document menu"
+msgstr "Menú del documento"
+
+msgid "View"
+msgstr "Ver"
+
+msgid "Format"
+msgstr "Formato"
+
+msgid "Tools"
+msgstr "Herramientas"
+
+msgid "Ruler"
+msgstr "Regla"
+
+msgid "Document outline"
+msgstr "Esquema del documento"
+
+msgid "Headings appear here"
+msgstr "Los títulos aparecerán aquí"
+
+msgid "Back to file"
+msgstr "Volver al archivo"
+
+msgid "Clear formatting"
+msgstr "Borrar formato"
+
+msgid "Edit menu"
+msgstr "Editar"
+
+msgid "File name"
+msgstr "Nombre del archivo"
+
+msgid "File format"
+msgstr "Formato del archivo"
+
+msgid "From file name"
+msgstr "Del nombre del archivo"
+
+msgid "Choose the document format."
+msgstr "Elige el formato del documento."
+
+msgid "The format follows the selected file type."
+msgstr "El formato depende del tipo de archivo seleccionado."
+
+msgid "Enter a file name before the extension."
+msgstr "Introduce un nombre antes de la extensión."
+
+msgid "Folders"
+msgstr "Carpetas"
+
+msgid "Search all files"
+msgstr "Buscar en todos los archivos"
+
+msgid "General"
+msgstr "General"
+
+msgid "More"
+msgstr "Más"
+
+msgid "Full screen"
+msgstr "Pantalla completa"
+
+msgid "Exit full screen"
+msgstr "Salir de pantalla completa"
+
+msgid "File type"
+msgstr "Tipo de archivo"
+
+msgid "Manage accounts and invitation privileges. Group membership is managed on the Groups page."
+msgstr "Gestiona cuentas e invitaciones. La pertenencia a grupos se configura en Grupos."
+
+msgid "Invite people"
+msgstr "Invitar personas"
+
+msgid "Admin"
+msgstr "Administrador"
+
+msgid "No groups"
+msgstr "Sin grupos"
+
+msgid "No members found."
+msgstr "No se encontraron miembros."
+
+msgid "Create groups and manage their members. File and folder permissions are configured separately."
+msgstr "Crea grupos y elige sus miembros. Los permisos de archivos y carpetas se configuran por separado."
+
+msgid "Manage group"
+msgstr "Gestionar grupo"
+
+msgid "Create a group to organize access for your team."
+msgstr "Crea un grupo para organizar el acceso del equipo."
+
+msgid "Choose who belongs to this group. Changes affect access granted to the group."
+msgstr "Elige los miembros del grupo. Los cambios afectan al acceso concedido al grupo."
+
+msgid "Find a member"
+msgstr "Buscar un miembro"
+
+msgid "Name or username"
+msgstr "Nombre o usuario"
+
+msgid "Save group"
+msgstr "Guardar grupo"
+
+msgid "Back to groups"
+msgstr "Volver a grupos"
+
+msgid "Delete group"
+msgstr "Eliminar grupo"
+
+msgid "Group saved."
+msgstr "Grupo guardado."
+
+msgid "Group membership is managed on the group page."
+msgstr "La pertenencia al grupo se gestiona en su página."
+
+msgid "Manage groups"
+msgstr "Gestionar grupos"
+
+msgid "A group with this name already exists."
+msgstr "Ya existe un grupo con este nombre."
+
+#, python-format
+msgid "More actions for %(title)s"
+msgstr "Más acciones para %(title)s"
+
+msgid "Loading diagram…"
+msgstr "Cargando diagrama…"
+
+msgid "Could not open the diagram. Download the original file to view it locally."
+msgstr "No se pudo abrir el diagrama. Descarga el archivo original para verlo localmente."
+
+msgid "Previous page"
+msgstr "Página anterior"
+
+msgid "Next page"
+msgstr "Página siguiente"
+
+msgid "Text size"
+msgstr "Tamaño del texto"
+
+msgid "Line width"
+msgstr "Grosor de línea"
+
+msgid "Access"
+msgstr "Acceso"
+
+msgid "Folder settings"
+msgstr "Configuración de carpeta"
+
+msgid "Access is inherited from the parent folder, or workspace defaults at the root. Change access later in file or folder settings."
+msgstr "El acceso se hereda de la carpeta superior o del espacio de trabajo en la raíz. Puedes cambiarlo en la configuración del archivo o carpeta."
+
+msgid "Read makes this item visible and allows opening and downloading it. Write also grants Read. Administrators retain access."
+msgstr "Leer permite ver, abrir y descargar el elemento. Escribir también concede lectura. Los administradores conservan el acceso."
+
+msgid "Inherited from"
+msgstr "Heredado de"
+
+msgid "Inherit access from parent folder (workspace defaults at root)"
+msgstr "Heredar acceso de la carpeta superior (del espacio de trabajo en la raíz)"
+
+msgid "Custom access"
+msgstr "Acceso personalizado"
+
+msgid "Selected group rules override the defaults above. For several matching groups, permissions are combined."
+msgstr "Las reglas de los grupos seleccionados tienen prioridad sobre los valores generales. Los permisos de varios grupos coincidentes se combinan."
+
+msgid "An administrator can change access to this item."
+msgstr "Un administrador puede cambiar el acceso a este elemento."
+
+msgid "Read makes items visible. Write includes Read. Manage access in file or folder settings."
+msgstr "Leer hace visibles los elementos. Escribir incluye Leer. Gestiona el acceso en la configuración del archivo o carpeta."
+
+msgid "Join a group before creating files."
+msgstr "Debes pertenecer a un grupo para crear archivos."
+
+msgid "Provider accounts"
+msgstr "Cuentas de proveedores"
+
+msgid "Provider accounts and original access"
+msgstr "Cuentas de proveedores y acceso a originales"
+
+msgid "Provider accounts and synchronization"
+msgstr "Cuentas de proveedores y sincronización"
+
+msgid "Original access"
+msgstr "Acceso a originales"
+
+msgid "Connect account"
+msgstr "Conectar cuenta"
+
+msgid "Disconnect and revoke access"
+msgstr "Desconectar y revocar acceso"
+
+msgid "Configure OAuth clients"
+msgstr "Configurar clientes OAuth"
+
+msgid "OAuth callback URL"
+msgstr "URL de retorno OAuth"
+
+msgid "Retry synchronization"
+msgstr "Reintentar sincronización"
+
+msgid "No access"
+msgstr "Sin acceso"
+
+msgid "pending"
+msgstr "Pendiente"
+
+msgid "synced"
+msgstr "Sincronizado"
+
+msgid "failed"
+msgstr "Error"
+
+msgid "revoked"
+msgstr "Revocado"
+
+msgid "No external permissions have been synchronized yet."
+msgstr "Aún no se han sincronizado permisos externos."
+
+msgid "Connect your own account to open originals with the same access as in Yourwiki. Local, SMB and SFTP use Yourwiki permissions only."
+msgstr "Conecta tu cuenta para abrir originales con los permisos de Yourwiki. Local, SMB y SFTP solo usan los permisos de Yourwiki."
+
+msgid "An administrator must configure OAuth before accounts can be connected."
+msgstr "Un administrador debe configurar OAuth antes de conectar cuentas."
+
+msgid "GitHub permissions apply to the entire repository, including files hidden by Yourwiki. Personal private repositories cannot grant read-only collaborator access; such grants remain failed instead of giving write access."
+msgstr "Los permisos de GitHub cubren todo el repositorio, incluidos archivos ocultos en Yourwiki. Los repositorios privados personales no admiten colaboradores de solo lectura; se indica un error sin conceder escritura."
+
+msgid "The connected owner retains ownership at the provider."
+msgstr "El propietario conectado conserva la propiedad en el proveedor."
+
+msgid "Accept the repository invitation in GitHub to access the original."
+msgstr "Acepta la invitación al repositorio en GitHub para acceder al original."
+
+msgid "Finish connecting your account"
+msgstr "Finalizar conexión de cuenta"
+
+msgid "Continue in the browser where you started authorization. Confirm your profile name to finish."
+msgstr "Continúa en el navegador donde iniciaste la autorización. Confirma tu nombre de perfil para terminar."
+
+msgid "Authorization was cancelled. Start again from your account."
+msgstr "Se canceló la autorización. Vuelve a empezar desde tu cuenta."
+
+msgid "Link a verified provider account to access the original."
+msgstr "Conecta una cuenta verificada del proveedor para acceder al original."
+
+msgid "Provider revocation failed. External access may remain; retry synchronization."
+msgstr "No se pudieron revocar los permisos. El acceso externo puede continuar; reintenta la sincronización."
+
+msgid "Provider synchronization failed. Local permissions are saved; external access may differ. Retry synchronization."
+msgstr "Error de sincronización. Los permisos locales están guardados; el acceso externo puede ser distinto. Reintenta la sincronización."
+
+msgid "GitHub personal repositories cannot grant read-only collaborator access. Use Yourwiki to read this file."
+msgstr "Los repositorios personales de GitHub no admiten colaboradores de solo lectura. Lee el archivo en Yourwiki."
+
+msgid "Microsoft tenant"
+msgstr "Inquilino de Microsoft"
+
+msgid "Client ID"
+msgstr "ID de cliente"
+
+msgid "Provider drive identity could not be verified. Retry synchronization."
+msgstr "No se pudo verificar la identidad de la unidad. Reintenta la sincronización."
+
+msgid "Original no longer in the workspace"
+msgstr "El original ya no está en el espacio de trabajo"
+
+msgid "OAuth client saved. Register the callback URL shown below with the provider."
+msgstr "Cliente OAuth guardado. Registra en el proveedor la URL de retorno indicada."
+
+msgid "Synchronization finished. Check pending and failed permissions below."
+msgstr "Sincronización finalizada. Revisa los permisos pendientes y con errores."
+
+msgid "The original document changed"
+msgstr "El documento original ha cambiado"
+
+msgid "Automatic saving is paused. Leaving this page will not save your changes to the original. Keep a copy before reloading."
+msgstr "El guardado automático está pausado. Al salir, tus cambios no se guardarán en el original. Conserva una copia antes de recargar."
+
+msgid "Copy changes"
+msgstr "Copiar cambios"
+
+msgid "Download local snapshot"
+msgstr "Descargar instantánea local"
+
+msgid "Save a copy"
+msgstr "Guardar una copia"
+
+msgid "Discard and reload original"
+msgstr "Descartar cambios y recargar original"
+
+msgid "Conflict · automatic saving paused"
+msgstr "Conflicto · guardado automático pausado"
+
+msgid "Saved locally · storage unavailable"
+msgstr "Guardado localmente · almacenamiento no disponible"
+
+msgid "The original changed. Automatic saving is paused; copy or download your edits before reloading."
+msgstr "El original ha cambiado. El guardado automático está pausado; copia o descarga tus cambios antes de recargar."
+
+msgid "Write access was revoked. Download your edits before leaving."
+msgstr "Se ha revocado el permiso de escritura. Descarga tus cambios antes de salir."
+
+msgid "Storage is unavailable. Your pending changes are retained; retry saving."
+msgstr "El almacenamiento no está disponible. Se conservan tus cambios pendientes; vuelve a guardar."
+
+msgid "Changes are not yet saved to storage."
+msgstr "Los cambios aún no se han guardado en el almacenamiento."
+
+msgid "Clipboard unavailable. A local snapshot was downloaded."
+msgstr "El portapapeles no está disponible. Se descargó una instantánea local."
+
+msgid "Discard local changes and reload the original? Other active editors must be closed."
+msgstr "¿Descartar los cambios locales y recargar el original? Los otros editores activos deben estar cerrados."
+
+msgid "Discard local changes and reload the original?"
+msgstr "¿Descartar los cambios locales y recargar el original?"
+
+msgid "Could not reload the original."
+msgstr "No se pudo recargar el original."
+
+msgid "Changes save automatically after a short pause. Use Download current PDF to keep a local copy of unsaved edits."
+msgstr "Los cambios se guardan automáticamente tras una breve pausa. Usa Descargar PDF actual para conservar una copia local de los cambios pendientes."
+
+msgid "Recovery snapshot (.recovery.json)"
+msgstr "Instantánea de recuperación (.recovery.json)"
+
+msgid "Finish setting up your account"
+msgstr "Completa la configuración de tu cuenta"
+
+msgid "Connect your storage account so that Yourwiki permissions also apply when you open the original files. This step is required before entering the workspace."
+msgstr "Conecta tu cuenta de almacenamiento para que los permisos de Yourwiki también se apliquen al abrir los archivos originales. Este paso es obligatorio antes de entrar al espacio de trabajo."
+
+msgid "Connected account"
+msgstr "Cuenta conectada"
+
+msgid "Choose another account"
+msgstr "Elegir otra cuenta"
+
+msgid "Authorize"
+msgstr "Autorizar"
+
+msgid "Local, SMB and SFTP storage uses Yourwiki permissions. No provider authorization is required."
+msgstr "El almacenamiento Local, SMB y SFTP utiliza los permisos de Yourwiki. No es necesaria la autorización del proveedor."
+
+msgid "Access synchronization"
+msgstr "Sincronización de permisos"
+
+msgid "GitHub repository invitations must be accepted in GitHub. Failed permissions require administrator assistance; write access is never substituted for read access."
+msgstr "Las invitaciones a repositorios deben aceptarse en GitHub. Los errores de permisos requieren ayuda del administrador; nunca se concede escritura en lugar de lectura."
+
+msgid "Synchronize access and continue"
+msgstr "Sincronizar permisos y continuar"
+
+msgid "Connect every required provider account before continuing."
+msgstr "Conecta todas las cuentas de proveedor necesarias antes de continuar."
+
+msgid "Access synchronization is unavailable. Retry or contact an administrator."
+msgstr "La sincronización de permisos no está disponible. Reintenta o contacta con un administrador."
+
+msgid "Provider access is not ready. Check the permissions below, accept any invitation, then retry."
+msgstr "El acceso del proveedor todavía no está listo. Revisa los permisos, acepta las invitaciones y vuelve a intentarlo."
+
+msgid "Pages"
+msgstr "Páginas"
+
+msgid "Pan"
+msgstr "Desplazar"
+
+msgid "Drag to move around the PDF"
+msgstr "Arrastra para desplazarte por el PDF"
+
+msgid "Row numbers"
+msgstr "Números de fila"
+
+msgid "Worksheets"
+msgstr "Hojas"
+
+msgid "%(rows)s rows · %(columns)s columns"
+msgstr "%(rows)s filas · %(columns)s columnas"
+
+msgid "Preview limited to 2,000 rows and 200 columns. Open the editor to see the full worksheet."
+msgstr "La vista previa está limitada a 2000 filas y 200 columnas. Abre el editor para ver la hoja completa."
+
+msgid "The original changed. Download your edits before reloading."
+msgstr "El original ha cambiado. Descarga tus cambios antes de recargar."
+
+msgid "Your session expired. Sign in again."
+msgstr "Tu sesión ha caducado. Vuelve a iniciar sesión."
+
+msgid "Access denied or session expired. Reload the page and try again."
+msgstr "Acceso denegado o sesión caducada. Recarga la página e inténtalo de nuevo."
+
+msgid "This item is no longer available."
+msgstr "Este elemento ya no está disponible."
+
+msgid "The item changed. Review the current version before retrying."
+msgstr "El elemento ha cambiado. Revisa la versión actual antes de volver a intentarlo."
+
+msgid "The file is too large. Choose a smaller file."
+msgstr "El archivo es demasiado grande. Elige uno más pequeño."
+
+msgid "Too many requests. Wait a moment and try again."
+msgstr "Demasiadas solicitudes. Espera un momento e inténtalo de nuevo."
+
+msgid "Storage is temporarily unavailable. Your input has been kept."
+msgstr "El almacenamiento no está disponible temporalmente. Se han conservado los datos introducidos."
+
+msgid "The request could not be completed. Check whether the action finished before retrying."
+msgstr "No se pudo completar la solicitud. Comprueba si la acción terminó antes de volver a intentarlo."
+
+msgid "The action could not be completed. Your input has been kept."
+msgstr "No se pudo completar la acción. Se han conservado los datos introducidos."
+
+msgid "Dismiss error"
+msgstr "Cerrar mensaje de error"
+
+msgid "The request timed out. Check whether the action finished before retrying."
+msgstr "La solicitud agotó el tiempo de espera. Comprueba si la acción terminó antes de volver a intentarlo."
+
+msgid "Connection lost. Your input has been kept. Check whether the action finished before retrying."
+msgstr "Se perdió la conexión. Se han conservado los datos introducidos. Comprueba si la acción terminó antes de volver a intentarlo."
+
+msgid "The server returned an invalid response. Check whether the action finished before retrying."
+msgstr "El servidor devolvió una respuesta no válida. Comprueba si la acción terminó antes de volver a intentarlo."
+
+msgid "Check the highlighted fields."
+msgstr "Revisa los campos señalados."
+
+msgid "Uploaded %(count)s file(s). %(message)s"
+msgstr "Archivos subidos: %(count)s. %(message)s"
+
+msgid "Your session expired. Reload the page before submitting again."
+msgstr "Tu sesión ha caducado. Recarga la página antes de volver a enviar."
+
+msgid "A preview or interface component could not be loaded. Reload the page or download the original file."
+msgstr "No se pudo cargar la vista previa o un componente de la interfaz. Recarga la página o descarga el archivo original."
+
+msgid "Heading 4"
+msgstr "Título 4"
+
+msgid "Heading 5"
+msgstr "Título 5"
+
+msgid "Heading 6"
+msgstr "Título 6"
+
+msgid "Left"
+msgstr "Izquierda"
+
+msgid "Center"
+msgstr "Centro"
+
+msgid "Right"
+msgstr "Derecha"
+
+msgid "Justify"
+msgstr "Justificar"
+
+msgid "Quote"
+msgstr "Cita"
+
+msgid "Increase indent"
+msgstr "Aumentar sangría"
+
+msgid "Decrease indent"
+msgstr "Disminuir sangría"
+
+msgid "Line spacing"
+msgstr "Interlineado"
+
+msgid "Single"
+msgstr "Sencillo"
+
+msgid "Double"
+msgstr "Doble"
+
+msgid "Remove link"
+msgstr "Quitar enlace"
+
+msgid "Add row before"
+msgstr "Añadir fila arriba"
+
+msgid "Add column before"
+msgstr "Añadir columna a la izquierda"
+
+msgid "Header row"
+msgstr "Fila de encabezado"
+
+msgid "Header column"
+msgstr "Columna de encabezado"
+
+msgid "Cell background"
+msgstr "Fondo de celda"
+
+msgid "Clear cell background"
+msgstr "Quitar fondo de celda"
+
+msgid "Word count"
+msgstr "Recuento de palabras"
+
+msgid "Words"
+msgstr "Palabras"
+
+msgid "Characters"
+msgstr "Caracteres"
+
+msgid "Spreadsheet action failed: %(message)s"
+msgstr "No se pudo realizar la acción en la hoja: %(message)s"

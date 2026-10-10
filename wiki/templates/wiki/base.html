@@ -1,25 +1,74 @@
 {% load static wiki_ui i18n %}<!doctype html>
-{% get_current_language as CURRENT_LANGUAGE %}<html lang="{{ CURRENT_LANGUAGE }}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f3f6f5"><title>{% block title %}{{ site_name }} — Yourwiki{% endblock %}</title><link rel="stylesheet" href="{% static 'wiki/style.css' %}"><script src="{% url 'javascript-catalog' %}"></script><script src="{% static 'wiki/theme.js' %}"></script><script src="{% static 'wiki/app.js' %}" defer></script></head>
-<body><a class="skip-link" href="#main-content">{% translate "Skip to main content" %}</a>
+{% get_current_language as CURRENT_LANGUAGE %}
+<html lang="{{ CURRENT_LANGUAGE }}">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f8fafc">
+<title>{% block title %}{{ site_name }} — Yourwiki{% endblock %}</title>
+{% include 'wiki/favicon.html' %}
+<link rel="stylesheet" href="{% static 'wiki/style.css' %}">
+<script src="{% url 'javascript-catalog' %}"></script><script src="{% static 'wiki/theme.js' %}"></script><script src="{% static 'wiki/ui-errors.js' %}" defer></script><script src="{% static 'wiki/app.js' %}" defer></script>
+</head>
+<body class="{% block body_class %}{% endblock %}">
+<a class="skip-link" href="#main-content">{% translate "Skip to main content" %}</a>
 <aside class="sidebar" id="workspace-sidebar" aria-label="{% translate 'File explorer' %}">
-<div class="sidebar-head"><a class="brand" href="{% url 'folders' %}"><span class="brand-mark" aria-hidden="true">{% icon 'book' %}</span>{{ site_name }}</a><button class="sidebar-close icon-button" type="button" data-sidebar-close aria-label="{% translate 'Close file explorer' %}">{% icon 'close' %}</button></div>
-<div class="explorer-caption"><span>{% translate "EXPLORER" %}</span><div class="explorer-actions">
-<a class="icon-button" href="{% url 'new' %}{% if folder %}?folder={{ folder.pk }}{% endif %}" aria-label="{% translate 'New file' %}" title="{% translate 'New file' %}">{% icon 'plus' %}</a>
-<a class="icon-button" href="{% url 'new-directory' %}{% if current_path %}?path={{ current_path|urlencode }}{% elif folder %}?folder={{ folder.pk }}{% endif %}" aria-label="{% translate 'New directory' %}" title="{% translate 'New directory' %}">{% icon 'folder' %}</a>
-<a class="icon-button" href="{% url 'upload' %}{% if current_path %}?path={{ current_path|urlencode }}{% elif folder %}?folder={{ folder.pk }}{% endif %}" aria-label="{% translate 'Upload file' %}" title="{% translate 'Upload file' %}">{% icon 'upload' %}</a>
-</div></div>
-<nav aria-label="{% translate 'Files and directories' %}"><a class="nav-item root-directory" data-drop-folder="" data-drop-path="/" href="{% url 'folders' %}">{% icon 'cloud' %}<span>/</span><small>{% translate "Root" %}</small></a>
-{% include 'wiki/explorer_tree.html' with nodes=folder_tree %}{% include 'wiki/explorer_files.html' with files=root_files %}
-</nav><div class="explorer-footer"><span>{% blocktranslate count count=document_count %}{{ count }} file{% plural %}{{ count }} files{% endblocktranslate %} · {% blocktranslate count count=mount_count %}{{ count }} mount{% plural %}{{ count }} mounts{% endblocktranslate %}</span><small>{% translate "Drag to move. Use the move action on touch or keyboard." %}</small></div>
-</aside><button class="sidebar-scrim" type="button" data-sidebar-close aria-label="{% translate 'Close file explorer' %}"></button>
+  <div class="sidebar-head">
+    <a class="brand" href="{% url 'folders' %}"><span class="brand-mark" aria-hidden="true">{% icon 'book' %}</span><span>{{ site_name }}</span></a>
+    <button class="sidebar-close icon-button" type="button" data-sidebar-close aria-label="{% translate 'Close file explorer' %}">{% icon 'close' %}</button>
+  </div>
+  <a class="button primary sidebar-create" href="{% url 'new' %}{% if folder %}?folder={{ folder.pk }}{% endif %}">{% icon 'plus' %}{% translate 'New file' %}</a>
+  <nav class="primary-navigation" aria-label="{% translate 'Workspace' %}">
+    <a class="nav-item" data-nav="files" href="{% url 'folders' %}">{% icon 'folder' %}<span>{% translate 'Files' %}</span></a>
+    <a class="nav-item" data-nav="all" href="{% url 'library' %}">{% icon 'grid' %}<span>{% translate 'All documents' %}</span></a>
+    <a class="nav-item" data-nav="recent" href="{% url 'library' %}?section=Recent">{% icon 'clock' %}<span>{% translate 'Recent' %}</span></a>
+    <a class="nav-item" data-nav="starred" href="{% url 'library' %}?section=Starred">{% icon 'star' %}<span>{% translate 'Starred' %}</span></a>
+  </nav>
+  <div class="explorer-caption"><span>{% translate 'Folders' %}</span><div class="explorer-actions">
+    <a class="icon-button" href="{% url 'new-directory' %}{% if current_path %}?path={{ current_path|urlencode }}{% elif folder %}?folder={{ folder.pk }}{% endif %}" aria-label="{% translate 'New directory' %}" title="{% translate 'New directory' %}">{% icon 'plus' %}</a>
+    <a class="icon-button" href="{% url 'upload' %}{% if current_path %}?path={{ current_path|urlencode }}{% elif folder %}?folder={{ folder.pk }}{% endif %}" aria-label="{% translate 'Upload file' %}" title="{% translate 'Upload file' %}">{% icon 'upload' %}</a>
+  </div></div>
+  <nav class="explorer-navigation" aria-label="{% translate 'Files and directories' %}">
+    <a class="nav-item root-directory" data-drop-folder="" data-drop-path="/" href="{% url 'folders' %}">{% icon 'cloud' %}<span>{% translate 'Workspace root (/)' %}</span></a>
+    {% include 'wiki/explorer_tree.html' with nodes=folder_tree %}{% include 'wiki/explorer_files.html' with files=root_files %}
+  </nav>
+  <div class="sidebar-bottom">
+    {% if user.is_superuser %}<a class="nav-item" data-nav="settings" href="{% url 'settings' %}">{% icon 'settings' %}<span>{% translate 'Site administration' %}</span></a>{% endif %}
+    <a class="nav-item" data-nav="account" href="{% url 'account' %}">{% icon 'users' %}<span>{% translate 'Account' %}</span></a>
+    <div class="explorer-footer">{% blocktranslate count count=document_count %}{{ count }} file{% plural %}{{ count }} files{% endblocktranslate %} · {% blocktranslate count count=mount_count %}{{ count }} mount{% plural %}{{ count }} mounts{% endblocktranslate %}</div>
+  </div>
+</aside>
+<button class="sidebar-scrim" type="button" data-sidebar-close aria-label="{% translate 'Close file explorer' %}"></button>
 <form id="explorer-move-form" hidden>{% csrf_token %}</form><p id="explorer-status" role="status" aria-live="polite"></p>
-<div class="main-shell"><header class="topbar"><div class="topbar-start"><button class="menu-button icon-button" type="button" data-sidebar-open aria-controls="workspace-sidebar" aria-expanded="false" aria-label="{% translate 'Open file explorer' %}">{% icon 'list' %}</button><a class="workspace-home" href="{% url 'folders' %}">{% translate "Workspace" %}</a><span class="header-divider">/</span><span>{% if doc and section == doc.title %}{{ section }}{% else %}{% translate section|default:'Files' %}{% endif %}</span></div>
-<details class="workspace-menu"><summary class="icon-button" aria-label="{% translate 'Workspace menu' %}" title="{% translate 'Workspace menu' %}">{% icon 'grid' %}</summary><div class="workspace-menu-panel">
-<strong>{{ user.label }}</strong><small>{{ site_name }}</small>
-<nav aria-label="{% translate 'Workspace' %}"><a class="nav-item" href="{% url 'folders' %}">{% icon 'folder' %}{% translate 'Files' %}</a><a class="nav-item" href="{% url 'library' %}">{% icon 'grid' %}{% translate 'All documents' %}</a><a class="nav-item" href="/?section=Recent">{% icon 'clock' %}{% translate 'Recent' %}</a><a class="nav-item" href="/?section=Starred">{% icon 'star' %}{% translate 'Starred' %}</a><a class="nav-item" href="{% url 'import' %}">{% icon 'upload' %}{% translate 'Import wiki' %}</a></nav>
-<nav aria-label="{% translate 'Administration' %}">{% if user.is_superuser or user.can_invite %}<a class="nav-item" href="{% url 'invitations' %}">{% translate "Invitations" %}</a>{% endif %}{% if user.is_superuser %}<a class="nav-item" href="{% url 'mountpoints' %}">{% icon 'cloud' %}{% translate "Mountpoints" %}</a><a class="nav-item" href="{% url 'members' %}">{% translate "Members" %}</a><a class="nav-item" href="{% url 'groups' %}">{% translate "Groups" %}</a><a class="nav-item" href="{% url 'settings' %}">{% icon 'settings' %}{% translate "Site administration" %}</a>{% endif %}<a class="nav-item" href="{% url 'account' %}">{% translate "Account" %}</a></nav>
-<form method="post" action="{% url 'logout' %}">{% csrf_token %}<button class="button">{% translate 'Sign out' %}</button></form>
-{% get_current_language as CURRENT_LANGUAGE %}<form method="post" action="{% url 'set_language' %}" class="language-form">{% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}"><label for="language-choice">{% translate 'Language' %}</label><select id="language-choice" name="language"><option value="en"{% if CURRENT_LANGUAGE == 'en' %} selected{% endif %}>English</option><option value="ru"{% if CURRENT_LANGUAGE == 'ru' %} selected{% endif %}>Русский</option><option value="es"{% if CURRENT_LANGUAGE == 'es' %} selected{% endif %}>Español</option></select><button class="button" type="submit">{% translate 'Apply' %}</button></form>
-<button class="button theme-toggle" type="button" data-theme-toggle aria-label="{% translate 'Use dark theme' %}">{% translate "Dark theme" %}</button>
-</div></details></header><main id="main-content" tabindex="-1">{% for message in messages %}<div class="info-strip" role="status">{% icon 'check' %}{% translate message.message %}</div>{% endfor %}{% block content %}{% endblock %}</main>
-<footer><span>Yourwiki / {{ site_name }}</span><span>{% translate "Private by design" %}</span></footer></div></body></html>
+<div class="main-shell">
+<header class="topbar">
+  <div class="topbar-start">
+    <button class="menu-button icon-button" type="button" data-sidebar-open aria-controls="workspace-sidebar" aria-expanded="false" aria-label="{% translate 'Open file explorer' %}">{% icon 'list' %}</button>
+    <a class="workspace-home" href="{% url 'folders' %}">{% translate 'Workspace' %}</a><span class="header-divider">/</span>
+    <span>{% if doc and section == doc.title %}{{ section }}{% else %}{% translate section|default:'Files' %}{% endif %}</span>
+  </div>
+  <form class="workspace-search" role="search" method="get" action="{% url 'library' %}">
+    {% icon 'search' %}<input type="search" id="workspace-search" name="q" aria-label="{% translate 'Search all files' %}" placeholder="{% translate 'Search all files' %}" value="{{ query|default:'' }}">
+    <button class="icon-button" type="submit" aria-label="{% translate 'Search' %}">{% icon 'return' %}</button>
+  </form>
+  <details class="workspace-menu" data-disclosure>
+    <summary class="profile-button" aria-label="{% translate 'Workspace menu' %}" title="{% translate 'Workspace menu' %}"><span class="user-avatar" aria-hidden="true">{{ user.label|slice:':1'|upper }}</span><span class="profile-name">{{ user.label }}</span>{% icon 'chevron' %}</summary>
+    <div class="workspace-menu-panel">
+      <strong>{{ user.label }}</strong><small>{{ site_name }}</small>
+      <nav aria-label="{% translate 'Workspace' %}"><a class="nav-item" href="{% url 'account' %}">{% icon 'users' %}{% translate 'Account' %}</a><a class="nav-item" href="{% url 'import' %}">{% icon 'upload' %}{% translate 'Import wiki' %}</a></nav>
+      {% if user.is_superuser or user.can_invite %}<nav aria-label="{% translate 'Administration' %}">
+        <a class="nav-item" href="{% url 'invitations' %}">{% icon 'users' %}{% translate 'Invitations' %}</a>
+        {% if user.is_superuser %}<a class="nav-item" href="{% url 'mountpoints' %}">{% icon 'cloud' %}{% translate 'Mountpoints' %}</a><a class="nav-item" href="{% url 'settings' %}">{% icon 'settings' %}{% translate 'Site administration' %}</a>{% endif %}
+      </nav>{% endif %}
+      <form method="post" action="{% url 'set_language' %}" class="language-form">{% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}"><label for="language-choice">{% translate 'Language' %}</label><div class="inline-controls"><select id="language-choice" name="language"><option value="en"{% if CURRENT_LANGUAGE == 'en' %} selected{% endif %}>English</option><option value="ru"{% if CURRENT_LANGUAGE == 'ru' %} selected{% endif %}>Русский</option><option value="es"{% if CURRENT_LANGUAGE == 'es' %} selected{% endif %}>Español</option></select><button class="button" type="submit">{% translate 'Apply' %}</button></div></form>
+      <button class="button theme-toggle" type="button" data-theme-toggle aria-label="{% translate 'Use dark theme' %}">{% translate 'Dark theme' %}</button>
+      <form method="post" action="{% url 'logout' %}">{% csrf_token %}<button class="button">{% translate 'Sign out' %}</button></form>
+    </div>
+  </details>
+</header>
+<main id="main-content" tabindex="-1">
+  {% for message in messages %}<div class="info-strip" role="status">{% icon 'check' %}{% translate message.message %}</div>{% endfor %}
+  {% include 'wiki/settings_navigation.html' %}
+  {% block content %}{% endblock %}
+</main>
+<footer><span>Yourwiki / {{ site_name }}</span><span>{% translate 'Private by design' %}</span></footer>
+</div>
+</body></html>

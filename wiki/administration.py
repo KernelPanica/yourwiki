@@ -12,8 +12,8 @@ from .views import guarded
 class SiteForm(forms.ModelForm):
     class Meta:
         model = SiteConfiguration
-        exclude = ['id', 'default_document_policy', 'default_collection', 'encrypted_ai_config', 'encrypted_google_oauth_client']
-        labels = {'revision_history': 'Keep file history by default','name':'Workspace name','description':'Workspace description','session_hours':'Session lifetime (hours)',
+        exclude = ['id', 'default_document_policy', 'default_collection', 'encrypted_ai_config', 'encrypted_google_oauth_client', 'encrypted_identity_oauth_clients']
+        labels = {'revision_history': 'Enable version history for all files','name':'Workspace name','description':'Workspace description','session_hours':'Session lifetime (hours)',
             'invite_days':'Default invitation lifetime (days; 0 = no expiry)','invite_uses':'Default invitation uses (0 = unlimited)',
             'login_attempts':'Login attempts per window','login_window_minutes':'Login rate-limit window (minutes)',
             'document_limit_mb':'Document size limit (MB)','image_limit_mb':'Image upload limit (MB)',
@@ -39,7 +39,9 @@ def site_admin(request):
     form=SiteForm(request.POST or None,instance=config)
     if request.method=='POST' and form.is_valid():
         saved=form.save(commit=False)
-        saved.default_document_policy={s:{a:request.POST.get(s+'.'+a)=='on' for a in ('visible','read','write')} for s in ('owner','group','everyone')}
+        saved.default_document_policy={s:{a:request.POST.get(s+'.'+a)=='on' for a in ('read','write')} for s in ('owner','group','everyone')}
+        from .acl import normalize_policy
+        saved.default_document_policy = normalize_policy(saved.default_document_policy)
         saved.save()
         messages.success(request,'Site settings saved. Session lifetime applies at the next sign-in; defaults apply to new documents.')
         return redirect('settings')

@@ -5,6 +5,7 @@ import secrets
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
 from django.http import HttpResponse, JsonResponse
+from django.urls import reverse
 from django.shortcuts import get_object_or_404, render, redirect
 from django.views.decorators.http import require_http_methods
 from django.views.decorators.csrf import ensure_csrf_cookie
@@ -24,15 +25,34 @@ def live(request, id):
     room = ensure_room(doc)
     return render(request, 'wiki/live.html', {'doc':doc, 'section':doc.title,
         'bootstrap':{'id':str(doc.pk),'kind':doc.kind,'title':doc.title,'write':doc.allows(request.user,'write'),
-            'user':request.user.label,'state':base64.b64encode(bytes(room.state)).decode(), 'sequence':room.sequence}})
+            'generation':str(room.generation), 'file_format':doc.file_format,'user':request.user.label,'state':base64.b64encode(bytes(room.state)).decode(), 'sequence':room.sequence}})
 
 
 @guarded
 @require_http_methods(['GET'])
 def status(request, id):
     document_for(request.user, id)
+    return collaboration_status(id)
+
+
+def collaboration_status(id):
     room = get_object_or_404(Collaboration, document_id=id)
-    return JsonResponse({'sequence':room.sequence, 'synced_sequence':room.synced_sequence})
+    from .saves import status as save_status
+    return JsonResponse({'generation':str(room.generation), 'sequence':room.sequence, 'synced_sequence':room.synced_sequence, **save_status(id)})
+
+
+@guarded
+@require_http_methods(['GET'])
+def storage_status(request, id):
+    document_for(request.user, id)
+    from .external_sync import refresh, INTERVAL
+    refresh(id)
+    doc = document_for(request.user, id)
+    result = {'fingerprint':doc.storage_digest, 'revision':doc.revision, 'interval':INTERVAL}
+    if doc.kind == 'file' and doc.title.lower().endswith('.pdf'):
+        from .pdf_layers import layer_state
+        result['layer_state'] = layer_state(doc)
+    return JsonResponse(result)
 
 
 @guarded
@@ -126,3 +146,59 @@ def attachment(request, id):
     item = get_object_or_404(Attachment.objects.select_related('document'), pk=id)
     require(item.document, request.user, 'read')
     return HttpResponse(active_storage().read(item.reference), content_type=item.content_type)
+
+
+@guarded
+@require_http_methods(['POST'])
+def flush(request, id):
+    doc=document_for(request.user,id,'write')
+    data=json.loads(request.body or '{}')
+    if not isinstance(data,dict):raise ValidationError('Use a JSON object.')
+    if data.get('update'):
+        if not data.get('generation'):
+            from .services import Conflict
+            raise Conflict('Reload the editor before sending changes.')
+        apply_update(request.user,id,data['update'],generation=data.get('generation'))
+    from .collaboration import flush_room
+    flush_room(id)
+    return collaboration_status(id)
+
+
+@guarded
+@require_http_methods(['POST'])
+def recover(request, id):
+    """Explicit recovery; never overwrite an externally changed original."""
+    from .models import Document, SaveSession
+    from .services import Conflict, save_document, validate_content
+    doc=document_for(request.user,id,'write')
+    data=json.loads(request.body)
+    if not isinstance(data,dict):raise ValidationError('Use a JSON object.')
+    if data.get('action')=='reload':
+        if data.get('discard') is not True:raise ValidationError('Confirm discarding your pending changes.')
+        from .realtime import connections
+        if connections.get(str(id)):raise Conflict('Close active editors before reloading the original.')
+        from .file_formats import decode
+        with transaction.atomic():
+            doc=document_for(request.user,id,'write')
+            raw=active_storage().read(doc.reference)
+            if doc.kind!='file':decode(doc,raw)
+            doc.storage_digest=active_storage().fingerprint(doc.reference,raw);doc.revision+=1
+            doc.save(update_fields=['storage_digest','revision'])
+            from .write_journal import discard
+            discard(doc)
+            Collaboration.objects.filter(document=doc).delete()
+            SaveSession.objects.filter(document=doc).delete()
+        return JsonResponse({'revision':doc.revision})
+    if data.get('action')!='copy' or doc.kind=='file':raise ValidationError('Choose a recovery action.')
+    try:
+        from pycrdt import Doc
+        from .collaboration import derive
+        update=base64.b64decode(data.get('update',''),validate=True)
+        if not update or len(update)>6*1024*1024:raise ValueError()
+        state=Doc();state.apply_update(update);content=derive(state,doc.kind)
+    except Exception:
+        raise ValidationError('Invalid editor snapshot.') from None
+    title=data.get('title','').strip()
+    if not title:raise ValidationError('Enter a name for the copy.')
+    saved=save_document(request.user,title,doc.kind,doc.collection,content,doc.group,folder=doc.folder,file_format=doc.file_format or None)
+    return JsonResponse({'url':reverse('live',args=[saved.pk])},status=201)

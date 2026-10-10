@@ -59,11 +59,12 @@ def validate_native(kind, value):
 
 def safe_style(attrs):
     pairs = []
-    for key, css in [('color','color'),('backgroundColor','background-color'),('fontSize','font-size'),('fontFamily','font-family'),('textAlign','text-align')]:
+    for key, css in [('color','color'),('backgroundColor','background-color'),('fontSize','font-size'),('fontFamily','font-family'),('textAlign','text-align'),('lineHeight','line-height')]:
         value = str(attrs.get(key, ''))
         valid = (key in ('color','backgroundColor') and re.fullmatch(r'#[0-9a-fA-F]{3,8}', value)
-            or key == 'fontSize' and re.fullmatch(r'(?:[8-9]|[1-6][0-9]|7[0-2])(?:px|pt)', value)
-            or key == 'fontFamily' and value in ('Arial','Georgia','Verdana','monospace','sans-serif','serif')
+            or key == 'fontSize' and re.fullmatch(r'\d+(?:\.\d+)?(?:px|pt)', value) and 8 <= float(value[:-2]) <= 72
+            or key == 'fontFamily' and value in ('Arial','Calibri','Cambria','Comic Sans MS','Courier New','Georgia','Helvetica','Tahoma','Times New Roman','Trebuchet MS','Verdana','monospace','sans-serif','serif')
+            or key == 'lineHeight' and value in ('1','1.15','1.5','2')
             or key == 'textAlign' and value in ('left','center','right','justify'))
         if valid:
             pairs.append(f'{css}:{value}')

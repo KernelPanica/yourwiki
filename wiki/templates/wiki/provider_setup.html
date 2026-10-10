@@ -1,0 +1,15 @@
+{% extends 'wiki/public.html' %}{% load i18n %}{% block content %}
+<h1>{% translate "Finish setting up your account" %}</h1>
+<p>{% translate "Connect your storage account so that Yourwiki permissions also apply when you open the original files. This step is required before entering the workspace." %}</p>
+{% if setup_error %}<p role="alert" class="error">{{ setup_error }}</p>{% endif %}
+{% for row in rows %}<section class="settings-card"><h2>{{ row.label }}</h2>
+{% if row.identity %}<p>{% translate "Connected account" %}: {% firstof row.identity.email row.identity.login %}</p><form method="post" action="{% url 'identity-unlink' row.provider %}">{% csrf_token %}<button class="button">{% translate "Choose another account" %}</button></form>
+{% elif row.configured %}<form method="post" action="{% url 'identity-connect' row.provider %}">{% csrf_token %}<button class="button primary">{% translate "Authorize" %} {{ row.label }}</button></form>
+{% else %}<p>{% translate "An administrator must configure OAuth before accounts can be connected." %}</p>{% endif %}</section>
+{% empty %}<p>{% translate "Local, SMB and SFTP storage uses Yourwiki permissions. No provider authorization is required." %}</p>{% endfor %}
+{% if grants %}<section class="settings-card"><h2>{% translate "Access synchronization" %}</h2>
+{% for grant in grants %}<p>{{ grant.provider_label }} · {{ grant.desired_role }} · {{ grant.get_status_display }}{% if grant.error %}<br>{{ grant.error }}{% endif %}</p>{% endfor %}
+<p>{% translate "GitHub repository invitations must be accepted in GitHub. Failed permissions require administrator assistance; write access is never substituted for read access." %}</p></section>{% endif %}
+<form method="post">{% csrf_token %}<button class="button primary" {% if not can_finish %}disabled{% endif %}>{% translate "Synchronize access and continue" %}</button></form>
+<form method="post" action="{% url 'logout' %}">{% csrf_token %}<button class="button">{% translate "Sign out" %}</button></form>
+{% endblock %}

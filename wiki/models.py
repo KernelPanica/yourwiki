@@ -7,10 +7,11 @@ from django.utils.translation import gettext_lazy as _
 
 
 def default_policy():
-    return {scope: {action: scope == 'owner' or (scope == 'group' and action != 'write') for action in ('visible', 'read', 'write')} for scope in ('owner', 'group', 'everyone')}
+    return {scope: {action: scope == 'owner' or (scope == 'group' and action != 'write') for action in ('read', 'write')} for scope in ('owner', 'group', 'everyone')}
 
 class User(AbstractUser):
     display_name = models.CharField(max_length=150)
+    provider_setup_required = models.BooleanField(default=False)
     can_invite = models.BooleanField(default=False)
     invite_groups = models.ManyToManyField(Group, related_name='authorized_inviters', blank=True)
 
@@ -55,6 +56,7 @@ class SiteConfiguration(models.Model):
     sync_interval_seconds = models.PositiveSmallIntegerField(default=3)
     encrypted_ai_config = models.TextField(blank=True, default='')
     encrypted_google_oauth_client = models.TextField(blank=True, default='')
+    encrypted_identity_oauth_clients = models.TextField(blank=True, default='')
     revision_history = models.BooleanField(default=False)
     default_collection = models.CharField(max_length=100, default='Getting started')
     default_document_policy = models.JSONField(default=default_policy)
@@ -66,15 +68,7 @@ class SiteConfiguration(models.Model):
 
 class AccessPolicy:
     def history_enabled(self):
-        item = self
-        while item is not None:
-            if item.revision_history is not None:
-                return item.revision_history
-            item = item.parent_policy
-        from .storage import active_storage
-        from .folders import storage_path
-        mount, _ = active_storage().resolve(storage_path(self) if isinstance(self, Folder) else (storage_path(self.folder) + '/_' if self.folder else '_'))
-        return mount.revision_history if mount.revision_history is not None else SiteConfiguration.current().revision_history
+        return SiteConfiguration.current().revision_history
 
     def effective_source(self):
         item, seen = self, set()
@@ -87,18 +81,24 @@ class AccessPolicy:
 
     def effective_policy(self):
         item = self.effective_source()
-        return item.policy, item.group_id
+        from .acl import normalize_policy
+        policy = SiteConfiguration.current().default_document_policy if item.inherit_permissions and item.parent_policy is None else item.policy
+        return normalize_policy(policy), item.group_id
 
     def allows(self, user, action):
+        if action not in ('read', 'write', 'visible'):
+            return False
+        action = 'read' if action == 'visible' else action
         if not user.is_authenticated or not user.is_active:
             return False
         if user.is_superuser:
             return True
         source = self.effective_source()
-        policy, group_id = source.policy, source.group_id
+        from .acl import normalize_rule
+        policy, group_id = self.effective_policy()
         if isinstance(source, (Folder, Document)):
-            grants = source.group_policies or {}
-            allowed = [rules.get(action) is True for gid, rules in grants.items()
+            grants = {} if source.inherit_permissions and source.parent_policy is None else (source.group_policies or {})
+            allowed = [normalize_rule(rules).get(action) is True for gid, rules in grants.items()
                        if user.groups.filter(pk=gid).exists()]
             if allowed:
                 return any(allowed)
@@ -169,11 +169,25 @@ class Document(AccessPolicy, models.Model):
 
 class Collaboration(models.Model):
     document = models.OneToOneField(Document, primary_key=True, on_delete=models.CASCADE)
+    generation = models.UUIDField(default=uuid.uuid4, editable=False)
     state = models.BinaryField(default=bytes)
     sequence = models.PositiveBigIntegerField(default=0)
     synced_sequence = models.PositiveBigIntegerField(default=0)
+    saved_structure = models.JSONField(default=dict)
     snapshot = models.TextField(default='')
     updated_at = models.DateTimeField(auto_now=True)
+
+
+class WriteAttempt(models.Model):
+    """Query index for durable provider write intents; journal survives SQL rollback."""
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    document = models.ForeignKey(Document, on_delete=models.CASCADE, related_name='write_attempts')
+    state = models.CharField(max_length=16, default='unknown')
+    expected_fingerprint = models.CharField(max_length=64, blank=True)
+    intended_digest = models.CharField(max_length=64)
+    confirmed_fingerprint = models.CharField(max_length=64, blank=True)
+    reference = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
 
 
 class Review(models.Model):
@@ -226,3 +240,61 @@ class LoginAttempt(models.Model):
 class PendingDeletion(models.Model):
     reference = models.TextField()
     created_at = models.DateTimeField(auto_now_add=True)
+
+
+class ProviderIdentity(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='provider_identities')
+    provider = models.CharField(max_length=16, choices=[('google','Google Drive'),('onedrive','OneDrive'),('github','GitHub')])
+    external_id = models.CharField(max_length=255)
+    email = models.EmailField(blank=True)
+    login = models.CharField(max_length=255, blank=True)
+    active = models.BooleanField(default=True)
+    verified_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=['user','provider'],name='identity_user_provider'),
+                       models.UniqueConstraint(fields=['provider','external_id'],name='identity_provider_subject')]
+
+
+class ProviderGrant(models.Model):
+    mount = models.ForeignKey(MountPoint, on_delete=models.PROTECT, related_name='provider_grants')
+    user = models.ForeignKey(User, null=True, on_delete=models.SET_NULL, related_name='provider_grants')
+    provider = models.CharField(max_length=16)
+    object_key = models.CharField(max_length=512)
+    reference = models.TextField()
+    recipient = models.CharField(max_length=255, blank=True)
+    desired_role = models.CharField(max_length=8, blank=True)
+    applied_role = models.CharField(max_length=8, blank=True)
+    permission_id = models.CharField(max_length=255, blank=True)
+    status = models.CharField(max_length=12, default='pending', choices=[('pending','Pending'),('synced','Synced'),('failed','Failed'),('revoked','Revoked')])
+    error = models.TextField(blank=True)
+    attempted_at = models.DateTimeField(null=True, blank=True)
+
+    @property
+    def provider_label(self):
+        return {'google':'Google Drive','onedrive':'OneDrive','github':'GitHub'}.get(self.provider,self.provider)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=['provider','object_key','user'],name='provider_object_user_grant')]
+
+
+class SaveSession(models.Model):
+    document = models.ForeignKey(Document, on_delete=models.CASCADE, related_name='save_sessions')
+    client_id = models.CharField(max_length=160)
+    author = models.ForeignKey(User, null=True, on_delete=models.SET_NULL)
+    base_revision = models.PositiveIntegerField()
+    base_etag = models.CharField(max_length=255, blank=True)
+    payload = models.BinaryField(default=bytes)
+    payload_hash = models.CharField(max_length=64)
+    sequence = models.PositiveBigIntegerField(default=0)
+    saved_revision = models.PositiveIntegerField(null=True)
+    state = models.CharField(max_length=12, default='pending', choices=[(s,s) for s in ('pending','saved','failed','conflict','denied','unknown')])
+    error = models.TextField(blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=['document','client_id'],name='save_document_client')]
+
+
+from .pdf_models import PdfAnnotationLayer
+from .presence_models import PresenceSession

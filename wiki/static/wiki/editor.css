@@ -2,6 +2,16 @@
 @media(max-width:1100px){.live-layout{flex-direction:column}#review-panel{flex-basis:auto;max-height:none}.tiptap{padding:1rem}}@media print{.sidebar,.topbar,footer,.live-heading,#editor-toolbar,#review-panel,#editor-dialog,.skip-link{display:none!important}.main-shell{margin:0}main{padding:0}.live-layout{display:block}.editor-workspace{border:0;background:white}.tiptap{color:#111;background:white;padding:0;min-height:0}.tiptap table,.tiptap td,.tiptap th{border-color:#777}.tiptap th{background:#eee}.tiptap img{break-inside:avoid}.tiptap h1,.tiptap h2,.tiptap h3{color:#111;break-after:avoid}}
 
 .live-heading>div{min-width:0;max-width:100%}#review-panel{min-width:0}
+/* Notices belong to the site theme, while office paper keeps its own palette. */
+#editor-error{background:var(--panel);color:var(--danger)}
+/* Group fills must never cover connections. Cards stay above the connection layer. */
+.canvas-world{isolation:isolate}
+.canvas-node{z-index:2}
+.canvas-node[data-type=group]{z-index:0}
+.canvas-edges{z-index:1}
+.canvas-edges path{stroke:var(--canvas-connection,#2563eb)}
+.canvas-edges text{paint-order:stroke;stroke:var(--surface);stroke-width:4px;stroke-linejoin:round}
+:root[data-theme=dark]{--canvas-connection:#a3c5ff;--canvas-colored-text:#eef2f8;--canvas-color-1:#4b2631;--canvas-color-2:#493423;--canvas-color-3:#443c20;--canvas-color-4:#203d32;--canvas-color-5:#263b59;--canvas-color-6:#3b2e4d}
 #editor-toolbar .toolbar-label{min-width:0;max-width:100%;flex-wrap:wrap}
 #editor-toolbar button{white-space:normal;max-width:100%}
 
@@ -34,3 +44,86 @@
 .document-tool-group[data-group=Formatting]{flex:3 1 320px}
 .document-tool-group[data-group=Paragraph]{flex:1.5 1 180px}
 @media(max-width:520px){.document-tool-group[data-group]{flex-basis:100%}}
+
+/* Office controls are scoped to the embedded editor, never the Yourwiki shell. */
+.docs-page{--danger:#b42318;--focus:#1a73e8;--panel:#fff;--surface:#f8fafd;--text:#202124;--muted:#5f6368;--line:#dadce0;--line-soft:#dadce0;--bright:#edf2fa;--hover:#d3e3fd;--primary-ink:#185abc;background:#f8fafd;color:#202124;font-family:Arial,sans-serif;color-scheme:light;border:1px solid var(--line);border-radius:12px;padding:8px;min-width:0;max-width:100%;box-sizing:border-box;margin-top:16px}
+.docs-menus{display:flex;gap:0;padding-left:4px;height:32px;align-items:center;position:relative;z-index:20}
+.docs-menus details{position:relative;margin:0;border:0;padding:0;background:none}
+.docs-menus summary{list-style:none;padding:5px 9px;cursor:pointer;border-radius:4px;font:14px Arial,sans-serif;color:#202124}
+.docs-menus summary::-webkit-details-marker{display:none}
+.docs-menus summary:hover,.docs-menus details[open]>summary{background:#e8eaed}
+.docs-menu-items{position:absolute;top:30px;left:0;min-width:230px;max-height:70vh;overflow:auto;padding:8px 0;background:white;border:1px solid #dadce0;border-radius:4px;box-shadow:0 4px 12px #0003}
+.docs-menu-items .button,.docs-menu-items>button,.docs-menu-items a{display:block;width:100%;text-align:left;padding:9px 20px;border:0;border-radius:0;background:white;color:#202124;font:14px Arial,sans-serif;white-space:nowrap;text-decoration:none;box-sizing:border-box}
+.docs-menu-items button:hover,.docs-menu-items a:hover{background:#e8f0fe}
+.docs-page .live-layout{margin:0;display:flex;gap:12px;align-items:flex-start}
+.docs-page .editor-workspace{border:0;border-radius:0;background:transparent;position:relative;overflow:visible;min-width:0}
+.docs-page #editor-toolbar.document-toolbar-ribbon{background:#edf2fa;border:0;border-radius:24px;padding:4px 12px;gap:0;flex-wrap:nowrap;height:44px;overflow-x:auto;align-items:center;box-sizing:border-box}
+.docs-page #editor-toolbar .document-tool-group{flex:0 0 auto;margin:0;padding:0 8px;border-right:1px solid #c7c7c7;gap:0}
+.docs-page .document-tool-caption{display:none}
+.docs-page .document-tool-controls{flex-wrap:nowrap;gap:3px;align-items:center}
+.docs-page #editor-toolbar button,.docs-page #editor-toolbar select,.docs-page #editor-toolbar input{height:30px;min-height:30px;min-width:28px;padding:3px 6px;border:0;border-radius:4px;background:transparent;font:14px Arial,sans-serif;color:#202124}
+.docs-page #editor-toolbar button:hover{background:#dfe5ee}
+.docs-page #editor-toolbar button[aria-pressed=true]{background:#d3e3fd;color:#174ea6}
+.docs-page #editor-toolbar button[data-command=Bold]{font-weight:bold;font-size:17px}
+.docs-page #editor-toolbar button[data-command=Italic]{font-style:italic;font-family:Georgia,serif;font-size:17px}
+.docs-page #editor-toolbar button[data-command=Underline]{text-decoration:underline;font-size:17px}
+.docs-page #editor-toolbar button[data-command=Strike]{text-decoration:line-through;font-size:17px}
+.docs-page #editor-toolbar .toolbar-label{font-size:0;display:flex;flex-direction:row;flex-wrap:nowrap;gap:0}
+.docs-page #editor-toolbar input[type=color]{width:30px;padding:5px}
+.docs-page .docs-menu-items .document-tool-group{border:0;padding:0;margin:0}
+.docs-page .docs-menu-items .document-tool-controls{display:flex;flex-direction:column;align-items:stretch;gap:0}
+.docs-page .docs-menu-items .toolbar-label{padding:8px 20px;font-size:12px}
+.docs-page .docs-menu-items select{max-width:180px}
+.docs-ruler{height:26px;max-width:816px;margin:0 auto 0 calc(220px + (100% - 220px - min(816px,100% - 220px))/2);display:flex;padding:0 72px;justify-content:space-between;box-sizing:border-box;background:repeating-linear-gradient(90deg,transparent 0,transparent 11px,#bdc1c6 11px,#bdc1c6 12px) bottom/100% 5px no-repeat;color:#5f6368;font:10px Arial,sans-serif;align-items:center}
+.docs-page .document-host{padding:0 24px 48px;margin-left:220px;background:#f8fafd;overflow:auto;max-height:calc(100dvh - 170px)}
+.docs-page .document-host .tiptap{background:white;color:#202124;width:816px;max-width:100%;min-height:1056px;padding:72px 80px;border:1px solid #c7c7c7;border-radius:0;box-shadow:0 1px 2px #0001;font:16px/1.5 Arial,sans-serif;box-sizing:border-box;transform-origin:top center}
+.docs-page .tiptap h1,.docs-page .tiptap h2,.docs-page .tiptap h3{font-family:Arial,sans-serif;color:#202124}
+.docs-outline{position:absolute;top:88px;left:0;width:200px;padding:12px;box-sizing:border-box;max-height:calc(100dvh - 200px);overflow:auto}
+.docs-outline h2{font:14px Arial,sans-serif;margin:0 0 24px;color:#3c4043}
+.docs-outline p{font:13px/1.5 Arial,sans-serif;color:#80868b}
+.docs-outline button{display:block;background:transparent;border:0;text-align:left;color:#444746;font:14px Arial,sans-serif;padding:10px 4px;width:100%;overflow-wrap:anywhere}
+.docs-outline button:hover{background:#e8f0fe;border-radius:20px}
+.docs-outline[hidden]+.document-host{margin-left:0}
+.docs-page #review-panel{margin-top:44px;background:#fff;border:0;max-height:calc(100dvh - 160px);box-sizing:border-box}
+.docs-page [hidden]{display:none!important}
+.docs-page :focus-visible{outline:2px solid #1a73e8;outline-offset:2px}
+@media(max-width:1100px){.docs-page .live-layout{flex-direction:row}.docs-outline{display:none}.docs-page .document-host{margin-left:0;padding:0 12px 32px}.docs-ruler{margin:0 auto}.docs-page #review-panel{position:fixed;right:12px;top:130px;z-index:15;width:min(320px,calc(100vw - 24px));box-shadow:0 4px 16px #0002}}
+@media(max-width:600px){.docs-page{padding:4px}.docs-menus{padding:0}.docs-menus summary{font-size:13px;padding:6px}.docs-menu-items{position:fixed;top:25vh;left:8px;max-width:calc(100vw - 16px)}.docs-page .document-host{padding:0 0 24px}.docs-page .document-host .tiptap{padding:24px;min-height:900px}.docs-ruler{padding:0 24px}.docs-page #editor-toolbar.document-toolbar-ribbon{border-radius:12px}}
+@media print{.docs-menus,.docs-outline,.docs-ruler{display:none!important}.docs-page .document-host{margin:0;padding:0;max-height:none;overflow:visible}.docs-page .document-host .tiptap{zoom:1!important;padding:0;min-height:0;border:0;box-shadow:none;width:100%;max-width:none}.docs-page{padding:0;margin:0;border:0}}
+@media(max-width:600px){.docs-menus{overflow-x:auto;overflow-y:hidden;scrollbar-width:none}.docs-menus details{flex:0 0 auto}.docs-menus summary{white-space:nowrap}}
+.docs-page .editor-workspace:has(.docs-outline[hidden]) .docs-ruler{margin-inline:auto}
+
+/* File actions and reviews belong to the surrounding Yourwiki interface. */
+#document-actions{flex-wrap:wrap;gap:8px}
+main>#review-panel{margin:16px 0;max-height:60vh;width:100%;box-sizing:border-box}
+
+/* Compact document chrome leaves space for the content, in every editor. */
+.live-heading{gap:12px;align-items:center;margin-bottom:12px}
+.live-document-title{display:flex;align-items:center;gap:12px;min-width:0;flex:1}
+.live-document-title>a{display:flex;align-items:center;gap:8px;font-size:18px;font-weight:600;min-width:0;min-height:40px}
+.live-document-title>a>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.live-document-title .document-format{margin:0;flex:none;padding:4px 8px;background:var(--surface);color:var(--muted);font:11px system-ui,sans-serif;border:1px solid var(--line-soft)}
+.live-status{display:flex;align-items:center;gap:8px;flex-wrap:wrap;max-width:50%}
+.live-status #sync-status{font-size:12px;color:var(--muted)}
+.presence-chip{background:var(--hover);color:var(--primary-ink)}
+#document-actions{margin:0 0 12px;gap:8px}
+.docs-page{margin-top:0;border-radius:10px}
+.docs-page #editor-toolbar.document-toolbar-ribbon{border-radius:8px}
+.docs-page .document-host{max-height:calc(100dvh - 260px);min-height:400px;padding-bottom:24px}
+.editor-page .canvas-stage,.editor-page .drawio-frame,.editor-page .sheet-host{height:calc(100dvh - 250px);min-height:420px}
+.editor-fullscreen .canvas-stage,.editor-fullscreen .drawio-frame,.editor-fullscreen .sheet-host{height:calc(100dvh - 180px)}
+.editor-fullscreen .docs-page .document-host{max-height:calc(100dvh - 190px)}
+.editor-workspace:has(.canvas-stage) #visual-editor,.editor-workspace:has(.drawio-frame) #visual-editor{min-height:0}
+#editor-toolbar{padding:8px;gap:4px;background:var(--surface)}
+#editor-toolbar button,#editor-toolbar select{font-size:13px}
+#review-panel p{font-size:13px;color:var(--muted)}
+#editor-dialog{padding:24px;max-height:85dvh;overflow:auto;border-radius:12px}
+#editor-dialog h2{font-size:20px}
+#dialog-fields label{margin:16px 0}
+@media(max-width:800px){
+  .live-status{max-width:100%}.live-document-title{flex-basis:100%}.live-document-title>a{font-size:16px}
+  .live-heading{gap:4px}.live-status #presence{display:none}
+  .docs-page .document-host{min-height:400px;max-height:calc(100dvh - 320px)}
+  .docs-page #editor-toolbar.document-toolbar-ribbon{scrollbar-width:thin}
+  .document-actions>.button{font-size:12px;padding:8px 10px}
+}

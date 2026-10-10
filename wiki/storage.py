@@ -20,6 +20,14 @@ HISTORY_MAX_BYTES = 50 * 1024 * 1024
 class StorageError(Exception):
     pass
 
+class StorageRejected(StorageError):
+    """A pre-dispatch rejection: the target original was not modified."""
+    pass
+
+class StorageMissing(StorageError):
+    """The provider explicitly reported that the object does not exist."""
+    pass
+
 
 def safe_key(key):
     if not isinstance(key, str) or not key or '\\' in key or any(p in ('', '.', '..') for p in key.split('/')) or key.startswith('/'):
@@ -33,6 +41,15 @@ def bounded(data, limit=MAX_BYTES):
     return data
 
 class Adapter:
+    """Storage write contract shared by all providers.
+
+    write returns the actual reference only after provider acknowledgement;
+    fingerprint(reference, submitted_bytes) must describe that acknowledged
+    version (native Sheets caches its returned provider version). Rejections
+    known to occur before mutation use StorageRejected. Every other exception
+    has an uncertain outcome: callers must reconcile, never blindly replay.
+    Writes are not a universal compare-and-swap; see docs/write-contract.md.
+    """
     def __init__(self, config, save_config=None):
         self.config = config
         self.save_config = save_config or (lambda c: None)
@@ -66,6 +83,9 @@ class Adapter:
 
     def move_to(self, ref, destination, key):
         raise StorageError('These mounts cannot move the same provider object. Choose a directory on the same source; copying is not performed.')
+
+    def write_table(self, key, data, reference, previous, *, structure=None):
+        return self.write(key, data, reference)
 
     def ensure_dir(self, key):
         safe_key(key)
@@ -142,6 +162,8 @@ class HTTP(Adapter):
         try:
             allowed_status = kwargs.pop('allowed_status', ())
             response = requests.request(method, url, timeout=(10, 45), **kwargs)
+            if method == 'GET' and response.status_code == 404 and 404 not in allowed_status:
+                raise StorageMissing('The storage object does not exist.')
             if response.status_code not in allowed_status:
                 response.raise_for_status()
             return response
@@ -178,14 +200,23 @@ class OAuthHTTP(HTTP):
         return {'Authorization': 'Bearer ' + self.token()}
 
 class GoogleDrive(OAuthHTTP):
+    def set_grant(self, ref, recipient, role, permission_id=''):
+        from .provider_sharing import google_set
+        return google_set(self, ref, recipient, role, permission_id)
+
+    def revoke_grant(self, ref, recipient, permission_id=''):
+        from .provider_sharing import google_revoke
+        return google_revoke(self, ref, recipient, permission_id)
+
     sheet_mime = 'application/vnd.google-apps.spreadsheet'
     ods_mime = 'application/vnd.oasis.opendocument.spreadsheet'
 
     def private_info(self, ref):
         info = self.request('GET', self.base + '/' + quote(ref, safe=''), headers=self.headers(),
             params={'fields': 'id,name,mimeType,parents,version,ownedByMe,shared,driveId,owners(permissionId)'}).json()
-        if info.get('ownedByMe') is not True or info.get('shared') is not False or info.get('driveId'):
-            raise StorageError('Google storage must be private and owned by the connected account. Shared files, shared folders and shared drives are not supported; no sharing permissions were changed.')
+        from .provider_sharing import google_managed
+        if info.get('ownedByMe') is not True or info.get('driveId') or (info.get('shared') is not False and not google_managed(self, ref)):
+            raise StorageRejected('Google storage must be private and owned by the connected account. Unmanaged sharing and shared drives are not supported; no sharing permissions were changed.')
         return info
 
     def probe(self):
@@ -246,6 +277,62 @@ class GoogleDrive(OAuthHTTP):
 
     def file_format(self, ref, key):
         return 'ods' if self.private_info(ref).get('mimeType') == self.sheet_mime else super().file_format(ref, key)
+
+    def write_table(self, key, data, reference, previous, *, structure=None):
+        safe_key(key)
+        bounded(data)
+        info = self.private_info(reference)
+        snapshot = getattr(self, '_sheet_snapshots', {}).get(reference)
+        if snapshot and snapshot[0] == hashlib.sha256(previous).hexdigest() and snapshot[1] != str(info.get('version')):
+            from .services import Conflict
+            raise Conflict('The original file changed in storage. Reload it before saving; your edits have not overwritten it.')
+        if info.get('mimeType') != self.sheet_mime:
+            return self.write(key, data, reference)
+        from .sheet_batches import requests_for
+        url = 'https://sheets.googleapis.com/v4/spreadsheets/' + quote(reference, safe='')
+        sheets = self.request('GET', url, headers=self.headers(),
+            params={'fields':'sheets(properties(sheetId,title,gridProperties))'}).json()['sheets']
+        properties = {sheet['properties']['title']:sheet['properties'] for sheet in sheets}
+        try:
+            requests = requests_for(previous, data, {name:p['sheetId'] for name,p in properties.items()}, structure=structure)
+        except StorageError as error:
+            raise StorageRejected(str(error)) from error
+        # Grow the grid before writing new cells, within the same atomic batch.
+        sizes = {p['sheetId']:dict(p['gridProperties']) for p in properties.values()}
+        growth = []
+        for request in requests:
+            if 'updateCells' not in request:
+                operation, payload = next(iter(request.items()))
+                if operation == 'addSheet':
+                    prop = payload['properties']
+                    sizes[prop['sheetId']] = dict(prop['gridProperties'])
+                if operation in ('insertDimension','deleteDimension'):
+                    span = payload['range']
+                    field = 'rowCount' if span['dimension'] == 'ROWS' else 'columnCount'
+                    sizes[span['sheetId']][field] += (span['endIndex']-span['startIndex']) * (1 if operation == 'insertDimension' else -1)
+                continue
+            update = request['updateCells']
+            start = update['start']
+            size = sizes[start['sheetId']]
+            for dimension, field, required in [
+                ('ROWS','rowCount',start['rowIndex']+1),
+                ('COLUMNS','columnCount',start['columnIndex']+len(update['rows'][0]['values']))]:
+                if required > size[field]:
+                    growth.append({'appendDimension':{'sheetId':start['sheetId'],
+                        'dimension':dimension,'length':required-size[field]}})
+                    size[field] = required
+        if self.private_info(reference).get('version') != info.get('version'):
+            from .services import Conflict
+            raise Conflict('Google Sheets changed while preparing the save. Reload before saving.')
+        if requests:
+            self.request('POST', url + ':batchUpdate', headers=self.headers(),
+                         json={'requests':growth + requests})
+        after = self.private_info(reference)
+        if not after.get('version'):
+            raise StorageError('Google Sheets did not return a file version. Reload before saving again.')
+        self.__dict__.setdefault('_sheet_snapshots', {})[reference] = (
+            hashlib.sha256(data).hexdigest(), str(after['version']))
+        return reference
 
     def write(self, key, data, reference=None, limit=MAX_BYTES):
         safe_key(key)
@@ -359,20 +446,40 @@ class GoogleDrive(OAuthHTTP):
         yield from walk(self.config['root'])
 
 class OneDrive(OAuthHTTP):
+    def drive_id(self):
+        if not self.config.get('drive_id'):
+            value = self.request('GET', self.base, headers=self.headers(), params={'$select': 'id'}).json().get('id')
+            if not isinstance(value, str) or not value:
+                raise StorageError('OneDrive did not return its drive identity.')
+            self.config['drive_id'] = value
+            self.save_config(self.config)
+        return self.config['drive_id']
+
+    def set_grant(self, ref, recipient, role, permission_id=''):
+        from .provider_sharing import onedrive_set
+        return onedrive_set(self, ref, recipient, role, permission_id)
+
+    def revoke_grant(self, ref, recipient, permission_id=''):
+        from .provider_sharing import onedrive_revoke
+        return onedrive_revoke(self, ref, recipient, permission_id)
+
     def private_info(self, ref):
         info = self.request('GET', self.base + '/items/' + quote(ref, safe=''), headers=self.headers(),
                             params={'$select': 'id,name,webUrl,parentReference,remoteItem,shared'}).json()
         owner = self.request('GET', self.base, headers=self.headers(), params={'$select': 'owner'}).json().get('owner', {}).get('user', {}).get('id')
         permissions = self.request('GET', self.base + '/items/' + quote(ref, safe='') + '/permissions', headers=self.headers()).json()
-        if not owner or info.get('remoteItem') or info.get('shared') or not isinstance(permissions.get('value'), list) or permissions.get('@odata.nextLink'):
+        if not owner or info.get('remoteItem') or not isinstance(permissions.get('value'), list) or permissions.get('@odata.nextLink'):
             raise StorageError('OneDrive privacy could not be verified. Use the connected account\'s private personal drive.')
+        from .provider_sharing import onedrive_managed
         for permission in permissions.get('value', []):
+            if onedrive_managed(self, ref, permission):
+                continue
             principals = permission.get('grantedToIdentitiesV2', permission.get('grantedToIdentities', []))
             principal = permission.get('grantedToV2', permission.get('grantedTo'))
             if principal:
                 principals = [*principals, principal]
             if permission.get('link') or permission.get('invitation') or not principals or any(p.get('user', {}).get('id') != owner for p in principals):
-                raise StorageError('OneDrive files must be accessible only to the connected account. No sharing permissions were changed.')
+                raise StorageError('OneDrive files must be private or use managed personal permissions. No sharing permissions were changed.')
         return info
 
     def probe(self):
@@ -450,13 +557,25 @@ class OneDrive(OAuthHTTP):
             self.private_info(parent)
 
 class GitHub(HTTP):
+    def set_grant(self, ref, recipient, role, permission_id=''):
+        from .provider_sharing import github_set
+        return github_set(self, ref, recipient, role, permission_id)
+
+    def revoke_grant(self, ref, recipient, permission_id=''):
+        from .provider_sharing import github_revoke
+        return github_revoke(self, ref, recipient, permission_id)
+
     def private_repository(self):
         base = 'https://api.github.com/repos/' + '/'.join(quote(p, safe='') for p in self.config['repository'].split('/'))
         account = self.request('GET', 'https://api.github.com/user', headers=self.headers()).json().get('login')
         repo = self.request('GET', base, headers=self.headers()).json()
-        collaborators = self.request('GET', base + '/collaborators', headers=self.headers(), params={'per_page': 100}).json()
-        if not account or repo.get('private') is not True or repo.get('owner', {}).get('login') != account or repo.get('owner', {}).get('type') != 'User' or not isinstance(collaborators, list) or any(item.get('login') != account for item in collaborators):
-            raise StorageError('Git storage must be a private personal repository with only the connected account as a collaborator. No repository permissions were changed.')
+        response = self.request('GET', base + '/collaborators', headers=self.headers(), params={'per_page': 100})
+        if getattr(response, 'headers', {}).get('Link'):
+            raise StorageError('Too many repository collaborators to verify privacy.')
+        collaborators = response.json()
+        from .provider_sharing import github_managed
+        if not account or repo.get('private') is not True or repo.get('owner', {}).get('login') != account or repo.get('owner', {}).get('type') != 'User' or not isinstance(collaborators, list) or any(item.get('login') != account and not github_managed(self, item.get('login','')) for item in collaborators):
+            raise StorageError('Git storage must be a private personal repository with only the connected account and managed collaborators. No repository permissions were changed.')
 
     def probe(self):
         self.private_repository()
@@ -522,6 +641,7 @@ class GitHub(HTTP):
         prefix = self.config.get('root', '').strip('/')
         target_prefix = destination.config.get('root', '').strip('/')
         adapter = GitHub({**self.config, 'root': ''})
+        adapter._mount_id = getattr(self, '_mount_id', None)
         return_key = key
         adapter.move('/'.join(p for p in (prefix, ref) if p), '/'.join(p for p in (target_prefix, key) if p))
         return return_key
@@ -703,10 +823,13 @@ class SafeAdapter:
 
     def __getattr__(self, method):
         def invoke(*args, **kwargs):
+            from .services import Conflict
             try:
                 return getattr(self.adapter, method)(*args, **kwargs)
-            except StorageError:
+            except (StorageError, Conflict):
                 raise
+            except FileNotFoundError:
+                raise StorageMissing('The storage object does not exist.') from None
             except Exception:
                 raise StorageError('Storage is unavailable. Check the connection and try again.') from None
         return invoke
@@ -741,7 +864,9 @@ def mount_adapter(mount):
         cached = _mount_cache.get(mount.pk)
         if cached and cached[0] == mount.encrypted_config:
             return cached[1]
-        adapter = SafeAdapter(ADAPTERS[mount.provider](decrypt(mount.encrypted_config), persist))
+        implementation = ADAPTERS[mount.provider](decrypt(mount.encrypted_config), persist)
+        implementation._mount_id = mount.pk
+        adapter = SafeAdapter(implementation)
         _mount_cache[mount.pk] = (mount.encrypted_config, adapter)
         return adapter
 
@@ -799,6 +924,11 @@ class MountedStorage:
             adapter.ensure_dir(relative.rpartition('/')[0])
         ref = adapter.write(relative, data, relative if reference else None, limit=limit)
         return ref if mount.path == '/' else f'mount:{mount.pk}:{ref}'
+
+    def write_table(self, key, data, reference, previous, *, structure=None):
+        mount, ref = self.reference(reference)
+        result = mount_adapter(mount).write_table(key, data, ref, previous, structure=structure)
+        return result if mount.path == '/' else f'mount:{mount.pk}:{result}'
 
     def move(self, reference, key):
         source, ref = self.reference(reference)

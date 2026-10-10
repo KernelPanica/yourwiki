@@ -8,7 +8,7 @@ The installer uses `/documents` in Docker, backed by the persistent `documents` 
 
 ## Google Drive
 
-Create a Google Cloud project, enable the Drive API, configure its OAuth consent screen, and create a Web application OAuth client. Add this exact authorized redirect URI:
+Create a Google Cloud project, enable the Drive API and Google Sheets API, configure its OAuth consent screen, and create a Web application OAuth client. Add this exact authorized redirect URI:
 
 - `https://YOUR-WIKI-HOST/setup/oauth/callback` for installation.
 - `https://YOUR-WIKI-HOST/mounts/google/callback/` for additional Google mounts.
@@ -89,10 +89,26 @@ later save checks both the catalog revision and that checksum; if another client
 or the provider changed the file, reload it before saving. Unsaved collaborative
 updates remain in the database until the file has been written successfully.
 
-History is disabled by default and follows the file, parent directories, mount,
-and workspace settings. When enabled, previous bytes are stored in
-`name.extension.json`. A failed file write rolls back history changes and any
-rename; if the provider also refuses recovery, the server logs the recovery
-failure. Keep provider backups for outages that prevent both writing and rollback.
+History is disabled by default and controlled by one site-wide flag. Legacy
+file/folder/mount overrides are ignored. Previous bytes are stored in
+`name.extension.json`; disabling history keeps existing archives downloadable.
+Known pre-dispatch rejections roll back history and renames where possible.
+Uncertain writes retain recovery artifacts and pause automatic saving; retry
+first inspects the original. Preserve DATA_DIR/write-journal together with the
+database. See [the write contract](write-contract.md) for provider guarantees,
+recovery rules and the limits of optimistic concurrency.
 
-Google Drive objects and folders must be owned by the connected account and unshared; shared drives are rejected. Native Google Sheets use ODS only as the API import/export format and retain their object ID. OneDrive requires the connected account to own the drive and each managed item to have no sharing grants to other accounts. GitHub requires a private personal repository owned by the token account with no other collaborators. Privacy is checked on access; Yourwiki never makes objects public or revokes existing sharing. Remove sharing at the provider before connecting an existing location. SFTP/SMB permissions remain under server administration.
+Google Drive objects and folders must be owned by the connected account; shared drives are rejected. OneDrive requires the connected account's personal drive. GitHub uses a private personal repository owned by the token account. Unmanaged/public sharing is rejected. User-approved task2.md supersedes the previous owner-only rule: verified ProviderIdentity accounts receive tracked personal ProviderGrant permissions on Google/OneDrive files and GitHub repositories. Permissions are reconciled after effective ACL changes; revocation failures remain visible and retryable. Folder grants are never created, since they could bypass child exceptions. Local/SFTP/SMB remain under local ACL and server administration.
+
+Users link their OAuth accounts at **Your account → Provider accounts**. Administrators configure encrypted OAuth client credentials there; register the exact callback URLs shown in the UI. The mount's credentials perform sharing operations; profile OAuth uses minimal identity scopes, and its tokens are discarded. Run `python manage.py sync_provider_grants` (or the same command via `docker compose exec web`) to reconcile all receipts after a crash/outage, or schedule it periodically. A pending GitHub invitation must be accepted. Personal private GitHub repositories cannot give read-only collaborator access: these requests fail visibly without granting write. GitHub grants cover the whole repository, not only files visible in Yourwiki.
+
+New invitation registrations must finish `/account/setup/` before accessing
+workspace pages, APIs or editor WebSockets. Required accounts cover the root
+cloud provider and readable cloud mounts/files. OAuth returns to setup; completion
+reconciles grants and requires confirmed provider access. Missing OAuth clients,
+failed permissions and pending GitHub invitations keep setup required across
+logout/login. Local/SMB/SFTP need only confirmation, without provider OAuth.
+Migration0022 adds this persistent flag; existing accounts retain their current
+access and can manage identities from the account settings.
+
+Existing provider owners retain ownership even when a local ACL is revoked. Unmounting is blocked until managed receipts are successfully revoked. Do not replace connection credentials with another provider account while revocation is pending. Automatic retries need the original account's permission-management access.

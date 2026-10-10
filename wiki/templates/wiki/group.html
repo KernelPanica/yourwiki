@@ -1,0 +1,9 @@
+{% extends 'wiki/base.html' %}{% load i18n %}{% block content %}
+<div class="page-heading"><h1>{{ group.name }}</h1><p>{% translate 'Choose who belongs to this group. Changes affect access granted to the group.' %}</p></div>
+<form method="post" class="settings-card group-membership">{% csrf_token %}{{ form.non_field_errors }}
+<label for="{{ form.name.id_for_label }}">{{ form.name.label }}</label>{{ form.name }}{{ form.name.errors }}
+<fieldset class="member-picker"><legend>{% translate 'Members' %}</legend><label class="member-search-label" for="member-search">{% translate 'Find a member' %}</label><input id="member-search" type="search" data-filter-members placeholder="{% translate 'Name or username' %}"><div class="member-options">{% for option in form.members %}<div class="member-option" data-member-option>{{ option }}</div>{% endfor %}</div><p data-members-empty hidden>{% translate 'No members found.' %}</p>{{ form.members.errors }}</fieldset>
+<div class="form-actions"><button class="button primary">{% translate 'Save group' %}</button><a class="button" href="{% url 'groups' %}">{% translate 'Back to groups' %}</a></div>
+</form>
+<details class="settings-card danger-zone"><summary>{% translate 'Delete group' %}</summary><p>{% translate 'Remove members and document assignments before deleting this group.' %}</p><form method="post" action="{% url 'groups' %}">{% csrf_token %}<input type="hidden" name="group" value="{{ group.pk }}"><button class="button danger" name="action" value="delete">{% translate 'Delete group' %}</button></form></details>
+{% endblock %}

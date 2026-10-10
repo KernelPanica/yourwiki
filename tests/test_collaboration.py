@@ -68,7 +68,8 @@ def test_storage_failure_does_not_lose_acknowledged_edits(workspace,document):
         storage.return_value.location.side_effect = active_storage().location
         storage.return_value.fingerprint.side_effect = active_storage().fingerprint
         storage.return_value.write.side_effect=OSError('offline')
-        with pytest.raises(OSError):flush_room(document.pk)
+        from wiki.write_journal import WriteUncertain
+        with pytest.raises(WriteUncertain):flush_room(document.pk)
     room.refresh_from_db();document.refresh_from_db()
     assert room.sequence>room.synced_sequence and document.reference==old
     assert 'Durable ' in current_content(document)
@@ -107,12 +108,12 @@ def test_reviews_require_read_and_resolution_requires_write(client,workspace,doc
     response=client.post(url,json.dumps({'kind':'suggestion','body':'Better','anchor':{}}),content_type='application/json')
     assert response.status_code==200
     review_id=response.json()[0]['id']
-    assert client.post(url+f'/{review_id}',json.dumps({'action':'reject'}),content_type='application/json').status_code==500
+    assert client.post(url+f'/{review_id}',json.dumps({'action':'reject'}),content_type='application/json').status_code== 403
     client.force_login(workspace['admin'])
     assert client.post(url+f'/{review_id}',json.dumps({'action':'reject'}),content_type='application/json').status_code==200
     assert Review.objects.get(pk=review_id).status=='rejected'
     client.force_login(workspace['outsider'])
-    assert client.get(url).status_code==500
+    assert client.get(url).status_code== 404
 
 
 def test_image_upload_is_sanitized_and_protected(client,workspace,document):
@@ -126,7 +127,7 @@ def test_image_upload_is_sanitized_and_protected(client,workspace,document):
     url=response.json()['url']
     assert client.get(url).status_code==200
     client.force_login(workspace['outsider'])
-    assert client.get(url).status_code==500
+    assert client.get(url).status_code== 404
     client.force_login(workspace['admin'])
     assert client.post(f'/api/docs/{document.pk}/attachments',{'file':SimpleUploadedFile('bad.svg',b'<svg/>')}).status_code==400
 

@@ -1,0 +1,17 @@
+{% load static i18n %}
+<link rel="stylesheet" href="{% static 'wiki/sheet-preview.css' %}">
+<div class="sheet-preview" data-sheet-preview>
+  <div class="sheet-preview-scroll" role="tabpanel" id="sheet-preview-panel" aria-labelledby="sheet-preview-tab-0" tabindex="0">
+    <table class="sheet-preview-grid" aria-label="{{ worksheets.0.name }}">
+      <thead><tr><th class="sheet-corner" aria-label="{% translate 'Row numbers' %}"></th>{% for column in worksheets.0.columns %}<th scope="col">{{ column }}</th>{% endfor %}</tr></thead>
+      <tbody>{% for row in worksheets.0.rows %}<tr><th scope="row">{{ forloop.counter }}</th>{% for cell in row %}<td>{{ cell }}</td>{% endfor %}</tr>{% endfor %}</tbody>
+    </table>
+  </div>
+  <div class="sheet-preview-footer">
+    <div class="sheet-preview-tabs" role="tablist" aria-label="{% translate 'Worksheets' %}">{% for sheet in worksheets %}<button type="button" role="tab" id="sheet-preview-tab-{{ forloop.counter0 }}" aria-controls="sheet-preview-panel" aria-selected="{% if forloop.first %}true{% else %}false{% endif %}" tabindex="{% if forloop.first %}0{% else %}-1{% endif %}" data-sheet-index="{{ forloop.counter0 }}">{{ sheet.name }}</button>{% endfor %}</div>
+    <span class="sheet-preview-count" data-sheet-count></span>
+  </div>
+  <p class="sheet-preview-limit" data-sheet-limit {% if not worksheets.0.truncated %}hidden{% endif %}>{% translate 'Preview limited to 2,000 rows and 200 columns. Open the editor to see the full worksheet.' %}</p>
+</div>
+{{ worksheets|json_script:'sheet-preview-data' }}
+<script src="{% static 'wiki/sheet-preview.js' %}" defer></script>

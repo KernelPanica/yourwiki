@@ -44,7 +44,7 @@ class TestDocuments:
     def test_pages_render(self,client,workspace,document):
         client.force_login(workspace['admin'])
         for url in ['/', '/?q=useful','/?view=grid','/?kind=table','/documents/new/','/documents/import/','/permissions/','/storage/','/settings/','/invitations/','/members/',reverse('document',args=[document.pk]),reverse('edit',args=[document.pk]),reverse('policy',args=[document.pk])]:
-            assert client.get(url).status_code==200,url
+            assert client.get(url,follow=True).status_code==200,url
 
     def test_preview_kinds(self,client,workspace):
         client.force_login(workspace['admin'])
@@ -57,7 +57,7 @@ class TestDocuments:
             response=client.get(reverse('document',args=[doc.pk]))
             assert response.status_code==200
             assert b'Preview unavailable' not in response.content
-            assert b'<table' in response.content if kind=='table' else b'<svg class="graph"' in response.content
+            assert b'<table' in response.content if kind=='table' else (b'id="drawio-preview"' in response.content if kind=='drawio' else b'<svg class="graph"' in response.content)
 
     def test_import_and_limit(self,client,workspace):
         from django.core.files.uploadedfile import SimpleUploadedFile

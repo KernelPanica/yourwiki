@@ -12,7 +12,7 @@ def test_workspace_and_registration(realtime_server,workspace,settings):
     live_server=SimpleNamespace(url=realtime_server)
     settings.PUBLIC_URL=live_server.url
     with sync_playwright() as p:
-        browser=p.chromium.launch(headless=True)
+        browser=p.chromium.launch(headless=True, executable_path=os.environ.get('PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH'))
         page=browser.new_page(viewport={'width':1440,'height':1100})
         errors=[]
         page.on('pageerror',lambda error:errors.append(str(error)))
@@ -24,8 +24,8 @@ def test_workspace_and_registration(realtime_server,workspace,settings):
         page.get_by_label('Username').fill('admin')
         page.get_by_label('Password',exact=True).fill('Correct-password-8923')
         page.get_by_role('button',name='Sign in',exact=True).click()
-        expect(page.get_by_role('heading',name='All documents',exact=True)).to_be_visible()
-        page.get_by_role('link',name='New document',exact=True).click()
+        expect(page.get_by_role('heading',name='Files',exact=True)).to_be_visible()
+        page.locator('main').get_by_role('link',name='New file here',exact=True).click()
         page.get_by_label('Title',exact=True).fill('Team handbook')
         page.get_by_text('Advanced: initial content / source',exact=True).click()
         page.get_by_label('Content',exact=True).fill('# Our handbook\n\nUseful team knowledge.')
@@ -33,12 +33,12 @@ def test_workspace_and_registration(realtime_server,workspace,settings):
         expect(page.locator('.tiptap')).to_contain_text('Useful team knowledge')
         doc_url=page.url.removesuffix('live/')
         page.locator('.tiptap').click();page.keyboard.press('Control+End');page.keyboard.type(' Updated knowledge.')
-        expect(page.locator('#sync-status')).to_contain_text('Synced',timeout=15000)
+        expect(page.locator('#sync-status')).to_have_text(__import__('re').compile('^(Saved|Synced) to storage$'),timeout=15000)
         page.goto(doc_url)
         expect(page.locator('.preview')).to_contain_text('Updated knowledge.')
         page.goto(live_server.url+'/')
         page.get_by_label('Search documents').fill('handbook')
-        page.get_by_role('button',name='Search',exact=True).click()
+        page.locator('.search').get_by_role('button',name='Search',exact=True).click()
         expect(page.locator('.file-row')).to_have_count(1)
         page.goto(live_server.url+'/invitations/')
         page.get_by_label('team',exact=True).check()
@@ -54,11 +54,12 @@ def test_workspace_and_registration(realtime_server,workspace,settings):
         newcomer.get_by_role('button',name='Join workspace').click()
         expect(newcomer.get_by_role('heading',name='All documents',exact=True)).to_be_visible()
         assert newcomer.goto(doc_url).status==200
-        assert newcomer.goto(doc_url+'edit/').status==500
+        assert newcomer.goto(doc_url+'edit/').status==403
         page.goto(doc_url+'permissions/')
-        page.get_by_label('group read',exact=True).uncheck()
+        page.locator('[name=inherit_permissions]').uncheck()
+        page.locator('[name="group.read"]').uncheck()
         page.get_by_role('button',name='Save permissions').click()
-        assert newcomer.goto(doc_url).status==500
+        assert newcomer.goto(doc_url).status==404
         page.goto(live_server.url+'/')
         output=Path('test-results');output.mkdir(exist_ok=True)
         page.screenshot(path=str(output/'desktop.png'),full_page=True)
@@ -78,7 +79,7 @@ def test_diagrams_and_table(live_server,workspace):
     }
     docs=[save_document(workspace['admin'],k,k,'Engineering',v,workspace['team']) for k,v in samples.items()]
     with sync_playwright() as p:
-        browser=p.chromium.launch(headless=True)
+        browser=p.chromium.launch(headless=True, executable_path=os.environ.get('PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH'))
         page=browser.new_page()
         page.goto(live_server.url+'/login/')
         page.get_by_label('Username').fill('admin');page.get_by_label('Password',exact=True).fill('Correct-password-8923')
@@ -101,7 +102,7 @@ def test_explorer_and_workspace_menu(realtime_server, workspace):
     doc.folder = directory
     doc.save(update_fields=['folder'])
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
+        browser = p.chromium.launch(headless=True, executable_path=os.environ.get('PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH'))
         page = browser.new_page(viewport={'width':1280,'height':900})
         page.goto(realtime_server+'/login/')
         page.get_by_label('Username').fill('admin')
@@ -116,9 +117,9 @@ def test_explorer_and_workspace_menu(realtime_server, workspace):
         page.wait_for_function(f"sessionStorage.getItem('yourwiki:directory:{directory.pk}') === 'closed'")
         page.reload()
         expect(branch).not_to_have_attribute('open', '')
-        expect(page.get_by_role('link', name='Site administration', exact=True)).not_to_be_visible()
+        expect(page.locator('.sidebar').get_by_role('link', name='Site administration', exact=True)).to_be_visible()
         page.locator('.workspace-menu > summary').click()
-        expect(page.get_by_role('link', name='Site administration', exact=True)).to_be_visible()
+        expect(page.locator('.workspace-menu').get_by_role('link', name='Site administration', exact=True)).to_be_visible()
         page.keyboard.press('Escape')
         expect(page.locator('.workspace-menu')).not_to_have_attribute('open', '')
         page.set_viewport_size({'width':320,'height':844})
@@ -127,7 +128,7 @@ def test_explorer_and_workspace_menu(realtime_server, workspace):
         explorer.get_by_role('link', name='Project files', exact=True).click()
         expect(page.get_by_role('heading', name='Project files', exact=True)).to_be_visible()
         page.locator('.workspace-menu > summary').click()
-        page.get_by_role('link', name='Site administration', exact=True).click()
+        page.locator('.workspace-menu').get_by_role('link', name='Site administration', exact=True).click()
         expect(page.get_by_role('heading', name='Site administration', exact=True)).to_be_visible()
         browser.close()
 
@@ -139,7 +140,7 @@ def test_drag_and_path_creation(realtime_server, workspace):
     source_directory = Folder.objects.create(name='Drag folder', owner=workspace['admin'], group=workspace['team'])
     doc = save_document(workspace['admin'], 'Drag me', 'document', 'Notes', '', workspace['team'])
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
+        browser = p.chromium.launch(headless=True, executable_path=os.environ.get('PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH'))
         page = browser.new_page()
         page.goto(realtime_server+'/login/')
         page.get_by_label('Username').fill('admin')
@@ -158,7 +159,7 @@ def test_drag_and_path_creation(realtime_server, workspace):
         page.get_by_role('link', name='New file here', exact=True).click()
         expect(page.get_by_label('Path', exact=True)).to_have_value('/Projects/Empty files')
         page.get_by_label('Title', exact=True).fill('blank.txt')
-        page.get_by_label('Kind', exact=True).select_option('file')
+        page.locator('[data-create-kind="file"]').click()
         page.get_by_role('button', name='Create file', exact=True).click()
         expect(page.get_by_role('link', name='Download file', exact=True)).to_be_visible()
         with page.expect_navigation():
@@ -193,7 +194,7 @@ def test_drag_and_path_creation(realtime_server, workspace):
 def test_mountpoint_interface(realtime_server, workspace, tmp_path):
     from wiki.models import MountPoint
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
+        browser = p.chromium.launch(headless=True, executable_path=os.environ.get('PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH'))
         page = browser.new_page(viewport={'width':1440, 'height':1000})
         page.goto(realtime_server+'/login/')
         page.get_by_label('Username').fill('admin')
@@ -224,7 +225,7 @@ def test_mountpoint_interface(realtime_server, workspace, tmp_path):
 
 def test_russian_language(realtime_server, workspace):
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
+        browser = p.chromium.launch(headless=True, executable_path=os.environ.get('PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH'))
         page = browser.new_page(locale='en-US')
         errors = []
         page.on('pageerror', lambda error: errors.append(str(error)))
@@ -235,13 +236,14 @@ def test_russian_language(realtime_server, workspace):
         page.get_by_label('Имя пользователя').fill('admin')
         page.get_by_label('Пароль', exact=True).fill('Correct-password-8923')
         page.get_by_role('button', name='Войти', exact=True).click()
-        expect(page.get_by_role('heading', name='Все документы', exact=True)).to_be_visible()
-        page.get_by_role('link', name='Новый документ', exact=True).click()
+        expect(page.get_by_role('heading', name='Файлы', exact=True)).to_be_visible()
+        page.locator('main').get_by_role('link', name='Новый файл в этом каталоге', exact=True).click()
         page.get_by_label('Название', exact=True).fill('Русский документ')
         page.get_by_role('button', name='Создать и открыть редактор', exact=True).click()
         expect(page.locator('.tiptap')).to_be_visible()
         expect(page.get_by_role('button', name='Полужирный', exact=True)).to_be_visible()
         expect(page.locator('#sync-status')).to_contain_text('Синхронизировано', timeout=15000)
+        page.locator('#document-actions .more-menu summary').click()
         page.get_by_role('button', name='Переименовать', exact=True).click()
         expect(page.get_by_role('heading', name='Переименовать файл')).to_be_visible()
         page.get_by_role('button', name='Отмена', exact=True).click()
@@ -264,7 +266,7 @@ def test_docx_creation_and_history_settings(realtime_server, workspace):
     from wiki.models import Document
     from wiki.file_formats import read_docx
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
+        browser = p.chromium.launch(headless=True, executable_path=os.environ.get('PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH'))
         page = browser.new_page()
         page.goto(realtime_server+'/login/')
         page.get_by_label('Username').fill('admin')
@@ -272,25 +274,27 @@ def test_docx_creation_and_history_settings(realtime_server, workspace):
         page.get_by_role('button', name='Sign in', exact=True).click()
         page.goto(realtime_server+'/documents/new/')
         page.get_by_label('Title', exact=True).fill('Portable Word')
-        page.get_by_label('Text document format', exact=True).select_option('docx')
+        page.get_by_label('File format', exact=True).select_option('docx')
         page.get_by_role('button', name='Create and open editor', exact=True).click()
         expect(page.locator('.tiptap')).to_be_visible()
         page.locator('.tiptap').fill('Shared Word content')
-        expect(page.locator('#sync-status')).to_contain_text('Synced', timeout=15000)
+        expect(page.locator('#sync-status')).to_have_text(__import__('re').compile('^(Saved|Synced) to storage$'), timeout=15000)
         page.get_by_role('button', name='Save now', exact=True).click()
         expect(page.locator('#sync-status')).to_contain_text('Saved to storage', timeout=15000)
         doc_url = page.url.removesuffix('live/')
         assert 'Shared Word content' in read_docx(page.request.get(doc_url+'export/').body())
+        page.locator('#document-actions .more-menu summary').click()
         page.get_by_role('link', name='File settings', exact=True).click()
         page.get_by_label('Revision history').select_option('on')
         page.get_by_role('button', name='Save', exact=True).click()
         expect(page.get_by_role('heading', name='Portable Word', exact=True)).to_be_visible()
         page.get_by_role('link', name='Open visual editor', exact=True).click()
         page.locator('.tiptap').fill('New Word revision')
-        expect(page.locator('#sync-status')).to_contain_text('Synced', timeout=15000)
+        expect(page.locator('#sync-status')).to_have_text(__import__('re').compile('^(Saved|Synced) to storage$'), timeout=15000)
         page.get_by_role('button', name='Save now', exact=True).click()
         expect(page.locator('#sync-status')).to_contain_text('Saved to storage', timeout=15000)
         page.goto(doc_url)
+        page.locator('main .more-menu summary').click()
         expect(page.get_by_role('link', name='Download history', exact=True)).to_be_visible()
         browser.close()
     document = Document.objects.get(title='Portable Word')

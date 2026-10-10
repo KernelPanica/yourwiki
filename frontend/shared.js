@@ -17,16 +17,18 @@ export function queueReviewUpdate(update){if(!holding)return false;reviewUpdates
 export function error(message) {const box=document.getElementById('editor-error'); box.textContent=t(message);box.hidden=false;}
 export async function api(path, options={}) {
   const csrf = document.cookie.split('; ').find(v=>v.startsWith('csrftoken='))?.split('=')[1] || '';
-  const response=await fetch(path,{...options,headers:{'X-CSRFToken':decodeURIComponent(csrf),...(options.body instanceof FormData?{}:{'Content-Type':'application/json'}),...options.headers}});
-  if(!response.ok) {if(response.status===413) throw new Error(t('Upload rejected by the proxy or server: file too large. Check the file limit and Nginx client_max_body_size.')); let value;try{value=await response.json();}catch{} throw new Error(value?.error || format('Request failed (%(status)s).', {status:response.status}));}
-  return response.json();
+  const response=await window.yourwikiUI.request(path,{...options,headers:{Accept:'application/json','X-CSRFToken':decodeURIComponent(csrf),...(options.body instanceof FormData?{}:{'Content-Type':'application/json'}),...options.headers}});
+  if(response.redirected)throw new window.yourwikiUI.UIError('Your session expired. Sign in again.');
+  if(!response.headers.get('Content-Type')?.includes('json')&&response.ok)throw new window.yourwikiUI.UIError('The server returned an invalid response. Check whether the action finished before retrying.');
+  return window.yourwikiUI.check(response);
 }
 export function button(label, action, {write=true, parent=toolbar}={}) {
   label=t(label);
   const el=document.createElement('button'); el.type='button';el.className='button';el.textContent=label;el.title=label;el.setAttribute('aria-label',label);
   if(write) {el.dataset.write='';el.disabled=!boot.write;}
   el.addEventListener('mousedown',e=>e.preventDefault());
-  el.addEventListener('click',()=>Promise.resolve().then(action).catch(e=>error(e.message)));
+  let running=false;
+  el.addEventListener('click',async()=>{if(running)return;running=true;el.setAttribute('aria-busy','true');try{await window.yourwikiUI.run(action,document.getElementById('editor-error'));}finally{running=false;el.removeAttribute('aria-busy');}});
   parent.append(el);return el;
 }
 export function select(label, values, action, parent=toolbar) {
@@ -34,7 +36,7 @@ export function select(label, values, action, parent=toolbar) {
   const wrap=document.createElement('label');wrap.className='toolbar-label';wrap.textContent=label;
   const el=document.createElement('select');el.setAttribute('aria-label',label);el.dataset.write='';el.disabled=!boot.write;
   for(const [value,text] of values){const option=new Option(t(text),value);el.add(option);}
-  el.onchange=()=>action(el.value);wrap.append(el);parent.append(wrap);return el;
+  el.onchange=()=>window.yourwikiUI.run(()=>action(el.value),document.getElementById('editor-error'));wrap.append(el);parent.append(wrap);return el;
 }
 export function dialog(title, fields) {
   const el=document.getElementById('editor-dialog'), container=document.getElementById('dialog-fields');

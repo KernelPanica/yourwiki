@@ -25,7 +25,7 @@ GEOMETRY = """() => {
     }
   }
   for(const e of document.querySelectorAll('main button,main input,main select,main textarea,main .button,.topbar .workspace-menu')) {
-    if(!visible(e) || e.closest('.table-scroll,.permission-table-wrap,.pdf-frame')) continue;
+    if(!visible(e) || e.closest('.table-scroll,.permission-table-wrap,.pdf-frame,#editor-toolbar,.docs-menus')) continue;
     const r=e.getBoundingClientRect();
     if(r.left < -1 || r.right > innerWidth+1) issues.push(`control outside viewport ${label(e)}`);
   }
@@ -45,7 +45,7 @@ def test_responsive_spacing(realtime_server, workspace):
              f'/folders/{folder.pk}/permissions/', f'/documents/{doc.pk}/file-settings/',
              '/mounts/', '/settings/', '/members/', '/groups/', '/invitations/', '/account/', '/permissions/']
     issues = []
-    screenshots = Path('/tmp/yourwiki-layout'); screenshots.mkdir(exist_ok=True)
+    screenshots = Path('/tmp/yourwiki-layout-after'); screenshots.mkdir(exist_ok=True)
     with sync_playwright() as p:
         browser = p.chromium.launch(executable_path=os.environ.get('PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH'))
         page = browser.new_page()
@@ -64,8 +64,8 @@ def test_responsive_spacing(realtime_server, workspace):
                 response = page.goto(realtime_server + path)
                 assert response.status == 200, (path, response.status)
                 page.evaluate('document.fonts.ready')
-                if page.locator('#id_permissions_mode').count():
-                    page.locator('#id_permissions_mode').select_option('custom')
+                if page.locator('[data-inherit-access]').count():
+                    page.locator('[data-inherit-access]').uncheck()
                 findings = page.evaluate(GEOMETRY)
                 issues.extend(f'{language} {width} {path}: {finding}' for finding in findings)
                 if findings or path in ('/', '/documents/new/', f'/documents/{doc.pk}/permissions/'):

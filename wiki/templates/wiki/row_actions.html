@@ -1,0 +1,5 @@
+{% load i18n wiki_ui %}
+{% if doc.can_write or doc.can_move %}<details class="more-menu row-menu" data-disclosure><summary class="icon-button" aria-label="{% blocktranslate with title=doc.title %}More actions for {{ title }}{% endblocktranslate %}" title="{% translate 'More' %}">{% icon 'settings' %}</summary><div class="more-menu-panel">
+{% if doc.can_move %}<a class="button" href="{% url 'move' 'document' doc.pk %}">{% icon 'arrow' %}{% translate 'Move' %}</a>{% endif %}
+{% if doc.can_write %}<a class="button" href="{% url 'file-settings' doc.pk %}">{% icon 'settings' %}{% translate 'File settings' %}</a><hr class="action-divider"><a class="button danger" href="{% url 'delete' doc.pk %}">{% icon 'delete' %}{% translate 'Delete' %}</a>{% endif %}
+</div></details>{% endif %}

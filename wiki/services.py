@@ -58,16 +58,11 @@ def validate_content(kind, content, limit=5):
             raise ValidationError('Use valid draw.io XML.')
 
 
-def validate_policy(policy):
-    if not isinstance(policy, dict) or set(policy) != {'owner', 'group', 'everyone'}:
-        raise ValidationError('Invalid permission policy.')
-    for rule in policy.values():
-        if not isinstance(rule, dict) or set(rule) != {'visible', 'read', 'write'} or any(type(v) is not bool for v in rule.values()):
-            raise ValidationError('Invalid permission policy.')
+from .acl import validate_policy
 
 
 def group_policies_from_post(data, groups):
-    actions = ('visible', 'read', 'write')
+    actions = ('read', 'write')
     return {str(group.pk): {action: data.get(f'group.{group.pk}.{action}') == 'on'
                            for action in actions}
             for group in groups
@@ -77,8 +72,11 @@ def group_policies_from_post(data, groups):
 
 
 def require(doc, user, action):
-    if not doc.allows(user, 'visible') or not doc.allows(user, action):
-        raise PermissionDenied
+    from .acl import ResourceNotFound, ResourcePermissionDenied
+    if not doc.allows(user, 'read'):
+        raise ResourceNotFound
+    if not doc.allows(user, action):
+        raise ResourcePermissionDenied
 
 
 @transaction.atomic
@@ -106,8 +104,11 @@ def save_document(user, title, kind, collection, content, group, doc=None, revis
         if doc.revision != revision:
             raise Conflict('This document changed. Reload it before saving.')
     else:
+        if folder:
+            require(folder, user, 'write')
+            group = folder.group
         doc = Document(title=title, kind=kind, collection=collection, owner=user, group=group, folder=folder,
-                       inherit_permissions=bool(folder), path_synced=True)
+                       inherit_permissions=True, path_synced=True)
         from .models import SiteConfiguration
         doc.policy = SiteConfiguration.current().default_document_policy
         doc.file_format = (file_format or 'docx') if kind == 'document' else 'ods' if kind == 'table' else ''
@@ -121,8 +122,8 @@ def save_document(user, title, kind, collection, content, group, doc=None, revis
     if doc.folder:
         adapter.ensure_dir(key.rpartition('/')[0])
     same_object = not doc._state.adding
-    from .file_history import persist
-    reference = persist(doc, content, key, new=not same_object, adapter=adapter)
+    from .saves import write_snapshot
+    reference = write_snapshot(doc, content, key, user=user, new=not same_object, adapter=adapter)
     try:
         # The outer IMMEDIATE transaction keeps revision/ACL/lease checks valid.
         # Do not recheck a time-limited lease after writing the provider object.
@@ -132,6 +133,8 @@ def save_document(user, title, kind, collection, content, group, doc=None, revis
             doc.updated_at = timezone.now()
             doc.revision += 1
         doc.save()
+        from .write_journal import acknowledge
+        acknowledge(doc)
         if source_token:
             from .models import Collaboration, SourceLease
             Collaboration.objects.filter(document=doc).delete()
@@ -156,6 +159,7 @@ def redeem_invitation(token, user):
         if not creator.is_active or (not creator.is_superuser and (not creator.can_invite or any(not creator.invite_groups.filter(pk=g.pk).exists() for g in groups))):
             raise PermissionDenied
         user.full_clean(exclude=['password'])
+        user.provider_setup_required = True
         user.save()
         user.groups.set(groups)
         invitation.uses += 1

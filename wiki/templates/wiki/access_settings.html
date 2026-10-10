@@ -1,0 +1,20 @@
+{% load i18n %}
+<section id="access" class="settings-card">
+<h2>{% translate 'Access' %}</h2>
+<p>{% translate 'Read makes this item visible and allows opening and downloading it. Write also grants Read. Administrators retain access.' %}</p>
+{% if inherited_source %}<p>{% translate 'Inherited from' %}: {% firstof inherited_source.title inherited_source.name %}</p>{% endif %}
+{% if can_policy %}
+<form method="post" data-rw-policy>{% csrf_token %}<input type="hidden" name="action" value="access">
+<label class="checkbox-hit"><input type="checkbox" name="inherit_permissions" data-inherit-access {% if doc.inherit_permissions %}checked{% endif %}>{% translate 'Inherit access from parent folder (workspace defaults at root)' %}</label>
+<fieldset data-own-access><legend>{% translate 'Custom access' %}</legend>
+<label>{% translate 'Primary group' %}<select name="group">{% for group in groups %}<option value="{{ group.pk }}" {% if group.pk == doc.group_id %}selected{% endif %}>{{ group.name }}</option>{% endfor %}</select></label>
+<table class="policy-table responsive-permissions"><thead><tr><th>{% translate 'Who' %}</th><th>{% translate 'Read' %}</th><th>{% translate 'Write' %}</th></tr></thead><tbody>
+{% for scope,actions in rules %}<tr data-rw-row><th>{% translate scope|title %}</th>{% for action,enabled in actions %}<td><label class="checkbox-hit"><input type="checkbox" name="{{ scope }}.{{ action }}" data-rw="{{ action }}" aria-label="{% translate scope|title %}: {% translate action|title %}" {% if enabled %}checked{% endif %}></label></td>{% endfor %}</tr>{% endfor %}
+</tbody></table>
+<details><summary>{% translate 'Permissions for selected groups' %}</summary><p class="muted">{% translate 'Selected group rules override the defaults above. For several matching groups, permissions are combined.' %}</p>
+<table class="policy-table responsive-permissions"><thead><tr><th>{% translate 'Group' %}</th><th>{% translate 'Read' %}</th><th>{% translate 'Write' %}</th></tr></thead><tbody>
+{% for group,grant,enabled in group_rows %}<tr data-rw-row><th><label><input type="checkbox" data-group-access name="group.{{ group.pk }}.enabled" {% if enabled %}checked{% endif %}>{{ group.name }}</label></th><td><label class="checkbox-hit"><input type="checkbox" name="group.{{ group.pk }}.read" data-rw="read" aria-label="{{ group.name }}: {% translate 'Read' %}" {% if grant.read %}checked{% endif %}></label></td><td><label class="checkbox-hit"><input type="checkbox" name="group.{{ group.pk }}.write" data-rw="write" aria-label="{{ group.name }}: {% translate 'Write' %}" {% if grant.write %}checked{% endif %}></label></td></tr>{% endfor %}
+</tbody></table></details></fieldset>
+<button class="button primary">{% translate 'Save permissions' %}</button>
+</form>{% else %}<p class="muted">{% translate 'An administrator can change access to this item.' %}</p>{% endif %}
+</section>

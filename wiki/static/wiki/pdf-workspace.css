@@ -1,0 +1,28 @@
+/* Scope the viewport workspace to PDF documents; retain PDF.js native layers. */
+.pdf-workspace-page{height:100dvh;overflow:hidden}
+.pdf-workspace-page .main-shell{height:100dvh;min-height:0}
+.pdf-workspace-page .topbar{flex:none;min-height:52px;padding:4px 16px}
+.pdf-workspace-page #main-content{display:flex;flex-direction:column;flex:1;min-height:0;max-width:none;padding:0;margin:0;overflow:hidden}
+.pdf-workspace{display:flex;flex-direction:column;flex:1;min-height:0;min-width:0;position:relative}
+.pdf-workspace .pdf-controls{flex:none;gap:6px;padding:6px 12px;margin:0;border:0;border-bottom:1px solid var(--line-soft);border-radius:0;min-width:0;position:relative;background:var(--panel)}
+.pdf-workspace .pdf-controls legend,.pdf-sr-only{position:absolute;width:1px;height:1px;padding:0;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+.pdf-workspace .pdf-title{display:none}
+.pdf-workspace .pdf-controls .button{min-height:44px;min-width:44px;padding:8px 12px;font-size:14px;border-radius:8px}
+.pdf-workspace .pdf-controls label{font-size:12px;margin:0;gap:4px}
+.pdf-workspace .pdf-controls input,.pdf-workspace .pdf-controls select{min-height:44px;padding:6px 8px;margin:0;font-size:14px}
+.pdf-workspace .pdf-controls #pdf-page{width:48px;min-width:48px;flex-basis:48px}
+.pdf-zoom-controls{display:flex;align-items:center;gap:3px}
+.pdf-workspace .pdf-edit-options{padding:0;border:0;gap:8px}
+.pdf-workspace .pdf-more{margin-left:auto;position:relative}
+.pdf-workspace .more-menu-panel{z-index:30;width:min(360px,calc(100vw - 32px));max-height:calc(100dvh - 200px);overflow:auto}
+.pdf-workspace #pdf-status{position:absolute;z-index:10;bottom:8px;left:12px;font-size:12px;max-width:calc(100% - 24px);margin:0;padding:3px 8px;border-radius:6px;background:var(--panel);color:var(--muted);pointer-events:none;opacity:.94}
+.pdf-workspace #pdf-status[role=alert]{color:var(--danger)}
+.pdf-workspace-page .pdf-frame{flex:1;height:auto;min-height:0;overflow:hidden;border-radius:0}
+.pdf-workspace #pdf-container{overscroll-behavior:contain;touch-action:pan-x pan-y}
+.pdf-workspace .pdfViewer{min-width:100%;width:max-content}
+.pdf-workspace #pdf-container.pdf-pan{cursor:grab}
+.pdf-workspace #pdf-container.pdf-pan .pdfViewer{pointer-events:none;user-select:none}
+.pdf-workspace #pdf-container.pdf-panning{cursor:grabbing;touch-action:none}
+.pdf-workspace .settings-card{flex:none;margin:4px 0;padding:8px;max-height:30dvh;overflow:auto;font-size:13px}
+@media(max-width:800px){.pdf-workspace-page .workspace-search{display:none}.pdf-workspace-page .topbar{min-height:48px;padding:2px 8px}.pdf-workspace .pdf-controls{gap:4px;padding:4px}.pdf-workspace .pdf-controls label{font-size:11px}}
+.pdf-workspace-page.editor-fullscreen #main-content{padding:4px;overflow:hidden}

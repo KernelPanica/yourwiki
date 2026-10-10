@@ -5,6 +5,7 @@ from html.parser import HTMLParser
 import io
 import json
 import math
+import re
 from urllib.parse import unquote, urlparse
 import zlib
 import markdown
@@ -46,7 +47,7 @@ def graph(nodes, edges):
             value = n.get(k)
             if type(value) not in (int, float) or not math.isfinite(value) or abs(value) > 1000000 or (k in ('width','height') and value < 0):
                 raise ValueError('Invalid node geometry.')
-        result.append({**n, 'label': str(n.get('label', '')), 'color': colors.get(str(n.get('color')), '#fff'), 'inner_x': n['x']+12, 'inner_y': n['y']+12, 'inner_width': max(0,n['width']-24), 'inner_height': max(0,n['height']-24)})
+        result.append({**n, 'label': str(n.get('label', '')), 'color': colors.get(str(n.get('color')), n.get('color') if re.fullmatch(r'#[0-9a-fA-F]{6}', str(n.get('color', ''))) else '#fff'), 'inner_x': n['x']+12, 'inner_y': n['y']+12, 'inner_width': max(0,n['width']-24), 'inner_height': max(0,n['height']-24)})
     if not result:
         return {'nodes': [], 'edges': [], 'viewbox': '0 0 600 400'}
     x = min(n['x'] for n in result)-35; y = min(n['y'] for n in result)-35
@@ -62,22 +63,69 @@ def graph(nodes, edges):
     return {'nodes': result, 'edges': links, 'viewbox': f'{x} {y} {width} {height}'}
 
 
+def column_label(index):
+    label = ''
+    while index:
+        index, remainder = divmod(index - 1, 26)
+        label = chr(65 + remainder) + label
+    return label
+
+
+def sheet_previews(workbook):
+    sheets = workbook.get('sheets', {})
+    order = list(dict.fromkeys([*workbook.get('sheetOrder', []), *sheets]))
+    result = []
+    for sid in order:
+        if sid not in sheets:
+            continue
+        sheet = sheets[sid]
+        cells = sheet.get('cellData', {})
+        axes = workbook.get('_layout', {}).get(sid)
+        if axes:
+            row_ids = sorted(axes['rows'], key=lambda key: (axes['rows'][key], key))
+            col_ids = sorted(axes['cols'], key=lambda key: (axes['cols'][key], key))
+            row_count, column_count = len(row_ids), len(col_ids)
+        else:
+            row_count = max(sheet.get('rowCount', 0), max((int(r)+1 for r in cells if str(r).isdigit()), default=0), 1)
+            column_count = max(sheet.get('columnCount', 0), max((int(c)+1 for row in cells.values() for c in row if str(c).isdigit()), default=0), 1)
+            row_ids = [str(r) for r in range(min(row_count, 2000))]
+            col_ids = [str(c) for c in range(min(column_count, 200))]
+        rows = []
+        for rid in row_ids[:2000]:
+            row = cells.get(rid, {})
+            values = []
+            for cid in col_ids[:200]:
+                cell = row.get(cid, {})
+                value = cell.get('v')
+                values.append(cell.get('f', '') if value is None else value)
+            rows.append(values)
+        result.append({'name': sheet.get('name', sid), 'rows': rows,
+                       'columns': [column_label(i+1) for i in range(min(column_count, 200))],
+                       'row_count': row_count, 'column_count': column_count,
+                       'truncated': row_count > 2000 or column_count > 200})
+    return {'worksheets': result}
+
+
 def preview(kind, text):
-    from .native import unpack, rich_html, csv_export
+    from .native import unpack, rich_html
     native = unpack(text)
     if native and kind == 'document':
         return {'markdown': rich_html(native['data'])}
     if native and kind == 'table':
-        return {'rows': list(csv.reader(io.StringIO(csv_export(native['data']))))}
+        return sheet_previews(native['data'])
     if kind == 'document':
         cleaner = Cleaner()
         cleaner.feed(markdown.markdown(html.escape(text), extensions=['tables','fenced_code']))
         return {'markdown': ''.join(cleaner.parts)}
     if kind == 'table':
-        return {'rows': list(csv.reader(io.StringIO(text)))[:2000]}
+        rows = list(csv.reader(io.StringIO(text)))
+        return sheet_previews({'sheetOrder': ['sheet1'], 'sheets': {'sheet1': {
+            'name': 'Sheet 1', 'cellData': {str(r): {str(c): {'v': value} for c, value in enumerate(row)} for r, row in enumerate(rows)},
+        }}})
     if kind == 'canvas':
         data = json.loads(text)
         nodes = [{**n, 'label':n.get('text') or n.get('file') or n.get('url') or n.get('label') or 'Group'} for n in data['nodes']]
+        nodes.sort(key=lambda node: node.get('type') != 'group')
         edges = [{'from':e.get('fromNode'),'to':e.get('toNode'),'label':e.get('label','')} for e in data.get('edges',[])]
         return graph(nodes,edges)
     root = fromstring(text)
@@ -92,14 +140,53 @@ def preview(kind, text):
             raise ValueError('The decompressed diagram is too large.')
         model = fromstring(unquote(raw.decode()))
     nodes,edges=[],[]
+    # Draw.io stores grouped geometry relative to its parent, and custom
+    # properties wrap mxCell in an object carrying the ID and label.
+    parents = {child: parent for parent in model.iter() for child in parent}
+    cells = {}
     for cell in model.iter('mxCell'):
+        wrapper = parents.get(cell)
+        wrapped = wrapper is not None and wrapper.tag != 'root'
+        cid = cell.get('id') or (wrapper.get('id') if wrapped else None)
+        label = wrapper.get('label', cell.get('value', '')) if wrapped else cell.get('value', '')
+        if cid:
+            cells[cid] = (cell, label)
+    geometry = {}
+    def position(cid, visiting=None):
+        if cid in geometry: return geometry[cid]
+        visiting = set() if visiting is None else visiting
+        if cid in visiting: raise ValueError('Invalid diagram parent cycle.')
+        visiting.add(cid)
+        cell = cells[cid][0]
+        geo = cell.find('mxGeometry')
+        values = {k:float(geo.get(k, '160' if k=='width' else '70' if k=='height' else '0')) for k in ('x','y','width','height')}
+        parent = cell.get('parent')
+        if parent in cells and cells[parent][0].get('vertex') == '1' and cells[parent][0].find('mxGeometry') is not None:
+            base = position(parent, visiting)
+            if geo.get('relative') == '1':
+                values['x'] *= base['width']; values['y'] *= base['height']
+            values['x'] += base['x']; values['y'] += base['y']
+        offset = geo.find("mxPoint[@as='offset']")
+        if offset is not None:
+            values['x'] += float(offset.get('x', '0')); values['y'] += float(offset.get('y', '0'))
+        visiting.remove(cid)
+        geometry[cid] = values
+        return values
+    for cid,(cell,value) in cells.items():
+        label = PlainText(); label.feed(value)
         if cell.get('vertex') == '1':
-            geo = cell.find('mxGeometry')
-            if geo is None: continue
-            label = PlainText(); label.feed(cell.get('value',''))
-            nodes.append({'id':cell.get('id'), 'label':''.join(label.text), **{k:float(geo.get(k, '160' if k=='width' else '70' if k=='height' else '0')) for k in ('x','y','width','height')}})
+            if cell.find('mxGeometry') is None: continue
+            style = dict(part.split('=', 1) for part in cell.get('style', '').split(';') if '=' in part)
+            nodes.append({'id':cid, 'label':''.join(label.text), 'color':style.get('fillColor'), **position(cid)})
         elif cell.get('edge') == '1':
-            edges.append({'from':cell.get('source'),'to':cell.get('target'),'label':cell.get('value','')})
+            edges.append({'from':cell.get('source'),'to':cell.get('target'),'label':''.join(label.text)})
+    # Draw parents first, otherwise a group rectangle hides its children.
+    def depth(cid):
+        result, seen = 0, set()
+        while cid in cells and cid not in seen:
+            seen.add(cid); cid = cells[cid][0].get('parent'); result += 1
+        return result
+    nodes.sort(key=lambda node: depth(node['id']))
     return graph(nodes,edges)
 
 

@@ -27,12 +27,12 @@ def test_russian_workspace_and_english_fallback(client, workspace, document):
         '/': 'Все документы', '/folders/': 'Файлы',
         '/account/': 'Ваш аккаунт', '/documents/new/': 'Создать и открыть редактор',
         '/files/upload/': 'Загрузить файл', '/documents/import/': 'Импорт документа',
-        '/folders/new/': 'Создать каталог', '/members/': 'Участники и группы',
+        '/folders/new/': 'Создать каталог', '/members/': 'Участники',
         '/groups/': 'Создать группу', '/invitations/': 'Создать приглашение',
         '/permissions/': 'Права доступа', '/settings/': 'Настройки сайта',
         '/mounts/': 'Точки подключения',
         f'/documents/{document.pk}/live/': 'Сохранить сейчас',
-        f'/documents/{document.pk}/': 'К документам',
+        f'/documents/{document.pk}/': 'Экспорт',
         f'/documents/{document.pk}/delete/': 'Удалить «A useful document»?',
     }
     for url, translated in pages.items():
@@ -69,12 +69,12 @@ def test_spanish_workspace_and_editor_catalog(client, workspace, document):
         '/': 'Buscar documentos', '/folders/': 'Archivos',
         '/account/': 'Tu cuenta', '/documents/new/': 'Crear y abrir editor',
         '/files/upload/': 'Subir archivo', '/documents/import/': 'Importar un documento',
-        '/folders/new/': 'Crear directorio', '/members/': 'Personas y grupos',
+        '/folders/new/': 'Crear directorio', '/members/': 'Miembros',
         '/groups/': 'Crear grupo', '/invitations/': 'Crear invitación',
         '/permissions/': 'Permisos', '/settings/': 'Administración del sitio',
         '/mounts/': 'Puntos de montaje', '/settings/ai/': 'Ajustes de IA',
         f'/documents/{document.pk}/live/': 'Guardar ahora',
-        f'/documents/{document.pk}/': 'Volver a los documentos',
+        f'/documents/{document.pk}/': 'Exportar',
         f'/documents/{document.pk}/delete/': '¿Eliminar A useful document?',
     }
     for url, translated in pages.items():
@@ -128,7 +128,11 @@ def test_graph_preview_uses_unlocalized_geometry(client, workspace, language, ki
     client.cookies['django_language'] = language
     response = client.get(f'/documents/{doc.pk}/')
     assert response.status_code == 200
-    svg = ElementTree.fromstring(re.search(r'<svg class="graph".*?</svg>', response.content.decode()).group())
+    if kind == 'drawio':
+        source=json.loads(re.search(r'<script id="drawio-source"[^>]*>(.*?)</script>',response.content.decode(),re.S).group(1))
+        assert source == content
+        return
+    svg = ElementTree.fromstring(re.search(r'<svg class="graph".*?</svg>', response.content.decode(), re.S).group())
     card = svg.find('rect')
     assert card.attrib['x'] == '-12.5'
     assert card.attrib['y'] == '24.75'

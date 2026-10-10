@@ -32,7 +32,7 @@ def test_administration_persists_and_applies_settings(client,workspace):
 
 
 def test_nested_directory_navigation_hides_private_names(client,workspace):
-    parent=Folder.objects.create(name='Engineering',owner=workspace['admin'],group=workspace['team'])
+    parent=Folder.objects.create(inherit_permissions=False, name='Engineering',owner=workspace['admin'],group=workspace['team'])
     child=Folder.objects.create(name='Architecture',parent=parent,owner=workspace['admin'],group=workspace['team'])
     client.force_login(workspace['member'])
     response=client.get('/')
@@ -46,7 +46,7 @@ def test_nested_directory_navigation_hides_private_names(client,workspace):
 
 
 def test_explorer_files_and_menu_respect_permissions(client, workspace, document):
-    directory = Folder.objects.create(name='Project files', owner=workspace['admin'], group=workspace['team'])
+    directory = Folder.objects.create(inherit_permissions=False, name='Project files', owner=workspace['admin'], group=workspace['team'])
     document.folder = directory
     document.save(update_fields=['folder'])
     client.force_login(workspace['member'])
@@ -54,9 +54,9 @@ def test_explorer_files_and_menu_respect_permissions(client, workspace, document
     sidebar = page.split('<aside')[1].split('</aside>')[0]
     assert 'explorer-children' in sidebar and document.title in sidebar
     assert document.title in page and 'Project files' in sidebar
-    assert 'Recent' not in sidebar
-    menu = page.split('<details class="workspace-menu">')[1]
-    assert 'Recent' in menu and 'Permissions' not in menu
+    assert 'Recent' in sidebar and 'Starred' in sidebar
+    menu = page.split('<details class="workspace-menu"')[1]
+    assert 'Account' in menu and 'Permissions' not in menu
     assert 'Shared with me' not in menu
     assert client.get('/permissions/').status_code == 500
     assert b'<h1>All documents</h1>' in client.get('/?section=Shared').content

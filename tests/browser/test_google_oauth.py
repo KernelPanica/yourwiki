@@ -20,7 +20,7 @@ def test_google_return_with_strict_session_cookie(realtime_server, workspace):
     token = Mock(status_code=200)
     token.json.return_value = {'refresh_token': 'received-refresh-token'}
     with sync_playwright() as p, patch('install.requests.post', return_value=token) as exchange, patch('wiki.mounts.SafeAdapter'):
-        browser = p.chromium.launch()
+        browser = p.chromium.launch(executable_path=os.environ.get('PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH'))
         page = browser.new_page()
         def google_consent(route):
             query = parse_qs(urlsplit(route.request.url).query)

@@ -19,7 +19,7 @@ def login(page,url,user='admin'):
 def test_rich_collaboration(realtime_server,workspace,document):
     document.policy['group']['write']=True;document.save()
     with sync_playwright() as p:
-        browser=p.chromium.launch();a=browser.new_page();b=browser.new_page();errors=[]
+        browser=p.chromium.launch(executable_path=os.environ.get('PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH'));a=browser.new_page();b=browser.new_page();errors=[]
         a.on('pageerror',lambda e:errors.append(str(e)));b.on('pageerror',lambda e:errors.append(str(e)))
         login(a,realtime_server);login(b,realtime_server,'member')
         url=realtime_server+f'/documents/{document.pk}/live/'
@@ -31,6 +31,8 @@ def test_rich_collaboration(realtime_server,workspace,document):
         b.locator('.tiptap').click();b.keyboard.press('Control+End');b.keyboard.type(' Live Bob')
         expect(a.locator('.tiptap')).to_contain_text('Live Bob',timeout=15000)
         a.reload();expect(a.locator('.tiptap')).to_contain_text('Live Bob')
+        a.get_by_role('button',name='Comments and suggestions',exact=True).click()
+        b.get_by_role('button',name='Comments and suggestions',exact=True).click()
         a.get_by_label('Comment or suggested replacement').fill('Review this paragraph')
         a.get_by_role('button',name='Comment',exact=True).click()
         expect(b.locator('#review-list')).to_contain_text('Review this paragraph',timeout=15000)
@@ -41,7 +43,7 @@ def test_rich_collaboration(realtime_server,workspace,document):
         a.get_by_role('button',name='accept',exact=True).click()
         expect(b.locator('.tiptap')).to_contain_text('Reviewed content',timeout=15000)
         expect(b.locator('#review-list')).to_contain_text('accepted',timeout=15000)
-        a.evaluate('window.scrollTo(0,0)');a.locator('.live-heading h1').click()
+        a.evaluate('window.scrollTo(0,0)');a.locator('.live-status').click()
         a.screenshot(path='test-results/rich-editor.png',full_page=True)
         assert not errors,errors
         browser.close()
@@ -55,7 +57,7 @@ def test_visual_editor_loads(realtime_server,workspace,kind):
         'drawio':'<mxfile><diagram id="p1" name="Page 1"><mxGraphModel><root><mxCell id="0"/><mxCell id="1" parent="0"/><mxCell id="a" vertex="1" parent="1" value="Architecture"><mxGeometry x="10" y="10" width="200" height="100" as="geometry"/></mxCell></root></mxGraphModel></diagram></mxfile>'}
     doc=save_document(workspace['admin'],kind,kind,'Tests',samples[kind],workspace['team'])
     with sync_playwright() as p:
-        browser=p.chromium.launch();page=browser.new_page(viewport={'width':1600,'height':1100});errors=[]
+        browser=p.chromium.launch(executable_path=os.environ.get('PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH'));page=browser.new_page(viewport={'width':1600,'height':1100});errors=[]
         page.on('pageerror',lambda e:errors.append(str(e)))
         login(page,realtime_server);page.goto(realtime_server+f'/documents/{doc.pk}/live/')
         if kind=='canvas':
@@ -64,7 +66,7 @@ def test_visual_editor_loads(realtime_server,workspace,kind):
             page.get_by_label('Text',exact=True).fill('New card')
             page.get_by_role('button',name='Apply',exact=True).click()
             expect(page.locator('.canvas-node')).to_have_count(2)
-            expect(page.locator('#sync-status')).to_contain_text('Synced',timeout=15000)
+            expect(page.locator('#sync-status')).to_have_text(__import__('re').compile('^(Saved|Synced) to storage$'),timeout=15000)
             page.reload();expect(page.locator('.canvas-node')).to_have_count(2)
         elif kind=='table':
             expect(page.locator('.sheet-host canvas').first).to_be_visible(timeout=30000)
@@ -106,7 +108,7 @@ def test_localized_canvas_preview(realtime_server, workspace, language, add_text
     ], 'edges': [{'id': 'e', 'fromNode': 'a', 'toNode': 'b', 'label': 'Connection'}]})
     doc = save_document(workspace['admin'], 'Localized canvas', 'canvas', 'Tests', content, workspace['team'])
     with sync_playwright() as p:
-        browser = p.chromium.launch()
+        browser = p.chromium.launch(executable_path=os.environ.get('PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH'))
         page = browser.new_page()
         login(page, realtime_server)
         page.context.add_cookies([{'name': 'django_language', 'value': language, 'url': realtime_server}])
@@ -133,7 +135,7 @@ def test_image_view_and_delete(realtime_server, workspace):
     Image.new('RGB', (800, 400), 'blue').save(stream, format='PNG')
     doc = save_document(workspace['admin'], 'picture.png', 'file', 'Images', stream.getvalue(), workspace['team'])
     with sync_playwright() as p:
-        browser = p.chromium.launch()
+        browser = p.chromium.launch(executable_path=os.environ.get('PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH'))
         page = browser.new_page(viewport={'width': 390, 'height': 844})
         login(page, realtime_server)
         page.context.add_cookies([{'name': 'django_language', 'value': 'ru', 'url': realtime_server}])
@@ -144,6 +146,7 @@ def test_image_view_and_delete(realtime_server, workspace):
         assert picture.bounding_box()['width'] <= 390
         for route in ('/', '/?view=grid', '/folders/'):
             page.goto(realtime_server + route)
+            page.locator('main .row-menu summary').click()
             button = page.locator(f'a[href="/documents/{doc.pk}/delete/"]')
             expect(button).to_be_visible()
             box = button.bounding_box()
@@ -154,3 +157,25 @@ def test_image_view_and_delete(realtime_server, workspace):
         expect(page).to_have_url(realtime_server + '/')
         browser.close()
     assert not Document.objects.filter(pk=doc.pk).exists()
+
+
+@pytest.mark.parametrize('undo', ['toolbar','keyboard'])
+def test_sheet_row_delete_undo_preserves_identity(realtime_server,workspace,undo):
+    from wiki.services import save_document
+    doc=save_document(workspace['admin'],'Undo rows','table','Tests','A\nB',workspace['team'])
+    with sync_playwright() as p:
+        browser=p.chromium.launch(executable_path=os.environ.get('PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH'))
+        page=browser.new_page(viewport={'width':1600,'height':1100})
+        login(page,realtime_server);page.goto(realtime_server+f'/documents/{doc.pk}/live/')
+        canvas=page.locator('.sheet-host canvas[id^="univer-sheet-main-canvas"]')
+        expect(canvas).to_be_visible(timeout=30000)
+        canvas.click(position={'x':15,'y':65},button='right')
+        page.get_by_text('Delete Selected Row',exact=True).click()
+        page.wait_for_function("async id=>{const d=JSON.parse((await (await fetch('/api/docs/'+id)).json()).content);return Object.values(d.data.sheets)[0].rowCount===199;}",arg=str(doc.pk),timeout=15000)
+        if undo == 'toolbar':
+            page.locator('#editor-toolbar').get_by_role('button',name='Undo',exact=True).click()
+        else:
+            canvas.click(position={'x':90,'y':40})
+            page.keyboard.press('Control+z')
+        page.wait_for_function("async id=>{const d=JSON.parse((await (await fetch('/api/docs/'+id)).json()).content);const rows=Object.values(d.data._axes||{})[0]?.rows;return rows?.length===200&&rows.every((key,i)=>key==='r'+i);}",arg=str(doc.pk),timeout=15000)
+        browser.close()

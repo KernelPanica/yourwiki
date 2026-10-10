@@ -4,7 +4,7 @@ from django.utils.translation import gettext
 def workspace(request):
     if not getattr(request, 'user', None) or not request.user.is_authenticated:
         return {}
-    visible = [d for d in Document.objects.select_related('group', 'owner') if d.allows(request.user, 'visible')]
+    visible = [d for d in Document.objects.select_related('group', 'owner') if d.allows(request.user, 'read')]
     from .folders import accessible, directory_path, storage_path
     nodes = {f.pk: {'folder':f,'children':[], 'documents':[]} for f in accessible(request.user)}
     for node in nodes.values():

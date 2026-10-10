@@ -7,7 +7,7 @@ pytestmark=pytest.mark.django_db
 
 
 def folder(workspace,name='Folder',parent=None):
-    return Folder.objects.create(name=name,parent=parent,owner=workspace['admin'],group=workspace['team'])
+    return Folder.objects.create(name=name,parent=parent,inherit_permissions=bool(parent),owner=workspace['admin'],group=workspace['team'])
 
 
 def test_inheritance_and_private_ancestor_override(workspace,document):
@@ -84,7 +84,7 @@ def test_path_creation_empty_files_and_uploads(client, workspace):
     assert 'attachment;' in response['Content-Disposition']
     assert client.get(f'/api/docs/{doc.pk}').json()['download_url']
     client.force_login(workspace['outsider'])
-    assert client.get(f'/documents/{doc.pk}/export/').status_code == 500
+    assert client.get(f'/documents/{doc.pk}/export/').status_code == 404
     assert client.post('/files/upload/', {'path':'/Projects/Notes', 'file':SimpleUploadedFile('secret.txt', b'')}).status_code == 400
 
 
@@ -98,7 +98,7 @@ def test_drag_move_endpoint_checks_cycles_and_permissions(client, workspace, doc
     assert document.folder == child
     assert client.post(f'/move/folder/{root.pk}/', {'destination':child.pk}, HTTP_ACCEPT='application/json').status_code == 400
     client.force_login(workspace['member'])
-    assert client.post(f'/move/document/{document.pk}/', {'destination':''}, HTTP_ACCEPT='application/json').status_code == 500
+    assert client.post(f'/move/document/{document.pk}/', {'destination':''}, HTTP_ACCEPT='application/json').status_code == 403
 
 
 def test_provider_tree_tracks_nested_files_moves_and_legacy_revisions(client, workspace, document):

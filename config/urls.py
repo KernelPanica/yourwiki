@@ -6,14 +6,24 @@ from wiki import editor_views
 from wiki import administration
 from wiki import mounts
 from wiki import ai
+from wiki import identities
 urlpatterns = [
+    path('account/setup/', identities.setup, name='provider-setup'),
+    path('account/providers/', identities.accounts, name='provider-accounts'),
+    path('account/providers/retry/', identities.retry, name='provider-retry'),
+    path('account/providers/<str:provider>/connect/', identities.connect, name='identity-connect'),
+    path('account/providers/<str:provider>/callback/', identities.callback, name='identity-callback'),
+    path('account/providers/<str:provider>/unlink/', identities.unlink, name='identity-unlink'),
     path('folders/<uuid:id>/file-settings/', folders.folder_settings, name='folder_settings'),
     path('settings/ai/', ai.settings, name='ai-settings'),
     path('documents/<uuid:id>/summary/', ai.summary, name='summary'),
     path('jsi18n/', JavaScriptCatalog.as_view(domain='django'), name='javascript-catalog'),
     path('i18n/setlang/', views.set_language, name='set_language'),
     path('documents/<uuid:id>/live/', editor_views.live, name='live'),
+    path('api/docs/<uuid:id>/recover', editor_views.recover),
+    path('api/docs/<uuid:id>/flush', editor_views.flush),
     path('api/docs/<uuid:id>/status', editor_views.status),
+    path('api/docs/<uuid:id>/storage-status', editor_views.storage_status),
     path('api/docs/<uuid:id>/metadata', editor_views.metadata),
     path('api/docs/<uuid:id>/reviews', editor_views.reviews),
     path('api/docs/<uuid:id>/reviews/<int:review_id>', editor_views.resolve_review),
@@ -48,12 +58,15 @@ urlpatterns = [
     path('invite/<str:token>/', views.redeem, name='redeem'),
     path('members/', views.members, name='members'),
     path('groups/', views.groups, name='groups'),
+    path('groups/<int:id>/', views.group_detail, name='group'),
     path('members/<int:id>/', views.member, name='member'),
     path('storage/', mounts.mountpoints, name='storage'),
     path('mounts/google/callback/', mounts.google_callback, name='google-mount-callback'),
     path('mounts/', mounts.mountpoints, name='mountpoints'),
     path('settings/', administration.site_admin, name='settings'),
     path('account/', views.account, name='account'),
+    path('api/folders/<uuid:id>', folders.api_folder),
+    path('api/docs/<uuid:id>/file', views.api_file_content),
     path('api/docs', views.api_documents),
     path('api/docs/<uuid:id>', views.api_document),
 ]

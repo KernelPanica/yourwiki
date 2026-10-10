@@ -16,14 +16,14 @@ from .views import guarded
 
 def accessible(user, action='read'):
     return [f for f in Folder.objects.select_related('parent', 'group', 'owner')
-            if f.allows(user, 'visible') and f.allows(user, action)]
+            if f.allows(user, 'read') and f.allows(user, action)]
 
 
 def breadcrumbs(folder, user):
     result, seen = [], set()
     while folder and folder.pk not in seen:
         seen.add(folder.pk)
-        if not folder.allows(user, 'visible') or not folder.allows(user, 'read'):
+        if not folder.allows(user, 'read'):
             break
         result.insert(0, folder)
         folder = folder.parent
@@ -41,7 +41,7 @@ def target_folder(user, value, action='write'):
 def directory_path(folder, user):
     parts, seen = [], set()
     while folder:
-        if folder.pk in seen or not folder.allows(user, 'visible') or not folder.allows(user, 'read'):
+        if folder.pk in seen or not folder.allows(user, 'read'):
             return None
         seen.add(folder.pk)
         parts.insert(0, folder.name)
@@ -76,7 +76,7 @@ def resolve_path(user, value):
         if not part or part in ('.', '..'):
             raise ValidationError('Use directory names without . or .. segments.')
         matches = [f for f in Folder.objects.filter(parent=parent, name=part)
-                   if f.allows(user, 'visible') and f.allows(user, 'read')]
+                   if f.allows(user, 'read')]
         if len(matches) != 1:
             raise ValidationError('Path unavailable or ambiguous. Choose an existing accessible directory.')
         parent = matches[0]
@@ -99,7 +99,7 @@ def create_directory(request):
             elif Folder.objects.filter(parent=parent, name__iexact=form.cleaned_data['name']).exists():
                 form.add_error('name', 'This name is unavailable in that directory.')
             else:
-                group = form.cleaned_data.get('group') or request.user.groups.first() or (Group.objects.first() if request.user.is_superuser else None)
+                group = parent.group if parent else request.user.groups.first() or (Group.objects.first() if request.user.is_superuser else None)
                 if not group:
                     raise PermissionDenied
                 folder = Folder.objects.create(name=form.cleaned_data['name'], parent=parent,
@@ -227,7 +227,7 @@ def folder_page(request, id=None):
                 validate_directory_name(name)
                 if Folder.objects.filter(parent=folder, name__iexact=name).exists():
                     raise ValidationError('This name is unavailable in that directory.')
-                group = request.user.groups.first() or (Group.objects.first() if request.user.is_superuser else None)
+                group = folder.group if folder else request.user.groups.first() or (Group.objects.first() if request.user.is_superuser else None)
                 if not group:
                     raise PermissionDenied
                 child = Folder.objects.create(name=name, parent=folder, owner=request.user, group=group)
@@ -253,7 +253,7 @@ def folder_page(request, id=None):
     children = [f for f in accessible(request.user) if f.parent_id == (folder.pk if folder else None)]
     from .models import MountPoint
     mounts = list(MountPoint.objects.all())
-    docs = [d for d in Document.objects.filter(folder=folder) if d.allows(request.user, 'visible')]
+    docs = [d for d in Document.objects.filter(folder=folder) if d.allows(request.user, 'read')]
     for child in children:
         child_path = '/' + storage_path(child)
         child.is_mount = any(m.path == child_path for m in mounts)
@@ -300,40 +300,65 @@ def move(request, kind, id):
 @guarded
 @require_http_methods(['GET', 'POST'])
 def folder_policy(request, id):
-    from .services import group_policies_from_post
-    if not request.user.is_superuser: raise PermissionDenied
-    folder = target_folder(request.user, id, 'visible')
-    groups = Group.objects.all() if request.user.is_superuser else request.user.groups.all()
-    if request.method == 'POST':
-        folder.inherit_permissions = request.POST.get('inherit_permissions') == 'on'
-        folder.policy = {s: {a: request.POST.get(s+'.'+a) == 'on' for a in ('visible','read','write')} for s in ('owner','group','everyone')}
-        folder.group_policies = group_policies_from_post(request.POST, groups)
-        primary = groups.filter(pk=request.POST.get('group')).first() or folder.group
-        folder.group = primary
-        folder.save(update_fields=['group', 'inherit_permissions', 'policy', 'group_policies'])
-        return redirect('folder', id=folder.pk)
-    group_rows = [(group, folder.group_policies.get(str(group.pk), {}), str(group.pk) in folder.group_policies) for group in groups]
-    return render(request, 'wiki/policy.html', {'doc': folder, 'groups': groups, 'group_rows':group_rows,
-        'rules': [(s, list(rule.items())) for s, rule in folder.policy.items()]})
+    target_folder(request.user,id,'read')
+    return redirect(reverse('folder_settings',args=[id])+'#access')
 
 
 @guarded
-@require_http_methods(['GET'])
+@require_http_methods(['GET', 'POST'])
 def api_folders(request):
+    if request.method == 'POST':
+        data=json.loads(request.body)
+        if not isinstance(data,dict): raise ValidationError('Use a JSON object.')
+        if {'policy','group_policies','inherit_permissions'} & data.keys():
+            raise ValidationError('New folders inherit access. Use folder settings to change permissions.')
+        with transaction.atomic():
+            parent=target_folder(request.user,data.get('parent')) if data.get('parent') else resolve_path(request.user,data.get('path','/'))
+            name=validate_directory_name(data.get('name','').strip())
+            if path_depth(parent)>=32: raise ValidationError('Directories support at most 32 nested levels.')
+            if Folder.objects.filter(parent=parent,name__iexact=name).exists(): raise ValidationError('This name is unavailable in that directory.')
+            group=parent.group if parent else request.user.groups.first() or (Group.objects.first() if request.user.is_superuser else None)
+            if not group: raise PermissionDenied
+            item=Folder.objects.create(name=name,parent=parent,owner=request.user,group=group)
+            active_storage().ensure_dir(storage_path(item))
+        return JsonResponse({'id':str(item.pk),'name':item.name,'inherit_permissions':True},status=201)
     allowed = accessible(request.user)
     ids = {f.pk for f in allowed}
     return JsonResponse([{'id': str(f.pk), 'name': f.name, 'parent': str(f.parent_id) if f.parent_id in ids else None,
-        'access': {a: f.allows(request.user, a) for a in ('visible','read','write')}} for f in allowed], safe=False)
+        'access': {a: f.allows(request.user, a) for a in ('read','write')}} for f in allowed], safe=False)
 
 
 @guarded
 @require_http_methods(['GET', 'POST'])
 def folder_settings(request, id):
-    from .forms import HistoryForm
     folder = target_folder(request.user, id, 'write')
-    form = HistoryForm(request.POST or None, initial={'revision_history': '' if folder.revision_history is None else 'on' if folder.revision_history else 'off'})
-    if request.method == 'POST' and form.is_valid():
-        folder.revision_history = form.cleaned_data['revision_history']
-        folder.save(update_fields=['revision_history'])
-        return redirect('folder', id=folder.pk)
-    return render(request, 'wiki/file_settings.html', {'doc': folder, 'form': form, 'is_folder': True})
+    from .acl import settings_context, save_settings_access
+    if request.method == 'POST' and request.POST.get('action') == 'access':
+        with transaction.atomic():
+            folder = target_folder(request.user,id,'write')
+            save_settings_access(folder,request.POST,request.user)
+        return redirect(reverse('folder_settings',args=[id])+'#access')
+    if request.method == 'POST':
+        raise ValidationError('Version history is controlled globally in site settings.')
+    return render(request, 'wiki/file_settings.html', {'doc': folder, 'history_enabled': folder.history_enabled(), 'is_folder': True, **settings_context(folder,request.user)})
+
+
+@guarded
+@require_http_methods(['GET','PUT'])
+def api_folder(request,id):
+    from .acl import apply_api_access, normalize_policy
+    folder=target_folder(request.user,id,'read' if request.method=='GET' else 'write')
+    if request.method=='PUT':
+        data=json.loads(request.body)
+        if not isinstance(data,dict): raise ValidationError('Use a JSON object.')
+        if not data or set(data)-{'policy','group','group_policies','inherit_permissions'}:
+            raise ValidationError('Use read/write access settings.')
+        with transaction.atomic():
+            folder=target_folder(request.user,id,'write')
+            fields=apply_api_access(folder,data,request.user)
+            folder.save(update_fields=fields)
+    parent=folder.parent if folder.parent and folder.parent.allows(request.user,'read') else None
+    return JsonResponse({'id':str(folder.pk),'name':folder.name,'parent':str(parent.pk) if parent else None,
+        'policy':normalize_policy(folder.policy),'group_policies':folder.group_policies,
+        'effective_policy':folder.effective_policy()[0],'inherit_permissions':folder.inherit_permissions,
+        'access':{action:folder.allows(request.user,action) for action in ('read','write')}})

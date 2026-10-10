@@ -26,7 +26,7 @@ def test_image_preview_and_download(client, workspace, image_format, mime):
     assert response.content == content
     assert client.get(url + 'export/')['Content-Disposition'].startswith('attachment;')
     client.force_login(workspace['outsider'])
-    assert client.get(url + 'export/?inline=1').status_code == 500
+    assert client.get(url + 'export/?inline=1').status_code == 404
 
 
 @pytest.mark.parametrize('content', [b'<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>', b'<html>not an image</html>', b'\x89PNG\r\n\x1a\ntruncated'])
@@ -52,7 +52,7 @@ def test_delete_buttons_and_server_permissions(client, workspace, document):
     delete_url = url + 'delete/'
     for page in ('/', '/?view=grid', '/folders/', url):
         assert f'href="{delete_url}"' not in client.get(page).content.decode()
-    assert client.post(delete_url).status_code == 500
+    assert client.post(delete_url).status_code == 403
     assert Document.objects.filter(pk=document.pk).exists()
     document.policy['group']['write'] = True
     document.save()

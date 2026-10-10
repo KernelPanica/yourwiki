@@ -42,7 +42,7 @@ class Command(BaseCommand):
                 folder_key = str(PurePosixPath(*folder_path))
                 if folder_key not in folders:
                     folder = folders[folder_key] = Folder.objects.get_or_create(
-                        parent=folder, name=part, defaults={'owner': owner, 'group': group})[0]
+                        parent=folder, name=part, defaults={'owner': owner, 'group': folder.group if folder else group})[0]
                 else:
                     folder = folders[folder_key]
             if Document.objects.filter(reference=reference).exists() or Attachment.objects.filter(reference=reference).exists() or PendingDeletion.objects.filter(reference=reference).exists():
@@ -74,8 +74,8 @@ class Command(BaseCommand):
                 continue
             with transaction.atomic():
                 Document.objects.create(title=title[:200], kind=kind, collection='Imported', owner=owner,
-                                        group=group, folder=folder, reference=reference, file_format=file_format, storage_digest=adapter.fingerprint(reference, content),
+                                        group=folder.group if folder else group, folder=folder, reference=reference, file_format=file_format, storage_digest=adapter.fingerprint(reference, content),
                                         policy=SiteConfiguration.current().default_document_policy,
-                                        inherit_permissions=bool(folder), path_synced=True)
+                                        inherit_permissions=True, path_synced=True)
             created += 1
         self.stdout.write(f'Storage scan adopted {created} file(s).')
