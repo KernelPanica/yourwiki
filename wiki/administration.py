@@ -20,10 +20,15 @@ class SiteForm(forms.ModelForm):
             'image_limit_megapixels':'Maximum image size (megapixels)','sync_interval_seconds':'Storage synchronization interval (seconds)',
             }
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        for name in ('document_limit_mb', 'image_limit_mb'):
+            self.fields[name].help_text = 'МиБ. 0 — без ограничения размера.'
+
     def clean(self):
         data=super().clean()
         limits={'session_hours':(1,720),'invite_days':(0,3650),'invite_uses':(0,100000),'login_attempts':(1,100),
-            'login_window_minutes':(1,1440),'document_limit_mb':(1,5),'image_limit_mb':(1,5),'image_limit_megapixels':(1,16),'sync_interval_seconds':(1,60)}
+            'login_window_minutes':(1,1440),'image_limit_megapixels':(1,16),'sync_interval_seconds':(1,60)}
         for key,(minimum,maximum) in limits.items():
             if key in data and not minimum<=data[key]<=maximum:
                 self.add_error(key,f'Use a value between {minimum} and {maximum}.')

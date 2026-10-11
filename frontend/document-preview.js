@@ -1,9 +1,11 @@
+import {loadDocumentFonts} from './google-fonts.js';
 import {paginate,PAGE_HEIGHT,PAGE_MARGIN,PAGE_GAP} from './page-layout.js';
 import './document-pages.css';
 
 // Read-only page furniture never enters the saved document or its export.
 const paper=document.querySelector('.paged-document');
 if(paper){
+  loadDocumentFonts(paper,cause=>window.yourwikiUI?.notify?.(cause.message));
   // Native rich_html renders its root document as a neutral div.
   if(paper.children.length===1&&paper.firstElementChild.tagName==='DIV'){
     const root=paper.firstElementChild;root.replaceWith(...root.childNodes);

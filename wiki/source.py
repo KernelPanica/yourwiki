@@ -12,6 +12,8 @@ def valid(document, user, token):
 
 
 def acquire(document, user, token=None):
+    from .collabora import check_available
+    check_available(document)
     from .realtime import connections
     with transaction.atomic():
         if valid(document,user,token):
@@ -29,5 +31,7 @@ def release(document,user,token):
 
 
 def check_available(document):
+    from .collabora import check_available as check_office
+    check_office(document)
     if SourceLease.objects.filter(document=document,expires_at__gt=timezone.now()).exists():
         raise Conflict('An exclusive source editing session is active (up to 15 minutes). Save or cancel it before opening the visual editor.')

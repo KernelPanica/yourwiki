@@ -32,8 +32,10 @@ def valid_container(reader):
 
 def checked_archive(data):
     archive = zipfile.ZipFile(io.BytesIO(data))
+    from .storage import auxiliary_limit_bytes
+    cap = auxiliary_limit_bytes()
     entries = archive.infolist()
-    if len(entries) > 1000 or sum(i.file_size for i in entries) > 50 * 1024 * 1024 or len({i.filename for i in entries}) != len(entries):
+    if len(entries) > 1000 or (cap is not None and sum(i.file_size for i in entries) > cap) or len({i.filename for i in entries}) != len(entries):
         archive.close()
         raise ValidationError('The document archive exceeds supported limits.')
     return archive
@@ -382,17 +384,21 @@ def read_docx(data):
 
 def write_docx(content):
     from .docx import to_docx
+    from lxml import etree
     original = to_docx(content)
     with zipfile.ZipFile(io.BytesIO(original)) as source:
         visible = source.read('word/document.xml')
         node = Element('yourwiki'); node.text = metadata(content, visible)
-        rels = fromstring(source.read('word/_rels/document.xml.rels'))
-        SubElement(rels, '{http://schemas.openxmlformats.org/package/2006/relationships}Relationship', {
+        # Preserve the OPC default namespace. ElementTree's ns0 rewrite makes
+        # otherwise valid DOCX containers fail to load in LibreOffice/Collabora.
+        rels = etree.fromstring(source.read('word/_rels/document.xml.rels'),
+                                etree.XMLParser(resolve_entities=False, no_network=True))
+        etree.SubElement(rels, '{http://schemas.openxmlformats.org/package/2006/relationships}Relationship', {
             'Id': 'rIdYourwiki', 'Type': 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/customXml', 'Target': '../customXml/yourwiki.xml'})
         output = io.BytesIO()
         with zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED) as target:
             for entry in source.infolist():
-                target.writestr(entry, tostring(rels, encoding='utf-8', xml_declaration=True) if entry.filename == 'word/_rels/document.xml.rels' else source.read(entry.filename))
+                target.writestr(entry, etree.tostring(rels, encoding='utf-8', xml_declaration=True) if entry.filename == 'word/_rels/document.xml.rels' else source.read(entry.filename))
             target.writestr('customXml/yourwiki.xml', tostring(node, encoding='utf-8', xml_declaration=True))
     return output.getvalue()
 
@@ -400,6 +406,9 @@ def write_docx(content):
 def encode(document, content, *, strict_styles=False):
     if isinstance(content, bytes):
         return content
+    if document.file_format == 'pptx':
+        from .office_formats import presentation
+        return presentation(document.title, content)
     if document.file_format == 'ods':
         return write_ods(content, document.title, strict_styles=strict_styles)
     if document.file_format == 'docx':
@@ -414,6 +423,9 @@ def encode(document, content, *, strict_styles=False):
 
 
 def decode(document, data):
+    if document.file_format == 'pptx':
+        from pptx import Presentation
+        return '\n'.join(shape.text for slide in Presentation(io.BytesIO(data)).slides for shape in slide.shapes if shape.has_text_frame)
     if document.file_format == 'ods': return read_ods(data)
     if document.file_format == 'docx': return read_docx(data)
     return read_markdown(data) if document.file_format == 'md' else data.decode('utf-8')

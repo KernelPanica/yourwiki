@@ -275,3 +275,5 @@ def test_nested_unsupported_color_changes_are_not_silently_ignored():
     after = ods({'0':{'0':{'s':{'cl':{'rgb':'#ff0000','th':2}}}}})
     with pytest.raises(StorageError,match='format'):
         requests_for(before,after,{'Budget':42})
+
+pytestmark = pytest.mark.django_db

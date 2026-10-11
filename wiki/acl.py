@@ -49,11 +49,21 @@ def validate_group_policies(policies):
     return {key: validate_rule(rule) for key, rule in policies.items()}
 
 
+def validate_user_policies(policies):
+    from .models import User
+    if not isinstance(policies, dict):
+        raise ValidationError('Invalid user permissions.')
+    valid = {str(pk) for pk in User.objects.filter(is_active=True).values_list('pk', flat=True)}
+    if not set(policies).issubset(valid):
+        raise ValidationError('Choose existing active users.')
+    return {key: validate_rule(rule) for key, rule in policies.items()}
+
+
 def apply_api_access(item, data, user):
     """Validate the complete update before mutating the instance."""
     from django.contrib.auth.models import Group
     from django.core.exceptions import PermissionDenied
-    keys = {'policy','group','group_policies','inherit_permissions'} & data.keys()
+    keys = {'policy','group','group_policies','user_policies','inherit_permissions'} & data.keys()
     if not keys:
         return []
     if not user.is_superuser:
@@ -63,6 +73,8 @@ def apply_api_access(item, data, user):
         values['policy'] = validate_policy(data['policy'])
     if 'group_policies' in keys:
         values['group_policies'] = validate_group_policies(data['group_policies'])
+    if 'user_policies' in keys:
+        values['user_policies'] = validate_user_policies(data['user_policies'])
     if 'inherit_permissions' in keys:
         if type(data['inherit_permissions']) is not bool:
             raise ValidationError('Inheritance must be a boolean.')
@@ -95,6 +107,9 @@ def settings_context(item, user):
                 result['provider_grants'] = result['provider_grants'].filter(user=user)
             result['external_provider'] = mount.provider
     if user.is_superuser:
+        from .models import User
+        users=list(User.objects.filter(is_active=True).order_by('username'))
+        result['user_rows']=[(account,normalize_rule(item.user_policies.get(str(account.pk))),str(account.pk) in item.user_policies) for account in users]
         groups=list(Group.objects.order_by('name'))
         result.update(groups=groups, rules=[(scope,list(rule.items())) for scope,rule in normalize_policy(item.policy).items()],
             group_rows=[(group,normalize_rule(item.group_policies.get(str(group.pk))),str(group.pk) in item.group_policies) for group in groups])
@@ -112,6 +127,9 @@ def save_settings_access(item, data, user):
     policy = {scope: normalize_rule({action:data.get(f'{scope}.{action}')=='on' for action in ACTIONS}) for scope in SCOPES}
     grants = {str(g.pk):normalize_rule({action:data.get(f'group.{g.pk}.{action}')=='on' for action in ACTIONS})
               for g in Group.objects.all() if data.get(f'group.{g.pk}.enabled')=='on'}
-    item.group=group;item.policy=policy;item.group_policies=grants
+    from .models import User
+    personal = {str(account.pk): normalize_rule({action:data.get(f'user.{account.pk}.{action}')=='on' for action in ACTIONS})
+                for account in User.objects.filter(is_active=True) if data.get(f'user.{account.pk}.enabled')=='on'}
+    item.group=group;item.policy=policy;item.group_policies=grants;item.user_policies=personal
     item.inherit_permissions=data.get('inherit_permissions')=='on'
-    item.save(update_fields=['group','policy','group_policies','inherit_permissions'])
+    item.save(update_fields=['group','policy','group_policies','user_policies','inherit_permissions'])

@@ -4,9 +4,12 @@ from django.utils.translation import gettext
 def workspace(request):
     if not getattr(request, 'user', None) or not request.user.is_authenticated:
         return {}
-    visible = [d for d in Document.objects.select_related('group', 'owner') if d.allows(request.user, 'read')]
+    from .access_graph import access_graph, attach_documents
+    folders, by_id, site = access_graph(request.user)
+    documents = attach_documents(list(Document.objects.select_related('group', 'owner')), by_id, site, request.user)
+    visible = [d for d in documents if d.allows(request.user, 'read')]
     from .folders import accessible, directory_path, storage_path
-    nodes = {f.pk: {'folder':f,'children':[], 'documents':[]} for f in accessible(request.user)}
+    nodes = {f.pk: {'folder':f,'children':[], 'documents':[]} for f in folders if not f.trash_id and f.allows(request.user, 'read')}
     for node in nodes.values():
         folder = node['folder']
         folder.explorer_write = folder.allows(request.user, 'write')
@@ -28,10 +31,10 @@ def workspace(request):
             nodes[doc.folder_id]['documents'].append(doc)
         elif not doc.folder_id:
             root_files.append(doc)
-    site = SiteConfiguration.current()
     request.site_configuration = site
     for node in nodes.values():
         parent = nodes.get(node['folder'].parent_id)
         (parent['children'] if parent else tree).append(node)
-    return {'site_name':site.name, 'site_description':site.description, 'folder_tree': tree, 'root_files':root_files,
+    from .ai import enabled_providers
+    return {'ai_summary_available':bool(enabled_providers()), 'site_name':site.name, 'site_description':site.description, 'folder_tree': tree, 'root_files':root_files,
         'mount_count':len(mount_paths) or 1, 'document_count':len(visible), 'provider_label':gettext('Mounted filesystem')}

@@ -15,6 +15,10 @@ if not SECRET_KEY:
 DEBUG = False
 ALLOWED_HOSTS = RUNTIME.get('allowed_hosts', ['localhost', '127.0.0.1', 'testserver'])
 PUBLIC_URL = RUNTIME.get('public_url', 'http://localhost:3000')
+COLLABORA_URL = os.environ.get('COLLABORA_URL', '').rstrip('/')
+COLLABORA_INTERNAL_URL = os.environ.get('COLLABORA_INTERNAL_URL', COLLABORA_URL).rstrip('/')
+# WOPISrc must be reachable by Collabora; normally this is the public HTTPS URL.
+COLLABORA_WOPI_URL = (os.environ.get('COLLABORA_WOPI_URL') or PUBLIC_URL).rstrip('/')
 INSTALLED_APPS = ['django.contrib.auth', 'django.contrib.contenttypes', 'django.contrib.sessions', 'django.contrib.messages', 'django.contrib.staticfiles', 'wiki.apps.WikiConfig']
 MIDDLEWARE = ['django.middleware.security.SecurityMiddleware', 'whitenoise.middleware.WhiteNoiseMiddleware', 'django.contrib.sessions.middleware.SessionMiddleware', 'django.middleware.locale.LocaleMiddleware', 'django.contrib.auth.middleware.AuthenticationMiddleware', 'wiki.middleware.AccessMiddleware', 'django.middleware.csrf.CsrfViewMiddleware', 'django.contrib.messages.middleware.MessageMiddleware', 'django.middleware.clickjacking.XFrameOptionsMiddleware']
 ROOT_URLCONF = 'config.urls'
@@ -53,6 +57,11 @@ SECURE_CONTENT_TYPE_NOSNIFF = True
 # withholding referrer information from cross-origin destinations.
 SECURE_REFERRER_POLICY = 'same-origin'
 X_FRAME_OPTIONS = 'DENY'
-DATA_UPLOAD_MAX_MEMORY_SIZE = 6 * 1024 * 1024
+FILE_UPLOAD_TEMP_DIR = str(DATA_DIR / 'uploads')
+Path(FILE_UPLOAD_TEMP_DIR).mkdir(mode=0o700, parents=True, exist_ok=True)
+os.environ.setdefault('TMPDIR', FILE_UPLOAD_TEMP_DIR)
+DATA_UPLOAD_MAX_MEMORY_SIZE = None  # File limits are enforced by Yourwiki configuration.
 FILE_UPLOAD_MAX_MEMORY_SIZE = 5 * 1024 * 1024
 LOGGING = {'version': 1, 'disable_existing_loggers': False, 'handlers': {'console': {'class': 'logging.StreamHandler'}}, 'loggers': {'wiki': {'handlers': ['console'], 'level': 'INFO', 'propagate': False}}}
+
+GOOGLE_FONTS_DIR = Path(os.environ.get('GOOGLE_FONTS_DIR', BASE_DIR / 'instance' / 'office-fonts'))

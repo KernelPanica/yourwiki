@@ -36,3 +36,11 @@ test('diagram envelopes retain extension content without resurrecting deleted ce
   const preserved=preserveEnvelope(data.xml,{tag:'mxfile',attrs:{host:'new'},children:[{slot:'page',id:'p'}]});
   assert.equal(preserved.attrs.host,'new');assert.deepEqual(preserved.children[0],ext);
 });
+
+test('Obsidian sides and enclosed group cards retain geometry',async()=>{
+  const {connectionGeometry,groupSelection}=await import('../../frontend/canvas-geometry.js');
+  const nodes={g:{id:'g',type:'group',x:0,y:0,width:500,height:500},a:{id:'a',x:20,y:20,width:100,height:100},b:{id:'b',x:800,y:20,width:100,height:100}};
+  assert.deepEqual(groupSelection(nodes,['g']),['g','a']);
+  assert.match(connectionGeometry(nodes.a,nodes.b,{fromSide:'right',toSide:'left'}).path,/^M120,70 C/);
+  assert.match(connectionGeometry(nodes.a,nodes.b,{fromSide:'right',toSide:'left'}).path,/800,70$/);
+});

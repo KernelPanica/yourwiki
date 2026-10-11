@@ -9,7 +9,7 @@
     (box.querySelector('[data-error-message]')||box).textContent=message;box.hidden=false;
     return message;
   }
-  async function run(action,target){try{return await action();}catch(error){console.error('Yourwiki action failed',error);show(error?.userFacing?error:new UIError(error instanceof Error&&error.name==='Error'?error.message:'The action could not be completed. Your input has been kept.'),target);}}
+  async function run(action,target){const end=window.yourwikiLoading?.begin();try{return await action();}catch(error){console.error('Yourwiki action failed',error);show(error?.userFacing?error:new UIError(error instanceof Error&&error.name==='Error'?error.message:'The action could not be completed. Your input has been kept.'),target);}finally{end?.();}}
   async function request(url,options={}){
     const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),120000);
     try{return await fetch(url,{...options,signal:options.signal||controller.signal});}
@@ -43,8 +43,9 @@
   window.addEventListener('unhandledrejection',event=>{console.error('Yourwiki UI promise failed',event.reason);show(new UIError('The action could not be completed. Your input has been kept.'));event.preventDefault();});
   document.addEventListener('submit',async event=>{
     const form=event.target;
-    if(event.defaultPrevented||!(form instanceof HTMLFormElement)||form.method.toLowerCase()!=='post'||form.target||form.dataset.nativeSubmit!==undefined)return;
-    const url=new URL(form.action,location.href);
+    if(event.defaultPrevented||!(form instanceof HTMLFormElement)||(form.getAttribute('method')||'get').toLowerCase()!=='post'||form.getAttribute('target')||form.dataset.nativeSubmit!==undefined)return;
+    // Named inputs such as action/method/target shadow HTMLFormElement properties.
+    const url=new URL(form.getAttribute('action')||location.href,document.baseURI);
     // OAuth redirects must be performed by browser navigation, not Fetch.
     if(url.origin!==location.origin||/\/account\/providers\/[^/]+\/connect\/$/.test(url.pathname)||['/login','/login/','/logout/','/mounts/','/storage/'].includes(url.pathname)||url.pathname.startsWith('/invite/'))return;
     event.preventDefault();
@@ -53,6 +54,9 @@
     try{body=new FormData(form,event.submitter);}catch(error){show(new UIError('The action could not be completed. Your input has been kept.'));return;}
     const buttons=[...form.querySelectorAll('button,input[type="submit"]')].map(button=>[button,button.disabled]);
     form.dataset.submitting='true';form.setAttribute('aria-busy','true');buttons.forEach(([button])=>button.disabled=true);
+    const endLoading=window.yourwikiLoading?.begin();
+    let busy;
+    if(form.dataset.busyMessage){busy=document.createElement('p');busy.className='form-progress';busy.setAttribute('role','status');busy.setAttribute('aria-live','polite');busy.textContent=form.dataset.busyMessage;form.append(busy);}
     form.querySelectorAll('.ui-field-error').forEach(el=>el.remove());form.querySelectorAll('[aria-invalid]').forEach(el=>el.removeAttribute('aria-invalid'));
     try{
       const response=await request(url,{method:'POST',body,headers:{Accept:'application/json'}});
@@ -71,13 +75,13 @@
         const input=form.elements.namedItem(name);if(!(input instanceof HTMLElement))continue;
         input.setAttribute('aria-invalid','true');const text=document.createElement('p');text.className='ui-field-error';text.setAttribute('role','alert');text.textContent=errors.map(item=>item.message).join(' ');input.after(text);
       }
-    }finally{delete form.dataset.submitting;form.removeAttribute('aria-busy');buttons.forEach(([button,disabled])=>button.disabled=disabled);}
+    }finally{endLoading?.();busy?.remove();delete form.dataset.submitting;form.removeAttribute('aria-busy');buttons.forEach(([button,disabled])=>button.disabled=disabled);}
   });
   document.addEventListener('click',event=>{
     const link=event.target.closest('a[href]');
     if(!link||event.defaultPrevented||event.button!==0||event.ctrlKey||event.metaKey||event.shiftKey||event.altKey)return;
     const url=new URL(link.href,location.href);
-    if(url.origin!==location.origin||!/^\/documents\/[^/]+\/(export|history\/[^/]+\/download)\//.test(url.pathname)||url.searchParams.get('inline')==='1')return;
+    if(url.origin!==location.origin||!/^\/documents\/[^/]+\/(export|(?:history|versions)\/[^/]+\/download)\//.test(url.pathname)||url.searchParams.get('inline')==='1')return;
     event.preventDefault();if(link.dataset.downloading)return;link.dataset.downloading='true';link.setAttribute('aria-busy','true');
     void run(async()=>{
       const response=await request(url,{headers:{Accept:'application/json'}});

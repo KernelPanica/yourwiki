@@ -57,7 +57,8 @@ def test_responsive_spacing(realtime_server, workspace):
         page.get_by_label('Username').fill('admin')
         page.get_by_label('Password', exact=True).fill('Correct-password-8923')
         page.get_by_role('button', name='Sign in', exact=True).click()
-        for language, width in [('ru',320), ('ru',768), ('en',1024), ('es',1440)]:
+        for language, width, theme in [('ru',320,'light'), ('ru',768,'light'), ('en',1024,'light'), ('es',1440,'light'), ('ru',320,'dark'), ('en',1440,'dark')]:
+            page.evaluate('(theme) => localStorage.setItem("yourwiki-theme", theme)', theme)
             page.context.add_cookies([{'name':'django_language','value':language,'url':realtime_server}])
             page.set_viewport_size({'width':width,'height':900})
             for index, path in enumerate(paths):
@@ -68,8 +69,9 @@ def test_responsive_spacing(realtime_server, workspace):
                     page.locator('[data-inherit-access]').uncheck()
                 findings = page.evaluate(GEOMETRY)
                 issues.extend(f'{language} {width} {path}: {finding}' for finding in findings)
+                page.evaluate('window.scrollTo(0,0)')
                 if findings or path in ('/', '/documents/new/', f'/documents/{doc.pk}/permissions/'):
-                    page.screenshot(path=str(screenshots/f'{language}-{width}-{index}.png'), full_page=True)
+                    page.screenshot(path=str(screenshots/f'{language}-{theme}-{width}-{index}.png'), full_page=True)
                 if page.locator('.directory-menu').count():
                     page.locator('.directory-menu').evaluate('(e) => e.open = true')
                     box = page.locator('.directory-menu-panel').bounding_box()
@@ -83,6 +85,6 @@ def test_responsive_spacing(realtime_server, workspace):
                 page.locator('.workspace-menu').evaluate('(e) => e.open = false')
                 page.locator('[data-sidebar-open]').click()
                 assert page.locator('.sidebar').bounding_box()['x'] >= 0
-                page.locator('[data-sidebar-close]').first.click()
+                page.locator('[data-sidebar-open]').click()
         browser.close()
     assert not issues, '\n'.join(issues)

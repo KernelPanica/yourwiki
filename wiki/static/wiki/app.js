@@ -22,17 +22,32 @@ document.querySelectorAll('[data-creation-permissions]').forEach(section => {
 const sidebar = document.querySelector('#workspace-sidebar');
 const sidebarToggle = document.querySelector('[data-sidebar-open]');
 const sidebarClosers = document.querySelectorAll('[data-sidebar-close]');
-const setSidebar = open => {
+const sidebarToggleHome = document.createComment('Sidebar toggle position');
+sidebarToggle?.before(sidebarToggleHome);
+const sidebarMedia = matchMedia('(max-width:800px)');
+let sidebarMobile = sidebarMedia.matches;
+let desktopSidebarOpen = !document.body.classList.contains('editor-page');
+try {const saved = localStorage.getItem('yourwiki:sidebar');if(saved !== null) desktopSidebarOpen = saved === 'open';} catch {}
+const setSidebar = (open, focus = true, remember = true) => {
   if (!sidebar || !sidebarToggle) return;
   document.body.classList.toggle('sidebar-open', open);
-  sidebar.inert = !open && (matchMedia('(max-width:800px)').matches || document.body.classList.contains('editor-page'));
-  sidebar.setAttribute('aria-hidden', String(sidebar.inert));
+  // One control remains reachable inside the mobile drawer while it is open.
+  if (open && sidebarMedia.matches) sidebar.querySelector('.sidebar-head').append(sidebarToggle);
+  else sidebarToggleHome.after(sidebarToggle);
+  sidebar.inert = !open;
+  sidebar.setAttribute('aria-hidden', String(!open));
   sidebarToggle.setAttribute('aria-expanded', String(open));
-  if (open) sidebar.querySelector('a')?.focus();
-  else sidebarToggle.focus();
+  sidebarToggle.setAttribute('aria-label', t(open ? 'Close file explorer' : 'Open file explorer'));
+  if (remember && !sidebarMedia.matches) {
+    desktopSidebarOpen = open;
+    try {localStorage.setItem('yourwiki:sidebar', open ? 'open' : 'closed');} catch {}
+  }
+  if (focus) {if(open) sidebar.querySelector('a')?.focus();else sidebarToggle.focus();}
+  window.dispatchEvent(new Event('resize'));
 };
-sidebarToggle?.addEventListener('click', () => setSidebar(true));
+sidebarToggle?.addEventListener('click', () => setSidebar(!document.body.classList.contains('sidebar-open')));
 sidebarClosers.forEach(button => button.addEventListener('click', () => setSidebar(false)));
+setSidebar(sidebarMobile ? false : desktopSidebarOpen, false, false);
 document.querySelectorAll('.explorer-branch[data-folder-id]').forEach(branch => {
   const key = `yourwiki:directory:${branch.dataset.folderId}`;
   try {
@@ -199,14 +214,14 @@ if (createFile && fileKind) {
   const help = document.getElementById('id_file_format_helptext');
   let documentFormat = fileFormat.value || 'docx';
   const documentOptions = [...fileFormat.options].map(option => [option.value, option.text]);
-  const extensions = {table:'ods', drawio:'drawio', canvas:'canvas'};
-  const formats = {table:'OpenDocument Spreadsheet (.ods)', drawio:'Draw.io (.drawio)', canvas:'Canvas (.canvas)', file:t('From file name')};
+  const extensions = {table:'ods', presentation:'pptx', drawio:'drawio', canvas:'canvas'};
+  const formats = {table:'OpenDocument Spreadsheet (.ods)', presentation:'PowerPoint (.pptx)', drawio:'Draw.io (.drawio)', canvas:'Canvas (.canvas)', file:t('From file name')};
   document.querySelector('label[for="id_file_format"]').textContent = t('File format');
   const updateName = () => {
     const kind = fileKind.value;
     const extension = kind === 'document' ? documentFormat : extensions[kind];
     let name = title.value.trim();
-    if (kind !== 'file') name = name.replace(/\.(docx|md|ods|drawio|canvas)$/i, '').trim();
+    if (kind !== 'file') name = name.replace(/\.(docx|md|ods|pptx|drawio|canvas)$/i, '').trim();
     name = name.replace(/[\\/<>:"|?*\x00-\x1f]/g, '_').replace(/[ .]+$/, '').slice(0,160) || 'file';
     preview.textContent = name + (extension ? '.' + extension : '');
   };
@@ -232,6 +247,7 @@ if (createFile && fileKind) {
 const currentPath = location.pathname;
 const currentSection = new URLSearchParams(location.search).get('section');
 const activeNav = currentPath === '/' ? (currentSection === 'Recent' ? 'recent' : currentSection === 'Starred' ? 'starred' : 'all')
+  : currentPath === '/trash/' ? 'trash'
   : currentPath === '/account/' ? 'account'
   : /^\/(settings|members|groups|mounts|storage|invitations|permissions)\//.test(currentPath) ? 'settings' : 'files';
 document.querySelector(`[data-nav="${activeNav}"]`)?.setAttribute('aria-current', 'page');
@@ -261,7 +277,7 @@ document.addEventListener('keydown', event => {
     document.querySelectorAll('[data-disclosure][open],.directory-menu[open]').forEach(details => closeDisclosure(details, true));
     if (document.body.classList.contains('editor-fullscreen')) exitEditorFullscreen();
   }
-  if (event.key === 'Tab' && document.body.classList.contains('sidebar-open')) {
+  if (event.key === 'Tab' && sidebarMedia.matches && document.body.classList.contains('sidebar-open')) {
     const items = [...sidebar.querySelectorAll('a,button,summary,input,select')].filter(el => el.getClientRects().length && !el.disabled);
     if (event.shiftKey && document.activeElement === items[0]) {event.preventDefault();items.at(-1)?.focus();}
     else if (!event.shiftKey && document.activeElement === items.at(-1)) {event.preventDefault();items[0]?.focus();}
@@ -330,11 +346,12 @@ memberFilter?.addEventListener('input', () => {
 });
 
 const reflectSidebar = () => {
-  if (!sidebar) return;
-  sidebar.inert = !document.body.classList.contains('sidebar-open') && (matchMedia('(max-width:800px)').matches || document.body.classList.contains('editor-page'));
-  sidebar.setAttribute('aria-hidden', String(sidebar.inert));
+  if (sidebarMobile !== sidebarMedia.matches) {
+    sidebarMobile = sidebarMedia.matches;
+    setSidebar(sidebarMobile ? false : desktopSidebarOpen, false, false);
+  }
 };
-window.addEventListener('resize', reflectSidebar);reflectSidebar();
+window.addEventListener('resize', reflectSidebar);
 
 // Read/write dependencies are also enforced on the server.
 document.querySelectorAll('[data-rw-policy]').forEach(form=>{
@@ -349,3 +366,7 @@ document.querySelectorAll('[data-rw-policy]').forEach(form=>{
   read.addEventListener('change',()=>{if(!read.checked)write.checked=false;});
  });
 });
+
+for(const search of document.querySelectorAll('[data-user-access-search]')){
+  search.addEventListener('input',()=>{const value=search.value.trim().toLocaleLowerCase();for(const row of search.closest('details').querySelectorAll('[data-user-access-row]'))row.hidden=!row.textContent.toLocaleLowerCase().includes(value);});
+}

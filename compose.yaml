@@ -13,13 +13,17 @@ x-app: &app
   cap_drop:
     - ALL
   tmpfs:
-    - /tmp:mode=1777,size=64m
+    - /tmp:mode=1777,size=256m
   read_only: true
   init: true
 services:
   web:
     <<: *app
     restart: unless-stopped
+    environment:
+      COLLABORA_URL: ${COLLABORA_URL:-}
+      COLLABORA_INTERNAL_URL: ${COLLABORA_INTERNAL_URL:-http://collabora:9980/collabora}
+      COLLABORA_WOPI_URL: ${COLLABORA_WOPI_URL:-}
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/', timeout=5)"]
       interval: 30s
@@ -29,6 +33,9 @@ services:
   setup:
     <<: *app
     profiles: [setup]
+    environment:
+      SETUP_BIND: 0.0.0.0
+      SETUP_BROWSER_URL: http://127.0.0.1:${YOURWIKI_PORT:-3000}
     entrypoint: ["python", "install.py"]
     stdin_open: true
     tty: true

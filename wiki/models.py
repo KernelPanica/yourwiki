@@ -50,8 +50,8 @@ class SiteConfiguration(models.Model):
     invite_uses = models.PositiveIntegerField(default=1)
     login_attempts = models.PositiveIntegerField(default=10)
     login_window_minutes = models.PositiveIntegerField(default=15)
-    document_limit_mb = models.PositiveSmallIntegerField(default=5)
-    image_limit_mb = models.PositiveSmallIntegerField(default=5)
+    document_limit_mb = models.PositiveBigIntegerField(default=5)
+    image_limit_mb = models.PositiveBigIntegerField(default=5)
     image_limit_megapixels = models.PositiveSmallIntegerField(default=16)
     sync_interval_seconds = models.PositiveSmallIntegerField(default=3)
     encrypted_ai_config = models.TextField(blank=True, default='')
@@ -64,6 +64,33 @@ class SiteConfiguration(models.Model):
     @classmethod
     def current(cls):
         return cls.objects.filter(pk=1).first() or cls(pk=1)
+
+
+class TrashEntry(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    root_id = models.UUIDField()
+    kind = models.CharField(max_length=8, choices=[('file', 'File'), ('folder', 'Folder')])
+    name = models.CharField(max_length=200)
+    original_path = models.TextField(blank=True)
+    deleted_at = models.DateTimeField(default=timezone.now)
+    deleted_by = models.ForeignKey(User, null=True, on_delete=models.SET_NULL)
+
+    class Meta:
+        ordering = ['-deleted_at']
+
+
+class ProviderTrashState(models.Model):
+    document = models.OneToOneField('Document', on_delete=models.CASCADE, related_name='provider_trash')
+    mount = models.ForeignKey(MountPoint, on_delete=models.PROTECT)
+    reference = models.TextField()
+    confirmed = models.BooleanField(default=False)
+    error = models.TextField(blank=True)
+    checked_at = models.DateTimeField(null=True, blank=True)
+
+
+class ActiveObjects(models.Manager):
+    def get_queryset(self):
+        return super().get_queryset().filter(trash__isnull=True)
 
 
 class AccessPolicy:
@@ -82,10 +109,18 @@ class AccessPolicy:
     def effective_policy(self):
         item = self.effective_source()
         from .acl import normalize_policy
-        policy = SiteConfiguration.current().default_document_policy if item.inherit_permissions and item.parent_policy is None else item.policy
+        site = getattr(self, '_access_site', None)
+        policy = (site or SiteConfiguration.current()).default_document_policy if item.inherit_permissions and item.parent_policy is None else item.policy
         return normalize_policy(policy), item.group_id
 
     def allows(self, user, action):
+        item, seen = self, set()
+        while item is not None:
+            key = (type(item).__name__, item.pk)
+            if key in seen or getattr(item, 'trash_id', None):
+                return False
+            seen.add(key)
+            item = item.parent_policy
         if action not in ('read', 'write', 'visible'):
             return False
         action = 'read' if action == 'visible' else action
@@ -96,13 +131,26 @@ class AccessPolicy:
         source = self.effective_source()
         from .acl import normalize_rule
         policy, group_id = self.effective_policy()
+        personal_source = self
+        while personal_source is not None:
+            personal = personal_source.user_policies or {}
+            if str(user.pk) in personal:
+                return normalize_rule(personal[str(user.pk)]).get(action) is True
+            if not personal_source.inherit_permissions:
+                break
+            personal_source = personal_source.parent_policy
+        cached_groups = getattr(self, '_access_groups', None)
+        def in_group(value):
+            if cached_groups is not None and cached_groups[0] == user.pk:
+                return str(value) in cached_groups[1]
+            return user.groups.filter(pk=value).exists()
         if isinstance(source, (Folder, Document)):
             grants = {} if source.inherit_permissions and source.parent_policy is None else (source.group_policies or {})
             allowed = [normalize_rule(rules).get(action) is True for gid, rules in grants.items()
-                       if user.groups.filter(pk=gid).exists()]
+                       if in_group(gid)]
             if allowed:
                 return any(allowed)
-        scope = 'owner' if user.pk == source.owner_id else 'group' if user.groups.filter(pk=group_id).exists() else 'everyone'
+        scope = 'owner' if user.pk == source.owner_id else 'group' if in_group(group_id) else 'everyone'
         return policy.get(scope, {}).get(action) is True
 
 
@@ -114,21 +162,28 @@ class Folder(AccessPolicy, models.Model):
     group = models.ForeignKey(Group, on_delete=models.PROTECT)
     policy = models.JSONField(default=default_policy)
     group_policies = models.JSONField(default=dict)
+    user_policies = models.JSONField(default=dict)
     inherit_permissions = models.BooleanField(default=True)
     revision_history = models.BooleanField(null=True, blank=True, default=None)
+
+    trash = models.ForeignKey(TrashEntry, null=True, blank=True, on_delete=models.PROTECT)
+    objects = ActiveObjects()
+    all_objects = models.Manager()
 
     @property
     def parent_policy(self):
         return self.parent
 
     class Meta:
+        base_manager_name = 'all_objects'
+        default_manager_name = 'objects'
         ordering = ['name', 'id']
 
     def __str__(self):
         return self.name
 
 class Document(AccessPolicy, models.Model):
-    KINDS = [('document', _('Document')), ('table', _('Table')), ('drawio', _('Draw.io')), ('canvas', _('Canvas')), ('file', _('File'))]
+    KINDS = [('document', _('Document')), ('table', _('Table')), ('presentation', _('Presentation')), ('drawio', _('Draw.io')), ('canvas', _('Canvas')), ('file', _('File'))]
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     title = models.CharField(max_length=200)
     kind = models.CharField(max_length=15, choices=KINDS)
@@ -137,6 +192,7 @@ class Document(AccessPolicy, models.Model):
     group = models.ForeignKey(Group, on_delete=models.PROTECT)
     policy = models.JSONField(default=default_policy)
     group_policies = models.JSONField(default=dict)
+    user_policies = models.JSONField(default=dict)
     revision = models.PositiveIntegerField(default=1)
     reference = models.TextField()
     starred = models.BooleanField(default=False)
@@ -150,8 +206,14 @@ class Document(AccessPolicy, models.Model):
     storage_digest = models.CharField(max_length=64, blank=True, default='')
     history_reference = models.TextField(blank=True, default='')
 
+    trash = models.ForeignKey(TrashEntry, null=True, blank=True, on_delete=models.PROTECT)
+    objects = ActiveObjects()
+    all_objects = models.Manager()
+
 
     class Meta:
+        base_manager_name = 'all_objects'
+        default_manager_name = 'objects'
         ordering = ['-updated_at']
 
     @property
@@ -239,6 +301,7 @@ class LoginAttempt(models.Model):
 
 class PendingDeletion(models.Model):
     reference = models.TextField()
+    directory = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
 
 
@@ -298,3 +361,20 @@ class SaveSession(models.Model):
 
 from .pdf_models import PdfAnnotationLayer
 from .presence_models import PresenceSession
+
+
+class OfficeSession(models.Model):
+    """Shared binary office session; failed uploads survive for recovery."""
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    document = models.ForeignKey(Document, on_delete=models.CASCADE)
+    superseded = models.BooleanField(default=False)
+    expires_at = models.DateTimeField()
+    base_digest = models.CharField(max_length=255)
+    lock = models.CharField(max_length=1024, blank=True)
+    lock_expires_at = models.DateTimeField(null=True)
+    pending = models.BinaryField(default=bytes)
+    pending_author = models.ForeignKey(User, null=True, on_delete=models.SET_NULL)
+    error = models.TextField(blank=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=['document'], condition=models.Q(superseded=False), name='current_office_session')]

@@ -1,26 +1,26 @@
 ---
-name: perspective
-description: Spatial depth design with isometric views, vanishing points, and layered elements that guide attention through 3D-like realism.
+name: sleek
+description: Modern minimalist aesthetic with clean lines, intentional color palette, subtle interactions, and consistent spacing.
 license: MIT
 metadata:
   author: typeui.sh
 ---
 
 <!-- TYPEUI_SH_MANAGED_START -->
-# Perspective Design Design System Skill (Universal)
+# Sleek Design System Skill (Universal)
 
 ## Mission
-You are an expert design-system guideline author for Perspective Design.
+You are an expert design-system guideline author for Sleek.
 Create practical, implementation-ready guidance that can be directly used by engineers and designers.
 
 ## Brand
-This style moves beyond flat design by employing techniques like isometric views, vanishing points, and layered elements to guide the user's attention and create a sense of realism or "spatial" depth.     
+Sleek UI/UX design emphasizes a modern, minimalist aesthetic ("less is more") focused on clean lines, high functionality, and reduced cognitive load. Key elements include a limited, intentional color palette (e.g., the 60-30-10 rule), subtle, non-distracting interactions, and consistent spacing.
 
 ## Style Foundations
-- Visual style: modern, clean, high-contrast
-- Typography scale: 12/14/16/20/24/32 | Fonts: primary=Poppins, display=Oswald, mono=JetBrains Mono | weights=100, 200, 300, 400, 500, 600, 700, 800, 900
-- Color palette: primary, neutral, success, warning, danger | Tokens: primary=#00BD7D, secondary=#00BD7D, success=#16A34A, warning=#D97706, danger=#DC2626, surface=#FFFFFF, text=#111827
-- Spacing scale: 4/8/12/16/24/32
+- Visual style: modern, minimal, clean
+- Typography scale: desktop-first expressive scale | Fonts: primary=Inter, display=Inter, mono=JetBrains Mono | weights=100, 200, 300, 400, 500, 600, 700, 800, 900
+- Color palette: primary, neutral, success, warning, danger | Tokens: primary=#3B82F6, secondary=#8B5CF6, success=#16A34A, warning=#D97706, danger=#DC2626, surface=#FFFFFF, text=#111827
+- Spacing scale: 8pt baseline grid
 
 
 ## Accessibility

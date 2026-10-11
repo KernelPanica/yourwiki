@@ -6,11 +6,12 @@ const saveButton=document.getElementById('save-live');
 let socket,dirty=false,pending=new Map(),counter=0,closed=false,editor;
 let reconnectTimer,saveTimer,saveRequested=false,conflicted=false,remotePending=false,unknown=false;
 const presence=createPresence(()=>editor,message=>{if(socket?.readyState!==1)return false;socket.send(JSON.stringify(message));return true;});
-let localVersion=0,lastAckSequence=boot.sequence||0,lastSyncedSequence=0;
-const csrf=()=>decodeURIComponent(document.cookie.split('; ').find(v=>v.startsWith('csrftoken='))?.split('=')[1]||'');
+let lastAckSequence=boot.sequence||0,lastSyncedSequence=0;
 function conflict(message){
+  const firstConflict=!conflicted;
   conflicted=true;remotePending=true;clearTimeout(saveTimer);saveButton.disabled=true;
-  document.getElementById('save-conflict').hidden=false;
+  const banner=document.getElementById('save-conflict');banner.hidden=false;
+  if(firstConflict){banner.scrollIntoView({block:'nearest'});banner.focus({preventScroll:true});}
   status.textContent=t('Conflict · automatic saving paused');
   if(message)error(message);
 }
@@ -18,8 +19,9 @@ function pauseUnknown(message){unknown=true;remotePending=true;clearTimeout(save
 function confirmWrite(){if(unknown)document.getElementById('editor-error').hidden=true;unknown=false;}
 function scheduleSave(){clearTimeout(saveTimer);if(!conflicted&&!unknown&&boot.write)saveTimer=setTimeout(()=>saveNow(),1500);}
 function sendUpdate(update){
-  const id=++counter;pending.set(id,update);dirty=true;remotePending=true;localVersion++;
-  status.textContent=t(unknown?'Write result unknown · automatic saving paused':'Saving locally…');
+  const id=++counter;pending.set(id,update);dirty=true;remotePending=true;
+  document.getElementById('conflict-copy-status').textContent='';
+  status.textContent=t(conflicted?'Conflict · automatic saving paused':unknown?'Write result unknown · automatic saving paused':'Saving locally…');
   if(!conflicted&&socket?.readyState===1)socket.send(JSON.stringify({type:'update',id,update:b64(update),generation:boot.generation}));
   scheduleSave();
 }
@@ -77,32 +79,14 @@ function saveNow(manual=false){
   if(socket?.readyState===1){status.textContent=t('Saving to storage…');socket.send(JSON.stringify({type:'save'}));}
   else{saveRequested=manual;connect();}
 }
-async function flushHTTP(keepalive=false){
-  editor?.flush?.();
-  if(conflicted||unknown||!boot.write||(!dirty&&!remotePending))return;
-  const version=localVersion,ids=[...pending.keys()];
-  const body=JSON.stringify({update:pending.size?b64(Y.encodeStateAsUpdate(ydoc)):undefined,generation:boot.generation});
-  // Browsers cap keepalive bodies at 64 KiB. Larger unsent updates stay in the
-  // tab and trigger the unload warning; already acknowledged edits are durable.
-  if(keepalive&&new Blob([body]).size>60000)return;
-  try{
-    const response=await fetch(`/api/docs/${boot.id}/flush`,{method:'POST',body,keepalive,headers:{'Content-Type':'application/json','X-CSRFToken':csrf()}});
-    if(response.status===409){conflict(t('The original document changed'));return;}
-    if(!response.ok)throw new Error(t('Changes are not yet saved to storage.'));
-    const result=await response.json();
-    for(const id of ids)pending.delete(id);
-    if(version===localVersion){dirty=pending.size>0;lastAckSequence=Math.max(lastAckSequence,result.sequence);updateSaved(result.synced_sequence);}
-  }catch(e){if(!keepalive)error(e.message);}
-}
 saveButton.onclick=()=>saveNow(true);
 document.getElementById('print-live').onclick=()=>window.yourwikiUI.run(()=>window.print(),document.getElementById('editor-error'));
-window.addEventListener('beforeunload',event=>{editor?.flush?.();if(dirty||remotePending||conflicted||unknown){if(!conflicted&&!unknown)saveNow();event.preventDefault();event.returnValue='';}});
-window.addEventListener('pagehide',()=>{if(!conflicted)void flushHTTP(true);});
-document.addEventListener('visibilitychange',()=>{if(document.hidden&&!conflicted)void flushHTTP(false);});
+// Leaving only warns: never submit or flush edits as a navigation side effect.
+window.addEventListener('beforeunload',event=>{if(dirty||remotePending||conflicted||unknown){event.preventDefault();event.returnValue='';}});
 document.addEventListener('keydown',event=>{if((event.ctrlKey||event.metaKey)&&event.key==='s'){event.preventDefault();saveNow(true);}});
 function localSnapshot(){editor?.flush?.();return JSON.stringify({format:'yourwiki-recovery',version:1,kind:boot.kind,file_format:boot.file_format,state:b64(Y.encodeStateAsUpdate(ydoc))});}
 function downloadSnapshot(){const url=URL.createObjectURL(new Blob([localSnapshot()],{type:'application/json'}));const a=document.createElement('a');a.href=url;a.download=boot.title+'.recovery.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),60000);}
-document.getElementById('conflict-copy').onclick=()=>window.yourwikiUI.run(async()=>{try{await navigator.clipboard.writeText(editor?.getText?.()||localSnapshot());}catch{downloadSnapshot();error(t('Clipboard unavailable. A local snapshot was downloaded.'));}},document.getElementById('editor-error'));
+document.getElementById('conflict-copy').onclick=()=>window.yourwikiUI.run(async()=>{try{await navigator.clipboard.writeText(editor?.getText?.()||localSnapshot());document.getElementById('conflict-copy-status').textContent=t('Copied');}catch{downloadSnapshot();error(t('Clipboard unavailable. A local snapshot was downloaded.'));}},document.getElementById('editor-error'));
 document.getElementById('conflict-download').onclick=()=>window.yourwikiUI.run(downloadSnapshot,document.getElementById('editor-error'));
 document.getElementById('conflict-save-copy').onclick=async()=>{
   try{const values=await dialog('Save a copy',[['title','Title',boot.title+' (copy)']]);if(!values)return;editor?.flush?.();const result=await api(`/api/docs/${boot.id}/recover`,{method:'POST',body:JSON.stringify({action:'copy',title:values.title,update:b64(Y.encodeStateAsUpdate(ydoc))})});closed=true;dirty=false;remotePending=false;conflicted=false;socket?.close();location.assign(result.url);}catch(e){error(e.message);}
@@ -113,8 +97,9 @@ document.getElementById('conflict-reload').onclick=async()=>{
   if(socket&&socket.readyState!==3)await new Promise(resolve=>{socket.addEventListener('close',resolve,{once:true});socket.close();setTimeout(resolve,2000);});
   try{await api(`/api/docs/${boot.id}/recover`,{method:'POST',body:JSON.stringify({action:'reload',discard:true})});dirty=false;remotePending=false;conflicted=false;location.reload();}catch(e){error(e.message);closed=false;connect();}
 };
+const endEditorLoading=window.yourwikiLoading?.begin(document.getElementById('visual-editor'));
 try{
   button('Rename',async()=>{const values=await dialog('Rename file',[['title','Title',boot.title]]);if(!values)return;const result=await api(`/api/docs/${boot.id}/metadata`,{method:'POST',body:JSON.stringify(values)});boot.title=result.title;document.querySelector('.live-heading a span').textContent=result.title;document.title=result.title+' — Yourwiki';},{parent:document.querySelector('[data-secondary-actions]')});
   const factories={document:()=>import('./rich.js').then(m=>m.richEditor),table:()=>import('./sheets.js').then(m=>m.sheetEditor),canvas:()=>import('./canvas.js').then(m=>m.canvasEditor),drawio:()=>import('./drawio.js').then(m=>m.drawioEditor)};
   editor=await (await factories[boot.kind]())();presence.attach();connect();
-}catch(e){error(format('Editor could not start: %(message)s',{message:e.message}));console.error(e);}
+}catch(e){error(format('Editor could not start: %(message)s',{message:e.message}));console.error(e);}finally{endEditorLoading?.();}

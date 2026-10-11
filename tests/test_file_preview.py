@@ -66,5 +66,5 @@ def test_delete_buttons_and_server_permissions(client, workspace, document):
     assert Document.objects.filter(pk=document.pk).exists()
     assert client.post(delete_url).status_code == 302
     assert not Document.objects.filter(pk=document.pk).exists()
-    with pytest.raises(StorageError):
-        active_storage().read(document.reference)
+    assert active_storage().read(document.reference)
+    assert Document.all_objects.get(pk=document.pk).trash_id

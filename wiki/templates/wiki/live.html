@@ -14,16 +14,17 @@
   <details class="more-menu" data-disclosure><summary class="button">{% translate 'More' %}{% icon 'chevron' %}</summary><div class="more-menu-panel" data-secondary-actions>
     <button type="button" class="button" id="print-live">{% translate 'Print' %}</button>
     {% include 'wiki/file_actions.html' %}
-    {% if doc.kind == 'document' or doc.kind == 'table' %}<a class="button" href="{% url 'summary' doc.pk %}">{% translate 'AI summary' %}</a>{% endif %}
+    {% if ai_summary_available %}{% if doc.kind == 'document' or doc.kind == 'table' %}<a class="button" href="{% url 'summary' doc.pk %}">{% translate 'AI summary' %}</a>{% endif %}{% endif %}
     {% if bootstrap.write %}<a class="button" href="{% url 'move' 'document' doc.pk %}">{% translate 'Move' %}</a>{% endif %}
     <a class="button" href="{% url 'export' doc.pk %}?format=bundle">{% translate 'Download wiki bundle' %}</a>
     {% if doc.kind == 'document' or doc.kind == 'table' %}<a class="button" href="{% url 'export' doc.pk %}?format=plain">{% if doc.kind == 'document' %}{% translate 'Export Markdown' %}{% else %}{% translate 'Export CSV' %}{% endif %}</a>{% endif %}
   </div></details>
 </div>
-<section id="save-conflict" class="settings-card" role="alert" hidden>
-<strong>{% translate 'The original document changed' %}</strong>
-<p>{% translate 'Automatic saving is paused. Leaving this page will not save your changes to the original. Keep a copy before reloading.' %}</p>
+<section id="save-conflict" class="settings-card source-conflict-banner" role="alert" tabindex="-1" hidden>
+<strong>{% translate 'Your changes will not be saved' %}</strong>
+<p>{% translate 'The document changed in its source while you were editing. Saving to the original is blocked. Copy your changes to the clipboard or download a local copy before leaving or reloading.' %}</p>
 <div class="form-actions"><button type="button" class="button" id="conflict-copy">{% translate 'Copy changes' %}</button><button type="button" class="button" id="conflict-download">{% translate 'Download local snapshot' %}</button><button type="button" class="button" id="conflict-save-copy" data-write>{% translate 'Save a copy' %}</button><button type="button" class="button" id="conflict-reload" data-write>{% translate 'Discard and reload original' %}</button></div>
+<p id="conflict-copy-status" role="status" aria-live="polite"></p>
 </section>
 <div id="editor-error" role="alert" hidden></div>
 <div class="live-layout">

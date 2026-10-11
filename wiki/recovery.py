@@ -1,4 +1,5 @@
 """Import locally downloaded editor state without trusting its metadata."""
+from .storage import auxiliary_limit_bytes
 import base64
 import json
 from django.core.exceptions import ValidationError
@@ -16,7 +17,7 @@ def decode_snapshot(raw):
         kind=value['kind']
         if kind not in ('document','table','canvas','drawio'):raise ValueError()
         state=base64.b64decode(value['state'],validate=True)
-        if not state or len(state)>12*1024*1024:raise ValueError()
+        if not state or (auxiliary_limit_bytes(12*1024*1024, 3) is not None and len(state)>auxiliary_limit_bytes(12*1024*1024, 3)):raise ValueError()
         ydoc=Doc();ydoc.apply_update(state);content=derive(ydoc,kind)
         validate_content(kind,content,SiteConfiguration.current().document_limit_mb)
         file_format=value.get('file_format') or ('docx' if kind=='document' else 'ods' if kind=='table' else None)

@@ -33,6 +33,12 @@ def configuration():
     return decrypt(value) if value else {}
 
 
+def enabled_providers():
+    return {key: value for key, value in configuration().items()
+            if key in PROVIDERS and value.get('enabled') and value.get('api_key')
+            and value.get('model') and (value.get('base_url') or PROVIDERS[key][1])}
+
+
 class ProviderForm(forms.Form):
     provider = forms.ChoiceField(choices=[(key, value[0]) for key, value in PROVIDERS.items()], widget=forms.HiddenInput)
     model = forms.CharField(max_length=150)
@@ -157,7 +163,7 @@ def summarize(provider, config, text, language):
 @require_http_methods(['GET', 'POST'])
 def summary(request, id):
     doc = document_for(request.user, id)
-    configs = {key: value for key, value in configuration().items() if key in PROVIDERS and value.get('enabled')}
+    configs = enabled_providers()
     choices = [(key, PROVIDERS[key][0]) for key in configs]
     form = forms.Form(request.POST or None)
     form.fields['provider'] = forms.ChoiceField(choices=choices, label=_('AI provider'))

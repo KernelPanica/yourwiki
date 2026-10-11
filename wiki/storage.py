@@ -35,8 +35,33 @@ def safe_key(key):
     return key
 
 
-def bounded(data, limit=MAX_BYTES):
-    if len(data) > limit:
+DEFAULT_LIMIT = object()
+
+
+def file_limit_bytes():
+    from .models import SiteConfiguration
+    value = SiteConfiguration.current().document_limit_mb
+    return value * 1024 * 1024 if value else None
+
+
+def auxiliary_limit_bytes(minimum=50 * 1024 * 1024, factor=10):
+    cap = file_limit_bytes()
+    return max(minimum, cap * factor) if cap is not None else None
+
+
+def image_limit_bytes():
+    from .models import SiteConfiguration
+    value = SiteConfiguration.current().image_limit_mb
+    return value * 1024 * 1024 if value else None
+
+
+def resolve_limit(limit):
+    return file_limit_bytes() if limit is DEFAULT_LIMIT else limit
+
+
+def bounded(data, limit=DEFAULT_LIMIT):
+    limit = resolve_limit(limit)
+    if limit is not None and len(data) > limit:
         raise StorageError(f'File exceeds the {limit // (1024*1024)} MB limit.')
     return data
 
@@ -90,7 +115,16 @@ class Adapter:
     def ensure_dir(self, key):
         safe_key(key)
 
+    def remove_empty_dir(self, key):
+        raise StorageError('Directory deletion is unavailable for this provider.')
+
 class Local(Adapter):
+    def remove_empty_dir(self, key):
+        try:
+            self.path(key).rmdir()
+        except FileNotFoundError:
+            pass
+
     def path(self, key):
         safe_key(key)
         root = Path(self.config['root']).resolve()
@@ -99,11 +133,12 @@ class Local(Adapter):
             raise StorageError('Invalid storage path.')
         return result
 
-    def read(self, ref, limit=MAX_BYTES):
+    def read(self, ref, limit=DEFAULT_LIMIT):
         with self.path(ref).open('rb') as f:
-            return bounded(f.read(limit + 1), limit)
+            limit = resolve_limit(limit)
+            return bounded(f.read(limit + 1 if limit is not None else -1), limit)
 
-    def write(self, key, data, reference=None, limit=MAX_BYTES):
+    def write(self, key, data, reference=None, limit=DEFAULT_LIMIT):
         path = self.path(reference or key)
         if reference is None and path.exists():
             raise StorageError('A file with that name already exists.')
@@ -154,8 +189,10 @@ class Local(Adapter):
     def scan(self):
         root = Path(self.config['root']).resolve()
         for path in root.rglob('*'):
-            if path.is_file() and not any(part.startswith('.yourwiki-') for part in path.parts):
-                yield path.relative_to(root).as_posix(), path.relative_to(root).as_posix()
+            if path.is_symlink(): continue
+            key = path.relative_to(root).as_posix()
+            if path.is_dir(): yield key, None
+            elif path.is_file(): yield key, key
 
 class HTTP(Adapter):
     def request(self, method, url, **kwargs):
@@ -171,7 +208,8 @@ class HTTP(Adapter):
             # Provider responses and URLs can contain credentials: never expose them.
             raise StorageError('The storage provider could not complete the request.') from None
 
-    def download(self, url, limit=MAX_BYTES, **kwargs):
+    def download(self, url, limit=DEFAULT_LIMIT, **kwargs):
+        limit = resolve_limit(limit)
         with self.request('GET', url, stream=True, **kwargs) as response:
             data = bytearray()
             for part in response.iter_content(65536):
@@ -256,7 +294,7 @@ class GoogleDrive(OAuthHTTP):
         self.config['root'] = result['id']
         self.save_config(self.config)
 
-    def read(self, ref, limit=MAX_BYTES):
+    def read(self, ref, limit=DEFAULT_LIMIT):
         info = self.private_info(ref)
         url = self.base + '/' + quote(ref, safe='')
         native = info.get('mimeType') == self.sheet_mime
@@ -334,7 +372,7 @@ class GoogleDrive(OAuthHTTP):
             hashlib.sha256(data).hexdigest(), str(after['version']))
         return reference
 
-    def write(self, key, data, reference=None, limit=MAX_BYTES):
+    def write(self, key, data, reference=None, limit=DEFAULT_LIMIT):
         safe_key(key)
         data = bounded(data, limit)
         import mimetypes
@@ -351,6 +389,10 @@ class GoogleDrive(OAuthHTTP):
                 raise StorageError('Choose a valid ODS spreadsheet.') from None
         if reference:
             info = self.private_info(reference)
+            snapshot = getattr(self, '_sheet_snapshots', {}).get(reference)
+            if info.get('mimeType') == self.sheet_mime and snapshot and snapshot[1] != str(info.get('version')):
+                from .services import Conflict
+                raise Conflict('The original file changed in storage. Reload it before saving; your edits have not overwritten it.')
             native = native or info.get('mimeType') == self.sheet_mime
             if not native:
                 self.request('PATCH', 'https://www.googleapis.com/upload/drive/v3/files/' + quote(reference, safe=''), headers={**self.headers(), 'Content-Type': source_mime}, params={'uploadType': 'media'}, data=data)
@@ -403,10 +445,23 @@ class GoogleDrive(OAuthHTTP):
         self.private_info(ref)
         return destination.move(ref, key)
 
+    def trash_state(self, ref):
+        result = self.request('GET', self.base + '/' + quote(ref, safe=''), headers=self.headers(),
+                              params={'fields': 'id,trashed'}).json()
+        if type(result.get('trashed')) is not bool:
+            raise StorageError('The provider did not confirm the trash state.')
+        return result['trashed']
+
+    def set_trashed(self, ref, trashed):
+        self.request('PATCH', self.base + '/' + quote(ref, safe=''), headers=self.headers(),
+                     json={'trashed': bool(trashed)}, params={'fields':'id,trashed'})
+        if self.trash_state(ref) != bool(trashed):
+            raise StorageError('The provider did not confirm the trash operation.')
+
     def delete(self, ref):
         self.request('DELETE', self.base + '/' + quote(ref, safe=''), headers=self.headers(), allowed_status=(404,))
 
-    def directory(self, key):
+    def directory(self, key, create=True):
         parent = self.config['root']
         self.private_info(parent)
         for part in key.split('/') if key else []:
@@ -416,10 +471,23 @@ class GoogleDrive(OAuthHTTP):
                 'fields':'files(id)', 'pageSize':2}).json().get('files', [])
             if len(response) > 1:
                 raise StorageError('Ambiguous storage directory.')
+            if not response and not create:
+                return None
             parent = response[0]['id'] if response else self.request('POST', self.base, headers=self.headers(), json={
                 'name':part, 'mimeType':'application/vnd.google-apps.folder', 'parents':[parent]}, params={'fields':'id'}).json()['id']
             self.private_info(parent)
         return parent
+
+    def remove_empty_dir(self, key):
+        safe_key(key)
+        ref = self.directory(key, create=False)
+        if not ref:
+            return
+        children = self.request('GET', self.base, headers=self.headers(), params={
+            'q': f"'{ref}' in parents and trashed = false", 'fields':'files(id)', 'pageSize':1}).json()
+        if children.get('files'):
+            raise StorageError('Directory still contains files; cleanup will retry.')
+        self.delete(ref)
 
     def ensure_dir(self, key):
         safe_key(key)
@@ -437,6 +505,7 @@ class GoogleDrive(OAuthHTTP):
                 for item in response.get('files', []):
                     key = f'{prefix}/{item["name"]}' if prefix else item['name']
                     if item['mimeType'] == 'application/vnd.google-apps.folder':
+                        yield key, None
                         yield from walk(item['id'], key)
                     else:
                         yield key, item['id']
@@ -446,6 +515,38 @@ class GoogleDrive(OAuthHTTP):
         yield from walk(self.config['root'])
 
 class OneDrive(OAuthHTTP):
+    def scan(self):
+        visited = set()
+        def walk(parent, prefix=''):
+            if parent in visited: return
+            visited.add(parent)
+            url = self.base + '/items/' + quote(parent, safe='') + '/children'
+            while url:
+                if not url.startswith(self.base.rsplit('/me/drive', 1)[0] + '/'):
+                    raise StorageError('Invalid OneDrive pagination URL.')
+                response = self.request('GET', url, headers=self.headers()).json()
+                for item in response.get('value', []):
+                    name = safe_key(item['name'])
+                    key = f'{prefix}/{name}' if prefix else name
+                    if 'folder' in item:
+                        yield key, None
+                        yield from walk(item['id'], key)
+                    elif 'file' in item:
+                        yield key, item['id']
+                url = response.get('@odata.nextLink')
+        yield from walk(self.config['root'])
+
+    def remove_empty_dir(self, key):
+        safe_key(key)
+        item = self.request('GET', self.base + '/items/' + quote(self.config['root'], safe='') + ':/' + quote(key, safe='/'), headers=self.headers(), allowed_status=(404,))
+        if item.status_code == 404:
+            return
+        ref = item.json()['id']
+        children = self.request('GET', self.base + '/items/' + quote(ref, safe='') + '/children', headers=self.headers(), params={'$top':1}).json()
+        if children.get('value') or children.get('@odata.nextLink'):
+            raise StorageError('Directory still contains files; cleanup will retry.')
+        self.delete(ref)
+
     def drive_id(self):
         if not self.config.get('drive_id'):
             value = self.request('GET', self.base, headers=self.headers(), params={'$select': 'id'}).json().get('id')
@@ -509,12 +610,12 @@ class OneDrive(OAuthHTTP):
         self.config['root'] = result['id']
         self.save_config(self.config)
 
-    def read(self, ref, limit=MAX_BYTES):
+    def read(self, ref, limit=DEFAULT_LIMIT):
         # requests strips Authorization when redirected to a different download host.
         self.private_info(ref)
         return self.download(self.base + '/items/' + quote(ref, safe='') + '/content', limit=limit, headers=self.headers())
 
-    def write(self, key, data, reference=None, limit=MAX_BYTES):
+    def write(self, key, data, reference=None, limit=DEFAULT_LIMIT):
         safe_key(key)
         self.private_info(reference or self.config['root'])
         url = self.base + '/items/' + quote(reference, safe='') + '/content' if reference else self.base + '/items/' + quote(self.config['root'], safe='') + ':/' + quote(key, safe='/') + ':/content'
@@ -557,6 +658,34 @@ class OneDrive(OAuthHTTP):
             self.private_info(parent)
 
 class GitHub(HTTP):
+    def scan(self):
+        self.private_repository()
+        base = 'https://api.github.com/repos/' + '/'.join(quote(p, safe='') for p in self.config['repository'].split('/')) + '/git/trees/'
+        def tree(ref):
+            result = self.request('GET', base + quote(ref, safe=''), headers=self.headers()).json()
+            if result.get('truncated'):
+                raise StorageError('The provider truncated this directory listing. Retry with a smaller storage root.')
+            return result.get('tree', [])
+        entries = tree(self.config['branch'])
+        for part in self.config.get('root', '').strip('/').split('/'):
+            if not part: continue
+            node = next((i for i in entries if i['path'] == part and i['type'] == 'tree'), None)
+            if node is None: raise StorageError('The storage directory does not exist.')
+            entries = tree(node['sha'])
+        def walk(items, prefix=''):
+            for item in items:
+                name = safe_key(item['path'])
+                key = f'{prefix}/{name}' if prefix else name
+                if item['type'] == 'tree':
+                    yield key, None
+                    yield from walk(tree(item['sha']), key)
+                elif item['type'] == 'blob' and item.get('mode') != '120000':
+                    yield key, key
+        yield from walk(entries)
+
+    def remove_empty_dir(self, key):
+        self.delete(safe_key(key) + '/.yourwiki-directory')
+
     def set_grant(self, ref, recipient, role, permission_id=''):
         from .provider_sharing import github_set
         return github_set(self, ref, recipient, role, permission_id)
@@ -598,11 +727,11 @@ class GitHub(HTTP):
     def info(self, ref):
         return self.request('GET', self.url(ref), headers=self.headers(), params={'ref': self.config['branch']}).json()
 
-    def read(self, ref, limit=MAX_BYTES):
+    def read(self, ref, limit=DEFAULT_LIMIT):
         self.private_repository()
         return self.download(self.url(ref), limit=limit, headers={**self.headers(), 'Accept': 'application/vnd.github.raw+json'}, params={'ref': self.config['branch']})
 
-    def write(self, key, data, reference=None, limit=MAX_BYTES):
+    def write(self, key, data, reference=None, limit=DEFAULT_LIMIT):
         self.private_repository()
         body = {'message': 'Yourwiki: save document revision', 'branch': self.config['branch'], 'content': base64.b64encode(bounded(data, limit)).decode()}
         if reference:
@@ -660,6 +789,26 @@ class GitHub(HTTP):
             self.write(marker, b'')
 
 class SFTP(Adapter):
+    def scan(self):
+        with self.client() as client:
+            def walk(directory, prefix=''):
+                for item in client.listdir_attr(directory):
+                    name = safe_key(item.filename)
+                    key = f'{prefix}/{name}' if prefix else name
+                    if stat.S_ISDIR(item.st_mode):
+                        yield key, None
+                        yield from walk(posixpath.join(directory, name), key)
+                    elif stat.S_ISREG(item.st_mode):
+                        yield key, key
+            yield from walk(self.config['root'])
+
+    def remove_empty_dir(self, key):
+        with self.client() as client:
+            try:
+                client.rmdir(self.path(key))
+            except FileNotFoundError:
+                pass
+
     @contextlib.contextmanager
     def client(self):
         import paramiko
@@ -691,11 +840,12 @@ class SFTP(Adapter):
     def path(self, ref):
         return posixpath.join(self.config['root'], safe_key(ref))
 
-    def read(self, ref, limit=MAX_BYTES):
+    def read(self, ref, limit=DEFAULT_LIMIT):
         with self.client() as c, c.open(self.path(ref), 'rb') as f:
-            return bounded(f.read(limit + 1), limit)
+            limit = resolve_limit(limit)
+            return bounded(f.read(limit + 1 if limit is not None else -1), limit)
 
-    def write(self, key, data, reference=None, limit=MAX_BYTES):
+    def write(self, key, data, reference=None, limit=DEFAULT_LIMIT):
         data = bounded(data, limit)
         ref = reference or safe_key(key)
         if '/' in ref:
@@ -754,6 +904,27 @@ class SFTP(Adapter):
                         raise StorageError('Storage directory is unavailable.')
 
 class SMB(Adapter):
+    def scan(self):
+        client = self.client()
+        root = self.path('.yourwiki-scan').rpartition('\\')[0]
+        def walk(directory, prefix=''):
+            for item in client.scandir(directory, port=int(self.config.get('port', 445))):
+                if item.is_symlink(): continue
+                name = safe_key(item.name)
+                key = f'{prefix}/{name}' if prefix else name
+                if item.is_dir():
+                    yield key, None
+                    yield from walk(directory + '\\' + name, key)
+                elif item.is_file():
+                    yield key, key
+        yield from walk(root)
+
+    def remove_empty_dir(self, key):
+        try:
+            self.client().rmdir(self.path(key), port=int(self.config.get('port', 445)))
+        except FileNotFoundError:
+            pass
+
     def client(self):
         import smbclient
         c = self.config
@@ -767,11 +938,12 @@ class SMB(Adapter):
         root = c.get('root', '').strip('/\\').replace('/', '\\')
         return '\\\\' + c['host'] + '\\' + c['share'] + '\\' + (root + '\\' if root else '') + ref.replace('/', '\\')
 
-    def read(self, ref, limit=MAX_BYTES):
+    def read(self, ref, limit=DEFAULT_LIMIT):
         with self.client().open_file(self.path(ref), mode='rb', port=int(self.config.get('port', 445))) as f:
-            return bounded(f.read(limit + 1), limit)
+            limit = resolve_limit(limit)
+            return bounded(f.read(limit + 1 if limit is not None else -1), limit)
 
-    def write(self, key, data, reference=None, limit=MAX_BYTES):
+    def write(self, key, data, reference=None, limit=DEFAULT_LIMIT):
         data = bounded(data, limit)
         ref = reference or safe_key(key)
         if '/' in ref:
@@ -820,6 +992,14 @@ ADAPTERS = {'local': Local, 'google': GoogleDrive, 'onedrive': OneDrive, 'github
 class SafeAdapter:
     def __init__(self, adapter):
         self.adapter = adapter
+
+    def scan(self):
+        try:
+            yield from self.adapter.scan()
+        except StorageError:
+            raise
+        except Exception:
+            raise StorageError('Storage listing is unavailable. Check the connection and try again.') from None
 
     def __getattr__(self, method):
         def invoke(*args, **kwargs):
@@ -903,7 +1083,7 @@ class MountedStorage:
         mount, ref = self.reference(reference)
         return mount_adapter(mount).original_url(ref)
 
-    def read(self, reference, limit=MAX_BYTES):
+    def read(self, reference, limit=DEFAULT_LIMIT):
         mount, ref = self.reference(reference)
         return mount_adapter(mount).read(ref, limit=limit)
 
@@ -915,7 +1095,7 @@ class MountedStorage:
         mount, ref = self.reference(reference)
         return mount_adapter(mount).file_format(ref, key)
 
-    def write(self, key, data, reference=None, limit=MAX_BYTES):
+    def write(self, key, data, reference=None, limit=DEFAULT_LIMIT):
         mount, relative = self.reference(reference) if reference else self.resolve(key)
         if not relative:
             raise StorageError('Cannot write a file over a mountpoint.')
@@ -945,9 +1125,20 @@ class MountedStorage:
         mount, ref = self.reference(reference)
         mount_adapter(mount).delete(ref)
 
+    def remove_empty_dir(self, reference):
+        mount, relative = self.reference(reference)
+        if not relative:
+            raise StorageError('Cannot delete a mountpoint.')
+        mount_adapter(mount).remove_empty_dir(relative)
+
     def ensure_dir(self, key):
         mount, relative = self.resolve(key)
         if relative:
+            from .models import PendingDeletion
+            for pending in PendingDeletion.objects.filter(directory=True).values_list('reference', flat=True):
+                pending_mount, pending_path = self.reference(pending)
+                if pending_mount.pk == mount.pk and (relative == pending_path or relative.startswith(pending_path + '/')):
+                    raise StorageError('This directory is pending deletion. Wait for storage cleanup before recreating it.')
             mount_adapter(mount).ensure_dir(relative)
 
     def probe(self):
@@ -958,12 +1149,24 @@ class MountedStorage:
 
     def scan(self):
         from .models import MountPoint
-        mount = root_mount()
-        adapter = mount_adapter(mount)
-        if not hasattr(adapter.adapter, 'scan'):
-            raise StorageError('Root scanning is not supported by this provider.')
-        for key, reference in adapter.scan():
-            yield key, reference if mount.path == '/' else f'mount:{mount.pk}:{reference}'
+        import logging
+        root_mount()
+        mounts = list(MountPoint.objects.all())
+        failures = []
+        for mount in mounts:
+            try:
+                for key, reference in mount_adapter(mount).scan():
+                    safe_key(key)
+                    logical = key if mount.path == '/' else mount.path.strip('/') + '/' + key
+                    # A more specific mount hides this path in its parent source.
+                    route = max((m for m in mounts if m.path == '/' or '/' + logical == m.path or ('/' + logical).startswith(m.path + '/')), key=lambda m:len(m.path))
+                    if route.pk != mount.pk: continue
+                    yield logical, (reference if mount.path == '/' else f'mount:{mount.pk}:{reference}') if reference is not None else None
+            except StorageError:
+                failures.append(str(mount.pk))
+                logging.getLogger(__name__).warning('Storage discovery deferred for mount %s', mount.pk)
+        if failures:
+            raise StorageError('Storage listing failed for mount(s): ' + ', '.join(failures) + '. Other available mounts were scanned.')
 
 
 def active_storage():

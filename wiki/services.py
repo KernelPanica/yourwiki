@@ -5,10 +5,10 @@ from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
 from django.utils import timezone
 from .models import Document, Invitation
-from .storage import active_storage, MAX_BYTES
+from .storage import active_storage, file_limit_bytes
 
 log = logging.getLogger('wiki')
-EXTENSIONS = {'document': 'md', 'table': 'csv', 'drawio': 'drawio', 'canvas': 'canvas', 'file': 'bin'}
+EXTENSIONS = {'document': 'md', 'table': 'csv', 'presentation': 'pptx', 'drawio': 'drawio', 'canvas': 'canvas', 'file': 'bin'}
 
 
 def storage_key(doc, directory=None, title=None, extension=None):
@@ -22,14 +22,15 @@ class Conflict(Exception):
     pass
 
 
-def validate_content(kind, content, limit=5):
+def validate_content(kind, content, limit=None):
+    cap = file_limit_bytes() if limit is None else (limit * 1024 * 1024 if limit else None)
     if kind == 'file':
-        if not isinstance(content, (str, bytes)) or len(content.encode() if isinstance(content, str) else content) > min(MAX_BYTES, limit*1024*1024):
-            raise ValidationError(f'Files must be smaller than {min(5, limit)} MB.')
+        if not isinstance(content, (str, bytes)) or (cap is not None and len(content.encode() if isinstance(content, str) else content) > cap):
+            raise ValidationError(f'Files exceed the configured size limit ({cap // (1024*1024) if cap else 0} MB).')
         return
     if kind not in EXTENSIONS or not isinstance(content, str):
         raise ValidationError('Unsupported document type.')
-    if len(content.encode()) > min(MAX_BYTES, limit*1024*1024):
+    if cap is not None and len(content.encode()) > cap:
         raise ValidationError(f'Documents must be smaller than {limit} MB.')
     from .native import unpack, validate_native
     native = unpack(content)
@@ -111,11 +112,13 @@ def save_document(user, title, kind, collection, content, group, doc=None, revis
                        inherit_permissions=True, path_synced=True)
         from .models import SiteConfiguration
         doc.policy = SiteConfiguration.current().default_document_policy
-        doc.file_format = (file_format or 'docx') if kind == 'document' else 'ods' if kind == 'table' else ''
-    if file_format and file_format not in {'document': ('md', 'docx'), 'table': ('ods',)}.get(kind, ()):
+        doc.file_format = (file_format or 'docx') if kind == 'document' else 'ods' if kind == 'table' else 'pptx' if kind == 'presentation' else ''
+    if file_format and file_format not in {'document': ('md', 'docx'), 'table': ('ods',), 'presentation': ('pptx',)}.get(kind, ()):
         raise ValidationError('Unsupported file format.')
     if not doc.file_format and kind in ('document', 'table'):
         doc.file_format = 'md' if kind == 'document' else 'ods'
+    if kind == 'presentation' and not doc._state.adding:
+        raise ValidationError('Open the visual editor to edit this presentation.')
     adapter = active_storage()
     from .native import unpack
     key = storage_key(doc, title=title, extension='wiki.json' if not doc.file_format and kind != 'file' and unpack(content) else None)
@@ -168,25 +171,8 @@ def redeem_invitation(token, user):
 
 
 def delete_document(user, doc):
-    from .models import PendingDeletion
-    with transaction.atomic():
-        current = Document.objects.get(pk=doc.pk)
-        require(current, user, 'write')
-        if current.revision != doc.revision:
-            raise Conflict('This document changed. Reload before deleting.')
-        job = PendingDeletion.objects.create(reference=current.reference)
-        if current.history_reference:
-            PendingDeletion.objects.create(reference=current.history_reference)
-        for attachment in current.attachments.all():
-            PendingDeletion.objects.create(reference=attachment.reference)
-        current.delete()
-    # The catalog deletion and cleanup task commit together. If the provider is
-    # offline, access is still removed and the worker retries the physical deletion.
-    try:
-        active_storage().delete(job.reference)
-    except Exception:
-        return False
-    job.delete()
+    from .trash import trash_document
+    trash_document(user, doc)
     return True
 
 
@@ -198,7 +184,10 @@ def cleanup_storage():
     adapter = active_storage()
     for job in jobs:
         try:
-            adapter.delete(job.reference)
+            if job.directory:
+                adapter.remove_empty_dir(job.reference)
+            else:
+                adapter.delete(job.reference)
         except Exception:
             log.warning('Storage deletion retry pending id=%s', job.pk)
             break

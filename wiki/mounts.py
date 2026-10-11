@@ -140,10 +140,14 @@ def create_mount(user, path, config):
         if not group:
             raise ValidationError('Create a group before adding a mount.')
         for part in parts:
-            matches = list(Folder.objects.filter(parent=parent, name__iexact=part))
+            matches = list(Folder.all_objects.filter(parent=parent, name__iexact=part))
+            if matches and matches[0].trash_id:
+                raise ValidationError('Restore or permanently delete the folder in trash before mounting this path.')
             if len(matches) > 1 or matches and matches[0].name != part:
                 raise ValidationError('Mount path conflicts with an existing directory name.')
             parent = matches[0] if matches else Folder.objects.create(name=part, parent=parent, owner=user, group=group)
+        from .trash import ensure_no_trashed_descendants
+        ensure_no_trashed_descendants(parent)
         if parent.children.exists() or parent.documents.exists():
             raise ValidationError('Mount onto an empty directory so existing files are not hidden.')
         from .storage import active_storage
@@ -165,6 +169,19 @@ def mountpoints(request):
     action = request.POST.get('action', 'save')
     form = MountForm(request.POST if request.method == 'POST' and action == 'save' else None, provider=provider, mount=editing)
     if request.method == 'POST':
+        if action == 'reconnect':
+            mount = get_object_or_404(MountPoint, pk=request.POST.get('mount'), provider='google')
+            from install import authorization_url
+            config = decrypt(mount.encrypted_config)
+            # Reauthorization retains this mount and its existing source directory.
+            config.pop('token', None)
+            config.pop('token_until', None)
+            state, verifier = secrets.token_urlsafe(32), secrets.token_urlsafe(64)
+            request.session['google_mount_oauth'] = encrypt({'state':state, 'verifier':verifier,
+                'created':time.time(), 'user':request.user.pk, 'mount':mount.pk,
+                'path':mount.path, 'config':config, 'redirect_uri':google_callback_uri(),
+                'previous_config':mount.encrypted_config})
+            return redirect(authorization_url(config, google_callback_uri(), state, verifier))
         if action in ('test', 'unmount'):
             mount = get_object_or_404(MountPoint, pk=request.POST.get('mount'))
             if action == 'test':
@@ -204,7 +221,7 @@ def mountpoints(request):
                 messages.success(request, 'Mount connected. Create or upload files in its directory.')
             return redirect('mountpoints')
     return render(request, 'wiki/mounts.html', {'mounts':MountPoint.objects.select_related('folder'),
-        'google_callback_uri':google_callback_uri(), 'form':form, 'provider':provider, 'providers':PROVIDERS.items(), 'editing':editing, 'section':'Mountpoints'}, status=400 if form.errors else 200)
+        'google_callback_uri':google_callback_uri(), 'has_google_mount':MountPoint.objects.filter(provider='google').exists(), 'form':form, 'provider':provider, 'providers':PROVIDERS.items(), 'editing':editing, 'section':'Mountpoints'}, status=400 if form.errors else 200)
 
 
 def google_callback_uri():
@@ -248,6 +265,16 @@ def google_callback(request):
     if not config.get('root'):
         adapter.create_root(pending['path'].rsplit('/', 1)[-1])
     adapter.probe()
-    mounted = create_mount(request.user, pending['path'], config)
+    if pending.get('mount'):
+        with transaction.atomic():
+            mounted = get_object_or_404(MountPoint, pk=pending['mount'], provider='google')
+            if mounted.encrypted_config != pending['previous_config']:
+                raise ValidationError(_('Storage credentials changed during authorization. Start again.'))
+            mounted.encrypted_config = encrypt(config)
+            mounted.save(update_fields=['encrypted_config'])
+            if mounted.path == '/':
+                Workspace.objects.filter(pk=1).update(encrypted_config=mounted.encrypted_config)
+    else:
+        mounted = create_mount(request.user, pending['path'], config)
     messages.success(request, _('Mount connected. Create or upload files in its directory.'))
     return redirect('mountpoints')

@@ -1,0 +1,66 @@
+[
+  {
+    "path": "wiki/fonts/office/tinos/Tinos-Bold.ttf",
+    "stamp": "393269dbab8899f938db19783eca5eac92eb431f7ae0ab45b8349ca895f1a06b"
+  },
+  {
+    "path": "wiki/fonts/office/tinos/Tinos-BoldItalic.ttf",
+    "stamp": "a5de79f0fe863ea0954757acb3d47b3ccd0a930ce3dd5b97230cd3866790a06e"
+  },
+  {
+    "path": "wiki/fonts/office/tinos/Tinos-Italic.ttf",
+    "stamp": "5942266ed398b155d7dc23e36833e7ec6be988f2439bdbeb8ef1bede808eaa91"
+  },
+  {
+    "path": "wiki/fonts/office/tinos/Tinos-Regular.ttf",
+    "stamp": "60a0e8ef0c04dd5dd69ffe91025fa2ae5836cbd35600a82ba031977557e2cb61"
+  },
+  {
+    "path": "wiki/fonts/office/oswald/Oswald[wght].ttf",
+    "stamp": "5b38c246e255a12f5712d640d56bcced0472466fc68983d2d0410ec0457c2817"
+  },
+  {
+    "path": "wiki/fonts/office/anton/Anton-Regular.ttf",
+    "stamp": "1bd86879690244ad949c1bf51f688f38498e5c06bd765716d1c9abbb21365a7e"
+  },
+  {
+    "path": "wiki/fonts/office/roboto/Roboto-Italic[wdth,wght].ttf",
+    "stamp": "9725a847af6b460ffca162ae66d20dad48b01876137947180b42d7dcd7887182"
+  },
+  {
+    "path": "wiki/fonts/office/roboto/Roboto[wdth,wght].ttf",
+    "stamp": "d7598e12c5dbef095ff8272cfc55da0250bd07fbdecbac8a530b9b277872a134"
+  },
+  {
+    "path": "wiki/fonts/office/opensans/OpenSans-Italic[wdth,wght].ttf",
+    "stamp": "fe269381e992f32e135801740998544d6235061e37c93ec067ad2be3edd5b17b"
+  },
+  {
+    "path": "wiki/fonts/office/opensans/OpenSans[wdth,wght].ttf",
+    "stamp": "36643644f318a812aab2d2ed3bb98f8cf0872527f835fe9398d95fe6b9adb878"
+  },
+  {
+    "path": "wiki/fonts/office/arimo/Arimo-Italic[wght].ttf",
+    "stamp": "a80fc54fd0233c1dfe298577c4d00f5ae81d5bb83510975e473c47e699b7f4ed"
+  },
+  {
+    "path": "wiki/fonts/office/arimo/Arimo[wght].ttf",
+    "stamp": "e43898b143ec826ac8cb4034816458a7047fbe0836558de2a1f8c6223ae3e0ca"
+  },
+  {
+    "path": "wiki/fonts/office/cousine/Cousine-Bold.ttf",
+    "stamp": "17c8a7245156d2253531c9e529474937b09d9f641c5ae7695c5e33f22822eef4"
+  },
+  {
+    "path": "wiki/fonts/office/cousine/Cousine-BoldItalic.ttf",
+    "stamp": "848e858726fee0ae27b754e4cd6a2755209bf1428a8c91f747696d58c33906c3"
+  },
+  {
+    "path": "wiki/fonts/office/cousine/Cousine-Italic.ttf",
+    "stamp": "ea2a76ae3d0ece9cd59f0d30fdc08dd70e8f5f457beee5b0852a7b50c2286c7c"
+  },
+  {
+    "path": "wiki/fonts/office/cousine/Cousine-Regular.ttf",
+    "stamp": "1da22250675fc4c42fcf3a9736c44bc0570516105331443b663fd5cfbd1412fe"
+  }
+]

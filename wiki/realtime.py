@@ -75,7 +75,7 @@ async def maintenance():
                     await sync_to_async(refresh, thread_sensitive=False)(doc_id)
                 except Exception:
                     log.warning('External synchronization deferred for document %s', doc_id)
-            ids = await sync_to_async(lambda: list(Collaboration.objects.filter(updated_at__lte=timezone.now()-timedelta(seconds=1.5)).exclude(sequence=0).exclude(document__save_sessions__state__in=['conflict','denied','unknown']).values_list('document_id',flat=True)))()
+            ids = await sync_to_async(lambda: list(Collaboration.objects.filter(document__trash__isnull=True, updated_at__lte=timezone.now()-timedelta(seconds=1.5)).exclude(sequence=0).exclude(document__save_sessions__state__in=['conflict','denied','unknown']).values_list('document_id',flat=True)))()
             for doc_id in ids:
                 try:
                     await sync_to_async(flush_room, thread_sensitive=False)(doc_id)
@@ -93,13 +93,17 @@ async def maintenance():
 async def application(scope, receive, send):
     if scope['type'] == 'lifespan':
         worker = None
+        discovery_worker = None
         while True:
             event = await receive()
             if event['type'] == 'lifespan.startup':
                 worker = asyncio.create_task(maintenance())
+                from .discovery import discover_sources
+                discovery_worker = asyncio.create_task(discover_sources())
                 await send({'type':'lifespan.startup.complete'})
             elif event['type'] == 'lifespan.shutdown':
                 if worker: worker.cancel()
+                if discovery_worker: discovery_worker.cancel()
                 await send({'type':'lifespan.shutdown.complete'})
                 return
     match = re.fullmatch(r'/ws/documents/([0-9a-f-]{36})/',scope['path'])
@@ -141,7 +145,9 @@ async def application(scope, receive, send):
             if not done: continue
             event = pending.result()
             if event['type'] == 'websocket.disconnect': break
-            if len(event.get('text','')) > 9*1024*1024: raise ValueError('Oversized update')
+            from .storage import auxiliary_limit_bytes
+            cap = await sync_to_async(auxiliary_limit_bytes)(9*1024*1024, 3)
+            if cap is not None and len(event.get('text','')) > cap: raise ValueError('Oversized update')
             data = json.loads(event.get('text','{}'))
             if data.get('type') == 'presence':
                 try:

@@ -10,12 +10,15 @@ from .storage import active_storage, bounded
 CONFLICT = 'The original changed. Automatic saving is paused; copy or download your edits before reloading.'
 
 
-def write_snapshot(document, content, key, *, user, adapter=None, new=False):
+def write_snapshot(document, content, key, *, user, adapter=None, new=False, raw=False):
     """Shared by source/API, PDF and CRDT flush. Never bypass current ACL."""
     if not new:
         require(Document.objects.get(pk=document.pk), user, 'write')
+        if not raw:
+            from .collabora import check_available
+            check_available(document)
     from .file_history import persist
-    return persist(document, content, key, new=new, adapter=adapter or active_storage(),user=user)
+    return persist(document, content, key, new=new, adapter=adapter or active_storage(),user=user,raw=raw)
 
 
 @transaction.atomic

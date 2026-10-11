@@ -205,3 +205,5 @@ def test_cross_filesystem_move_keeps_original_without_copy(tmp_path):
             source.move_to(reference, destination, 'moved.md')
     assert source.read(reference) == b'original content'
     assert not destination.path('moved.md').exists()
+
+pytestmark = pytest.mark.django_db

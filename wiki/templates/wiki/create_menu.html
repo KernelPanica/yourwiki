@@ -1,0 +1,8 @@
+{% load wiki_ui i18n %}
+<details class="create-menu" data-disclosure>
+  <summary class="{% if prominent %}button primary{% else %}icon-button{% endif %}" aria-label="{% translate 'Create' %}" title="{% translate 'Create' %}">{% icon 'plus' %}{% if prominent %}<span>{% translate 'Create' %}</span>{% endif %}</summary>
+  <div class="create-menu-panel">
+    <a class="nav-item" href="{% url 'new-directory' %}{% if current_path %}?path={{ current_path|urlencode }}{% elif folder %}?folder={{ folder.pk }}{% endif %}">{% icon 'folder' %}<span>{% translate 'Folder' %}</span></a>
+    <a class="nav-item" href="{% url 'new' %}{% if folder %}?folder={{ folder.pk }}{% elif current_path %}?path={{ current_path|urlencode }}{% endif %}">{% icon 'file' %}<span>{% translate 'File' %}</span></a>
+  </div>
+</details>

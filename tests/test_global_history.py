@@ -82,3 +82,23 @@ def test_mount_credential_edit_preserves_legacy_override(client,workspace):
     mount.refresh_from_db()
     assert mount.revision_history is True
     assert not SiteConfiguration.current().revision_history
+
+
+def test_administrator_can_toggle_global_history_and_member_cannot(client, workspace, document):
+    from django.urls import reverse
+    url = reverse('settings')
+    client.force_login(workspace['admin'])
+    response = client.get(url)
+    assert response.status_code == 200
+    assert b'name="revision_history"' in response.content
+    payload = dict(response.context['form'].initial)
+    payload['revision_history'] = 'on'
+    assert client.post(url, payload).status_code == 302
+    assert document.history_enabled()
+    client.force_login(workspace['member'])
+    assert client.post(url, payload).status_code == 500  # Site-wide deny contract.
+    assert document.history_enabled()
+    client.force_login(workspace['admin'])
+    payload.pop('revision_history')
+    assert client.post(url, payload).status_code == 302
+    assert not document.history_enabled()

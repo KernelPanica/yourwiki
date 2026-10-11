@@ -12,4 +12,5 @@ try:
     call_command('sync_storage_tree', verbosity=0)
 except CommandError as error:
     print(f'{error} The web server will start; retry with python manage.py sync_storage_tree.', flush=True)
-os.execvp('uvicorn',['uvicorn','config.asgi:application','--host','0.0.0.0','--port','8000','--workers','1','--ws-max-size','9437184','--no-access-log'])
+import uvicorn
+uvicorn.run('config.asgi:application', host='0.0.0.0', port=8000, workers=1, ws_max_size=None, access_log=False)

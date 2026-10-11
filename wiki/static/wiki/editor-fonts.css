@@ -1,0 +1,27 @@
+@font-face{font-family:"Tinos";src:url("fonts/office/tinos/Tinos-Bold.ttf") format("truetype");font-weight:700;font-style:normal;font-display:swap}
+@font-face{font-family:"Times New Roman";src:url("fonts/office/tinos/Tinos-Bold.ttf") format("truetype");font-weight:700;font-style:normal;font-display:swap}
+@font-face{font-family:"Tinos";src:url("fonts/office/tinos/Tinos-BoldItalic.ttf") format("truetype");font-weight:700;font-style:italic;font-display:swap}
+@font-face{font-family:"Times New Roman";src:url("fonts/office/tinos/Tinos-BoldItalic.ttf") format("truetype");font-weight:700;font-style:italic;font-display:swap}
+@font-face{font-family:"Tinos";src:url("fonts/office/tinos/Tinos-Italic.ttf") format("truetype");font-weight:400;font-style:italic;font-display:swap}
+@font-face{font-family:"Times New Roman";src:url("fonts/office/tinos/Tinos-Italic.ttf") format("truetype");font-weight:400;font-style:italic;font-display:swap}
+@font-face{font-family:"Tinos";src:url("fonts/office/tinos/Tinos-Regular.ttf") format("truetype");font-weight:400;font-style:normal;font-display:swap}
+@font-face{font-family:"Times New Roman";src:url("fonts/office/tinos/Tinos-Regular.ttf") format("truetype");font-weight:400;font-style:normal;font-display:swap}
+@font-face{font-family:"Oswald";src:url("fonts/office/oswald/Oswald[wght].ttf") format("truetype");font-weight:100 900;font-style:normal;font-display:swap}
+@font-face{font-family:"Impact";src:local("Impact"),url("fonts/office/oswald/Oswald[wght].ttf") format("truetype");font-weight:100 900;font-style:normal;font-display:swap}
+@font-face{font-family:"Anton";src:url("fonts/office/anton/Anton-Regular.ttf") format("truetype");font-weight:400;font-style:normal;font-display:swap}
+@font-face{font-family:"Roboto";src:url("fonts/office/roboto/Roboto-Italic[wdth,wght].ttf") format("truetype");font-weight:100 900;font-style:italic;font-display:swap}
+@font-face{font-family:"Roboto";src:url("fonts/office/roboto/Roboto[wdth,wght].ttf") format("truetype");font-weight:100 900;font-style:normal;font-display:swap}
+@font-face{font-family:"Open Sans";src:url("fonts/office/opensans/OpenSans-Italic[wdth,wght].ttf") format("truetype");font-weight:100 900;font-style:italic;font-display:swap}
+@font-face{font-family:"Open Sans";src:url("fonts/office/opensans/OpenSans[wdth,wght].ttf") format("truetype");font-weight:100 900;font-style:normal;font-display:swap}
+@font-face{font-family:"Arimo";src:url("fonts/office/arimo/Arimo-Italic[wght].ttf") format("truetype");font-weight:100 900;font-style:italic;font-display:swap}
+@font-face{font-family:"Arial";src:url("fonts/office/arimo/Arimo-Italic[wght].ttf") format("truetype");font-weight:100 900;font-style:italic;font-display:swap}
+@font-face{font-family:"Arimo";src:url("fonts/office/arimo/Arimo[wght].ttf") format("truetype");font-weight:100 900;font-style:normal;font-display:swap}
+@font-face{font-family:"Arial";src:url("fonts/office/arimo/Arimo[wght].ttf") format("truetype");font-weight:100 900;font-style:normal;font-display:swap}
+@font-face{font-family:"Cousine";src:url("fonts/office/cousine/Cousine-Bold.ttf") format("truetype");font-weight:700;font-style:normal;font-display:swap}
+@font-face{font-family:"Courier New";src:url("fonts/office/cousine/Cousine-Bold.ttf") format("truetype");font-weight:700;font-style:normal;font-display:swap}
+@font-face{font-family:"Cousine";src:url("fonts/office/cousine/Cousine-BoldItalic.ttf") format("truetype");font-weight:700;font-style:italic;font-display:swap}
+@font-face{font-family:"Courier New";src:url("fonts/office/cousine/Cousine-BoldItalic.ttf") format("truetype");font-weight:700;font-style:italic;font-display:swap}
+@font-face{font-family:"Cousine";src:url("fonts/office/cousine/Cousine-Italic.ttf") format("truetype");font-weight:400;font-style:italic;font-display:swap}
+@font-face{font-family:"Courier New";src:url("fonts/office/cousine/Cousine-Italic.ttf") format("truetype");font-weight:400;font-style:italic;font-display:swap}
+@font-face{font-family:"Cousine";src:url("fonts/office/cousine/Cousine-Regular.ttf") format("truetype");font-weight:400;font-style:normal;font-display:swap}
+@font-face{font-family:"Courier New";src:url("fonts/office/cousine/Cousine-Regular.ttf") format("truetype");font-weight:400;font-style:normal;font-display:swap}

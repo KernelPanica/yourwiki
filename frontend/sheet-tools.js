@@ -1,3 +1,4 @@
+import {loadGoogleFont,extendFontSelector} from './google-fonts.js';
 import {sheetInputValue,displayFormula} from './sheet-formulas.js';
 
 export function createSheetTools({parent,getWorkbook,functions,russian,translate=value=>value,editable,onError}){
@@ -6,13 +7,14 @@ export function createSheetTools({parent,getWorkbook,functions,russian,translate
   const controls=[];
   const activeRange=()=>getWorkbook()?.getActiveSheet()?.getActiveRange();
   const activeCell=()=>{const sheet=getWorkbook()?.getActiveSheet(),range=sheet?.getActiveRange()?.getRange();return range?sheet.getRange(range.startRow,range.startColumn):null;};
-  const run=action=>{if(!editable)return;try{action();refresh();}catch(cause){onError(cause);}};
+  const run=async action=>{if(!editable)return;try{await action();refresh();}catch(cause){onError(cause);}};
   const select=(label,items,action)=>{
     const control=document.createElement('select');control.setAttribute('aria-label',label);control.title=label;
     for(const [value,name] of items){const option=document.createElement('option');option.value=value;option.textContent=name;control.append(option);}
-    control.addEventListener('change',()=>run(()=>{const range=activeRange();if(range)action(range,control.value);}));toolbar.append(control);controls.push(control);return control;
+    control.addEventListener('change',()=>run(()=>{const range=activeRange();if(range)return action(range,control.value);}));toolbar.append(control);controls.push(control);return control;
   };
-  const font=select(text('Шрифт','Font'),['Arial','Calibri','Cambria','Georgia','Times New Roman','Verdana','Courier New','Comic Sans MS'].map(name=>[name,name]),(range,value)=>range.setFontFamily(value));
+  const font=select(text('Шрифт','Font'),['Arial','Calibri','Cambria','Georgia','Times New Roman','Tinos','Oswald','Anton','Roboto','Open Sans','Arimo','Cousine','Impact','Verdana','Courier New','Comic Sans MS'].map(name=>[name,name]),async (range,value)=>{await loadGoogleFont(value);range.setFontFamily(value);});
+  extendFontSelector(font,onError);
   const size=select(text('Размер шрифта','Font size'),[8,9,10,11,12,14,16,18,20,24,28,32,36,48,72].map(value=>[String(value),String(value)]),(range,value)=>range.setFontSize(Number(value)));
   const number=select(text('Формат числа','Number format'),[['',text('Автоматически','Automatic')],['0',text('Целое число','Integer')],['0.00',text('Число · 2 знака','Number · 2 decimals')],['#,##0.00',text('С разделителем тысяч','Thousands separator')],['0.00%',text('Проценты','Percent')],['₽#,##0.00',text('Рубли','Rubles')],['yyyy-mm-dd',text('Дата','Date')],['hh:mm:ss',text('Время','Time')],['@',text('Текст','Text')]],(range,value)=>range.setNumberFormat(value));
   const hint=document.createElement('span');hint.className='sheet-tools-hint';hint.textContent=text('Форматирование применяется к выделенным ячейкам','Formatting applies to selected cells');toolbar.append(hint);

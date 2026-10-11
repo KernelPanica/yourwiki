@@ -42,7 +42,7 @@ def ask(label, default='', secret=False):
 def authorization_url(config, redirect_uri, state, verifier):
     provider = config['provider']
     auth_endpoint='https://accounts.google.com/o/oauth2/v2/auth' if provider=='google' else f"https://login.microsoftonline.com/{quote(config.get('tenant','common'),safe='')}/oauth2/v2.0/authorize"
-    scope='https://www.googleapis.com/auth/drive.file' if provider=='google' else 'offline_access Files.ReadWrite'
+    scope='https://www.googleapis.com/auth/drive' if provider=='google' else 'offline_access Files.ReadWrite'
     params={'client_id':config['client_id'],'redirect_uri':redirect_uri,'response_type':'code','scope':scope,'state':state,'code_challenge':base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b'=').decode(),'code_challenge_method':'S256'}
     if provider=='google': params.update(access_type='offline',prompt='consent')
     return auth_endpoint + '?' + urlencode(params)
@@ -173,7 +173,7 @@ def run(args):
         except BlockingIOError: raise ValueError('Another setup process is running.')
         runtime_file=secrets_dir/'runtime.json'
         runtime=json.loads(runtime_file.read_text()) if runtime_file.exists() else {}
-        supplied=json.loads(Path(args.config).read_text()) if args.config else None
+        supplied=getattr(args,'supplied_config',None) or (json.loads(Path(args.config).read_text()) if args.config else None)
         public_url=runtime.get('public_url') or (supplied or {}).get('public_url') or ask('Public HTTPS URL (for example https://wiki.example.com)')
         parsed=urlparse(public_url)
         if parsed.scheme not in ('https','http') or not parsed.hostname or parsed.path not in ('','/') or parsed.query or parsed.fragment or parsed.username:
@@ -218,12 +218,13 @@ def run(args):
             if not args.reconnect:
                 Workspace.objects.update_or_create(pk=1,defaults={'provider':updated['provider'],'encrypted_config':encrypt(updated),'initialized':False})
         if c['provider'] in ('google','onedrive'):
-            if not supplied or not c.get('refresh_token'): authorize(c,public_url)
+            if not supplied or not c.get('refresh_token'): getattr(args,'authorize_callback',authorize)(c,public_url)
             checkpoint(c)
         adapter=SafeAdapter(ADAPTERS[c['provider']](c,checkpoint))
         if c['provider'] in ('google','onedrive') and not c.get('root'):
             adapter.create_root('Yourwiki')
         checkpoint(c)
+        getattr(args,'progress',lambda message: None)('Проверяем чтение, запись и удаление в хранилище…')
         print('Checking storage create/read/update/delete access…',flush=True)
         adapter.probe()
         with transaction.atomic():
@@ -250,8 +251,15 @@ def main():
     parser.add_argument('--config',help='Read unattended setup from a private JSON file (never put secrets in CLI arguments)')
     parser.add_argument('--allow-http',action='store_true',help='Local development only')
     parser.add_argument('--debug',action='store_true',help='Print an unexpected setup traceback; redact it before sharing')
+    parser.add_argument('--cli',action='store_true',help='Use the terminal wizard instead of the browser')
+    parser.add_argument('--bind',default=os.environ.get('SETUP_BIND','127.0.0.1'),help='Browser installer listen address')
+    parser.add_argument('--port',type=int,default=int(os.environ.get('SETUP_PORT','8000')),help='Browser installer port')
     args=parser.parse_args()
-    try: run(args)
+    try:
+        if not args.cli and not args.config:
+            from install_gui import serve
+            return serve(args)
+        run(args)
     except KeyboardInterrupt:
         print('\nSetup interrupted. Run it again to resume.');return 1
     except Exception as error:

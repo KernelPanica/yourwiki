@@ -1,5 +1,7 @@
+from django.utils.translation import gettext as _
 """Filesystem directories and moves across mounted providers."""
 import json
+import hashlib
 from django.contrib import messages
 from django.contrib.auth.models import Group
 from django.core.exceptions import PermissionDenied, ValidationError
@@ -15,8 +17,10 @@ from .views import guarded
 
 
 def accessible(user, action='read'):
-    return [f for f in Folder.objects.select_related('parent', 'group', 'owner')
-            if f.allows(user, 'read') and f.allows(user, action)]
+    from .access_graph import access_graph
+    folders, _, _ = access_graph(user)
+    return [f for f in folders if not f.trash_id
+            and f.allows(user, 'read') and (action == 'read' or f.allows(user, action))]
 
 
 def breadcrumbs(folder, user):
@@ -75,7 +79,7 @@ def resolve_path(user, value):
     for part in value.strip('/').split('/') if value.strip('/') else []:
         if not part or part in ('.', '..'):
             raise ValidationError('Use directory names without . or .. segments.')
-        matches = [f for f in Folder.objects.filter(parent=parent, name=part)
+        matches = [f for f in Folder.all_objects.filter(parent=parent, name=part)
                    if f.allows(user, 'read')]
         if len(matches) != 1:
             raise ValidationError('Path unavailable or ambiguous. Choose an existing accessible directory.')
@@ -96,7 +100,7 @@ def create_directory(request):
             parent = target_folder(request.user, form.cleaned_data['folder']) if form.cleaned_data['folder'] else resolve_path(request.user, form.cleaned_data['path'])
             if path_depth(parent) >= 32:
                 form.add_error('path', 'Directories support at most 32 nested levels.')
-            elif Folder.objects.filter(parent=parent, name__iexact=form.cleaned_data['name']).exists():
+            elif Folder.all_objects.filter(parent=parent, name__iexact=form.cleaned_data['name']).exists():
                 form.add_error('name', 'This name is unavailable in that directory.')
             else:
                 group = parent.group if parent else request.user.groups.first() or (Group.objects.first() if request.user.is_superuser else None)
@@ -128,11 +132,13 @@ def move_item(user, item, destination, rename=None):
     if destination:
         require(destination, user, 'write')
     if isinstance(item, Folder):
+        from .trash import ensure_no_trashed_descendants
+        ensure_no_trashed_descendants(item)
         from .models import MountPoint
         prefix = '/' + storage_path(item)
         if MountPoint.objects.filter(path=prefix).exists() or MountPoint.objects.filter(path__startswith=prefix + '/').exists():
             raise ValidationError('Unmount this directory and its nested mounts before moving or renaming it.')
-        if Folder.objects.filter(parent=destination, name__iexact=rename or item.name).exclude(pk=item.pk).exists():
+        if Folder.all_objects.filter(parent=destination, name__iexact=rename or item.name).exclude(pk=item.pk).exists():
             raise ValidationError('This directory name is unavailable at the destination.')
         depth=path_depth(destination)+1
         pending=[(item,depth)]
@@ -225,7 +231,7 @@ def folder_page(request, id=None):
                     require(folder, request.user, 'write')
                 name = request.POST.get('name', '').strip()
                 validate_directory_name(name)
-                if Folder.objects.filter(parent=folder, name__iexact=name).exists():
+                if Folder.all_objects.filter(parent=folder, name__iexact=name).exists():
                     raise ValidationError('This name is unavailable in that directory.')
                 group = folder.group if folder else request.user.groups.first() or (Group.objects.first() if request.user.is_superuser else None)
                 if not group:
@@ -236,7 +242,7 @@ def folder_page(request, id=None):
                 require(folder, request.user, 'write')
                 name = request.POST.get('name', '').strip()
                 validate_directory_name(name)
-                if Folder.objects.filter(parent=folder.parent, name__iexact=name).exclude(pk=folder.pk).exists():
+                if Folder.all_objects.filter(parent=folder.parent, name__iexact=name).exclude(pk=folder.pk).exists():
                     raise ValidationError('This name is unavailable in that directory.')
                 move_item(request.user, folder, folder.parent, rename=name)
             elif action == 'delete' and folder:
@@ -245,15 +251,21 @@ def folder_page(request, id=None):
                     raise ValidationError('Unmount this directory before deleting it.')
                 if folder.children.exists() or folder.documents.exists():
                     raise ValidationError('Move or remove the contents before deleting this folder.')
-                folder.delete()
+                from .trash import trash_directory
+                trash_directory(request.user, folder)
                 return redirect('folders')
             else:
                 raise ValidationError('Invalid folder operation.')
         return redirect('folder', id=folder.pk) if folder else redirect('folders')
-    children = [f for f in accessible(request.user) if f.parent_id == (folder.pk if folder else None)]
+    from .access_graph import access_graph, attach_documents
+    all_folders, by_id, site = access_graph(request.user)
+    if folder:
+        folder = by_id[folder.pk]
+    children = [f for f in all_folders if not f.trash_id and f.parent_id == (folder.pk if folder else None) and f.allows(request.user, 'read')]
     from .models import MountPoint
     mounts = list(MountPoint.objects.all())
-    docs = [d for d in Document.objects.filter(folder=folder) if d.allows(request.user, 'read')]
+    documents = attach_documents(list(Document.objects.filter(folder=folder).select_related('owner', 'group')), by_id, site, request.user)
+    docs = [d for d in documents if d.allows(request.user, 'read')]
     for child in children:
         child_path = '/' + storage_path(child)
         child.is_mount = any(m.path == child_path for m in mounts)
@@ -304,6 +316,56 @@ def folder_policy(request, id):
     return redirect(reverse('folder_settings',args=[id])+'#access')
 
 
+def deletion_contents(user, folder):
+    """Validate the complete subtree before scheduling any destructive action."""
+    from .models import MountPoint
+    prefix = '/' + storage_path(folder)
+    if MountPoint.objects.filter(path=prefix).exists() or MountPoint.objects.filter(path__startswith=prefix + '/').exists():
+        raise ValidationError('Unmount this directory and its nested mounts before deleting it.')
+    directories, documents, pending, seen = [], [], [folder], set()
+    while pending:
+        node = pending.pop()
+        if node.pk in seen:
+            raise ValidationError('Invalid directory hierarchy.')
+        seen.add(node.pk)
+        require(node, user, 'write')
+        directories.append(node)
+        pending.extend(node.children.all())
+        for doc in node.documents.all():
+            require(doc, user, 'write')
+            documents.append(doc)
+    return directories, documents
+
+
+def deletion_version(directories, documents):
+    entries = sorted([f'folder:{f.pk}:{f.parent_id}:{f.name}' for f in directories] +
+                     [f'file:{d.pk}:{d.revision}:{d.storage_digest}:{d.reference}' for d in documents])
+    return hashlib.sha256('\n'.join(entries).encode()).hexdigest()
+
+
+@guarded
+@require_http_methods(['GET', 'POST'])
+def delete_directory(request, id):
+    from .models import PendingDeletion
+    from .services import cleanup_storage
+    folder = target_folder(request.user, id, 'write')
+    directories, documents = deletion_contents(request.user, folder)
+    if request.method == 'POST':
+        if request.POST.get('confirm') != 'on':
+            raise ValidationError('Confirm deleting the directory and all its contents.')
+        with transaction.atomic():
+            folder = target_folder(request.user, id, 'write')
+            directories, documents = deletion_contents(request.user, folder)
+            from .services import Conflict
+            if request.POST.get('deletion_version') != deletion_version(directories, documents):
+                raise Conflict('Directory contents changed. Review the deletion again.')
+            from .trash import trash_directory
+            trash_directory(request.user, folder, directories, documents)
+        messages.success(request, _('Moved to trash. An administrator can restore these files and folders.'))
+        return redirect('folders')
+    return render(request, 'wiki/delete_directory.html', {'folder':folder, 'deletion_version':deletion_version(directories, documents), 'file_count':len(documents), 'folder_count':len(directories)-1})
+
+
 @guarded
 @require_http_methods(['GET', 'POST'])
 def api_folders(request):
@@ -316,7 +378,7 @@ def api_folders(request):
             parent=target_folder(request.user,data.get('parent')) if data.get('parent') else resolve_path(request.user,data.get('path','/'))
             name=validate_directory_name(data.get('name','').strip())
             if path_depth(parent)>=32: raise ValidationError('Directories support at most 32 nested levels.')
-            if Folder.objects.filter(parent=parent,name__iexact=name).exists(): raise ValidationError('This name is unavailable in that directory.')
+            if Folder.all_objects.filter(parent=parent,name__iexact=name).exists(): raise ValidationError('This name is unavailable in that directory.')
             group=parent.group if parent else request.user.groups.first() or (Group.objects.first() if request.user.is_superuser else None)
             if not group: raise PermissionDenied
             item=Folder.objects.create(name=name,parent=parent,owner=request.user,group=group)
@@ -351,7 +413,7 @@ def api_folder(request,id):
     if request.method=='PUT':
         data=json.loads(request.body)
         if not isinstance(data,dict): raise ValidationError('Use a JSON object.')
-        if not data or set(data)-{'policy','group','group_policies','inherit_permissions'}:
+        if not data or set(data)-{'policy','group','group_policies','user_policies','inherit_permissions'}:
             raise ValidationError('Use read/write access settings.')
         with transaction.atomic():
             folder=target_folder(request.user,id,'write')
@@ -360,5 +422,5 @@ def api_folder(request,id):
     parent=folder.parent if folder.parent and folder.parent.allows(request.user,'read') else None
     return JsonResponse({'id':str(folder.pk),'name':folder.name,'parent':str(parent.pk) if parent else None,
         'policy':normalize_policy(folder.policy),'group_policies':folder.group_policies,
-        'effective_policy':folder.effective_policy()[0],'inherit_permissions':folder.inherit_permissions,
+        'user_policies':folder.user_policies,'effective_policy':folder.effective_policy()[0],'inherit_permissions':folder.inherit_permissions,
         'access':{action:folder.allows(request.user,action) for action in ('read','write')}})

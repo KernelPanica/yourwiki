@@ -21,7 +21,10 @@ from .views import document_for, guarded
 @ensure_csrf_cookie
 def live(request, id):
     doc = document_for(request.user, id)
-    if doc.kind == 'file': return redirect('document', id=doc.pk)
+    from .collabora import eligible
+    if eligible(doc):
+        return redirect('office', id=doc.pk)
+    if doc.kind in ('file', 'presentation'): return redirect('document', id=doc.pk)
     room = ensure_room(doc)
     return render(request, 'wiki/live.html', {'doc':doc, 'section':doc.title,
         'bootstrap':{'id':str(doc.pk),'kind':doc.kind,'title':doc.title,'write':doc.allows(request.user,'write'),
@@ -114,8 +117,10 @@ def upload_attachment(request, id):
     upload = request.FILES.get('file')
     from .models import SiteConfiguration
     config=SiteConfiguration.current()
-    if not upload or upload.size > config.image_limit_mb*1024*1024:
-        raise ValidationError('Choose a PNG, JPEG or WebP image smaller than 5 MB.')
+    from .storage import image_limit_bytes
+    cap = image_limit_bytes()
+    if not upload or (cap is not None and upload.size > cap):
+        raise ValidationError('Choose a PNG, JPEG or WebP image within the configured size limit.')
     try:
         im = Image.open(upload)
         if im.format not in ('PNG','JPEG','WEBP') or im.width*im.height > config.image_limit_megapixels*1000000:
@@ -124,13 +129,13 @@ def upload_attachment(request, id):
         clean = io.BytesIO()
         im.save(clean, format='PNG')
         value = clean.getvalue()
-        if len(value) > config.image_limit_mb*1024*1024: raise ValueError()
+        if cap is not None and len(value) > cap: raise ValueError()
     except (ValueError, OSError, UnidentifiedImageError, Image.DecompressionBombError):
-        raise ValidationError('The image is invalid or exceeds 16 megapixels / 5 MB.')
+        raise ValidationError('The image is invalid or exceeds the configured size or megapixel limit.')
     adapter = active_storage()
     from .folders import storage_path
     directory = storage_path(doc.folder)
-    reference = adapter.write(f'{directory + "/" if directory else ""}.attachments/{doc.pk}-{secrets.token_hex(16)}.png', value)
+    reference = adapter.write(f'{directory + "/" if directory else ""}.attachments/{doc.pk}-{secrets.token_hex(16)}.png', value, limit=cap)
     try:
         with transaction.atomic():
             document_for(request.user, id, 'write')
@@ -145,7 +150,8 @@ def upload_attachment(request, id):
 def attachment(request, id):
     item = get_object_or_404(Attachment.objects.select_related('document'), pk=id)
     require(item.document, request.user, 'read')
-    return HttpResponse(active_storage().read(item.reference), content_type=item.content_type)
+    from .storage import image_limit_bytes
+    return HttpResponse(active_storage().read(item.reference, limit=image_limit_bytes()), content_type=item.content_type)
 
 
 @guarded

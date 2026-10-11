@@ -36,10 +36,14 @@ def google_managed(adapter, ref):
 
 
 def google_set(adapter, ref, recipient, role, permission_id=''):
+    if role not in ('read', 'write'):
+        raise GrantUnavailable('Unsupported Google permission role.')
     adapter.private_info(ref)
     base=adapter.base+'/'+quote(ref,safe='')+'/permissions'
     matches=[p for p in google_permissions(adapter,ref) if p.get('type')=='user' and p.get('emailAddress','').casefold()==recipient.casefold()]
     if any(p.get('role')=='owner' for p in matches):return 'owner'
+    if any(detail.get('inherited') for p in matches for detail in p.get('permissionDetails', [])):
+        raise GrantUnavailable('Google access is inherited from a parent. Remove parent sharing before synchronizing per-file access.')
     body={'role':'writer' if role=='write' else 'reader'}
     if matches:
         pid=matches[0]['id']
@@ -60,6 +64,8 @@ def google_revoke(adapter, ref, recipient, permission_id=''):
         raise
     for p in permissions:
         if p.get('role')!='owner' and p.get('type')=='user' and p.get('emailAddress','').casefold()==recipient.casefold():
+            if any(detail.get('inherited') for detail in p.get('permissionDetails', [])):
+                raise GrantUnavailable('Google access is inherited from a parent. Remove parent sharing before revoking per-file access.')
             adapter.request('DELETE',base+'/'+quote(p['id'],safe=''),headers=adapter.headers(),allowed_status=(404,410))
 
 

@@ -33,7 +33,7 @@ def test_russian_workspace_and_english_fallback(client, workspace, document):
         '/mounts/': 'Точки подключения',
         f'/documents/{document.pk}/live/': 'Сохранить сейчас',
         f'/documents/{document.pk}/': 'Экспорт',
-        f'/documents/{document.pk}/delete/': 'Удалить «A useful document»?',
+        f'/documents/{document.pk}/delete/': 'Переместить «A useful document» в корзину?',
     }
     for url, translated in pages.items():
         response = client.get(url)
@@ -75,7 +75,7 @@ def test_spanish_workspace_and_editor_catalog(client, workspace, document):
         '/mounts/': 'Puntos de montaje', '/settings/ai/': 'Ajustes de IA',
         f'/documents/{document.pk}/live/': 'Guardar ahora',
         f'/documents/{document.pk}/': 'Exportar',
-        f'/documents/{document.pk}/delete/': '¿Eliminar A useful document?',
+        f'/documents/{document.pk}/delete/': '¿Mover A useful document a la papelera?',
     }
     for url, translated in pages.items():
         response = client.get(url)

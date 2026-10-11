@@ -38,7 +38,7 @@ def test_word_gui_edits_merges_and_exports(realtime_server, workspace, file_form
             expect(page.locator('.sidebar')).to_have_attribute('aria-hidden', 'true')
             page.locator('[data-sidebar-open]').click()
             expect(page.locator('.sidebar')).to_have_attribute('aria-hidden', 'false')
-            page.locator('.sidebar [data-sidebar-close]').click()
+            page.locator('[data-sidebar-open]').click()
             expect(page.locator('.topbar')).to_be_visible()
             expect(page.locator('body')).not_to_have_class(re.compile('docs-page'))
             expect(page.locator('main .docs-page #visual-editor')).to_be_visible()

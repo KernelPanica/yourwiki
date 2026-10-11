@@ -1,4 +1,5 @@
 """Durable Yjs-compatible collaboration, with server-derived snapshots."""
+from .storage import file_limit_bytes, auxiliary_limit_bytes
 import base64
 import csv
 import io
@@ -130,8 +131,8 @@ def diagram_data(text):
         page_xml = element_data(page)
         if model is None and page.text:
             decoder = zlib.decompressobj(-15)
-            raw = decoder.decompress(base64.b64decode(page.text), 5*1024*1024+1)
-            if len(raw) > 5*1024*1024 or not decoder.eof: raise ValidationError('Diagram is too large.')
+            raw = decoder.decompress(base64.b64decode(page.text), (file_limit_bytes() + 1) if file_limit_bytes() is not None else 0)
+            if (file_limit_bytes() is not None and len(raw) > file_limit_bytes()) or not decoder.eof: raise ValidationError('Diagram is too large.')
             model = diagram_parse(unquote(raw.decode()))
             page_xml['text'] = None
             page_xml['children'].insert(0, {'slot':'model'})
@@ -323,7 +324,7 @@ def apply_update(user, document_id, encoded, review_id=None, *, generation=None)
         update = base64.b64decode(encoded, validate=True)
     except Exception:
         raise ValidationError('Invalid collaboration update.')
-    if len(update) > 6*1024*1024:
+    if (auxiliary_limit_bytes(6*1024*1024, 3) is not None and len(update) > auxiliary_limit_bytes(6*1024*1024, 3)):
         raise ValidationError('Update is too large.')
     with transaction.atomic():
         document = Document.objects.get(pk=document_id)
@@ -339,7 +340,7 @@ def apply_update(user, document_id, encoded, review_id=None, *, generation=None)
         from .models import SiteConfiguration
         validate_content(document.kind, snapshot, SiteConfiguration.current().document_limit_mb)
         state = ydoc.get_update()
-        if len(state) > 12*1024*1024:
+        if (auxiliary_limit_bytes(12*1024*1024, 3) is not None and len(state) > auxiliary_limit_bytes(12*1024*1024, 3)):
             raise ValidationError('Collaboration history is too large. Export and reimport this document.')
         if review_id:
             review = Review.objects.get(pk=review_id, document=document, kind='suggestion', status='open')

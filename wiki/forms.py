@@ -66,7 +66,7 @@ class DocumentForm(CreationPermissions, forms.Form):
             data['file_format'] = None
         if not self.editing and data.get('kind') != 'file' and data.get('title'):
             import re
-            data['title'] = re.sub(r'\.(docx|md|ods|drawio|canvas)$', '', data['title'], flags=re.IGNORECASE).strip()
+            data['title'] = re.sub(r'\.(docx|md|ods|pptx|drawio|canvas)$', '', data['title'], flags=re.IGNORECASE).strip()
             if not data['title']:
                 self.add_error('title', _('Enter a file name before the extension.'))
         if not self.editing and data.get('path') and not data.get('folder'):

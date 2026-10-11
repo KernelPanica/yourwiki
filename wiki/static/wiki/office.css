@@ -1,0 +1,11 @@
+.collabora-frame{display:block;width:100%;height:calc(100dvh - 240px);min-height:440px;border:1px solid var(--line-soft);border-radius:8px;background:#fff}
+.editor-page:has(.collabora-frame) main{max-width:none;padding:16px 24px}
+.editor-page:has(.collabora-frame) .live-heading h1{font-size:20px;margin:0}
+.editor-page:has(.collabora-frame) .form-actions{margin:12px 0;gap:8px}
+#office-status{font-size:13px;color:var(--muted);margin:8px 0;white-space:pre-wrap}
+#office-status[role=alert]{color:var(--danger)}
+.editor-fullscreen .collabora-frame{height:calc(100dvh - 160px)}
+@media(max-width:600px){.editor-page:has(.collabora-frame) main{padding:8px}.collabora-frame{height:calc(100dvh - 250px);min-height:400px}.editor-page:has(.collabora-frame) .form-actions .button{font-size:12px;padding:6px 10px}}
+
+.office-resizable{height:calc(100dvh - 240px)}
+.office-resizable .collabora-frame{height:0;min-height:0;flex:1;border-radius:8px 8px 0 0}

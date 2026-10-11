@@ -58,9 +58,8 @@ eventBus.on('editingstateschanged',event=>{
 });
 eventBus.on('annotationeditormodechanged', event => {const select=document.getElementById('pdf-tool');if(select)select.value=String(event.mode);});
 container.addEventListener('input', () => {if (boot.write) changed();});
-window.addEventListener('beforeunload', event => {if (dirty) {if(!conflicted)void savePDF();event.preventDefault(); event.returnValue = '';}});
-document.addEventListener('visibilitychange',()=>{if(document.hidden&&dirty&&!conflicted)void savePDF();});
-window.addEventListener('pagehide',()=>{if(dirty&&!conflicted)void savePDF(true);});
+// Keep the unsaved warning without initiating a save while leaving.
+window.addEventListener('beforeunload', event => {if (dirty) {event.preventDefault(); event.returnValue = '';}});
 document.getElementById('pdf-page').onchange = event => {
   const page = Number(event.target.value);
   if (Number.isInteger(page) && page >= 1 && page <= pdf.numPages) viewer.currentPageNumber = page;
@@ -136,7 +135,7 @@ document.getElementById('pdf-tool')?.addEventListener('change', event => {
   try {viewer.annotationEditorMode = {mode: Number(event.target.value)};}
   catch {fail('PDF editing is unavailable for this file.');}
 });
-async function savePDF(keepalive=false) {
+async function savePDF() {
   if (saving || !pdf || !boot.write || conflicted || !dirty) return;
   saving = true;clearTimeout(saveTimer);
   document.activeElement?.blur();manager?.commitOrRemove();
@@ -145,14 +144,13 @@ async function savePDF(keepalive=false) {
   status.textContent=t('Saving PDF…');
   try {
     const bytes=await pdf.saveDocument();
-    if(keepalive&&bytes.length>55000)return;
     const body=new FormData(document.getElementById('pdf-save-form'));
     body.set('file',new Blob([bytes],{type:'application/pdf'}),'edited.pdf');
     body.set('revision',boot.revision);body.set('client_id',clientId);
     if(boot.replace_stale_layer)body.set('replace_stale_layer','1');
-    const response=await window.yourwikiUI.request(`/documents/${boot.id}/pdf/`,{method:'POST',body,keepalive,headers:{Accept:'application/json'}});
+    const response=await window.yourwikiUI.request(`/documents/${boot.id}/pdf/`,{method:'POST',body,headers:{Accept:'application/json'}});
     if(!response.ok){
-      if(response.status===409){conflicted=true;document.getElementById('pdf-conflict').hidden=false;throw new Error(t('This PDF changed in another tab. Download your edits before reloading.'));}
+      if(response.status===409){conflicted=true;document.getElementById('pdf-conflict').hidden=false;throw new Error(t('The original changed. Download your edits before leaving or reloading.'));}
       if(response.status===403||response.status===404){boot.write=false;throw new Error(t('Write access was revoked. Download your edits before leaving.'));}
       await window.yourwikiUI.check(response);
     }
@@ -177,6 +175,7 @@ document.getElementById('pdf-reload')?.addEventListener('click',async()=>{
   if(!window.confirm(t('Discard local changes and reload the saved PDF?')))return;
   dirty=false;location.reload();
 });
+document.getElementById('pdf-conflict-download').onclick=()=>document.getElementById('pdf-download').click();
 document.getElementById('pdf-download').onclick = async () => {
   if (!pdf) return;
   try {
@@ -212,7 +211,8 @@ async function loadPDF({page=1,scale='page-width',remote=false,layerState=boot.l
   if(boot.write)document.getElementById('pdf-save').disabled=layerState==='conflict';
   return true;
 }
-try {await loadPDF();} catch {fail('Could not open the PDF. Download the original file to view it locally.');}
+const endPDFLoading=window.yourwikiLoading?.begin(container);
+try {await loadPDF();} catch {fail('Could not open the PDF. Download the original file to view it locally.');} finally {endPDFLoading?.();}
 let storageFingerprint,checkingStorage=false;
 async function heartbeat(){
   try {

@@ -26,3 +26,11 @@
 .pdf-workspace .settings-card{flex:none;margin:4px 0;padding:8px;max-height:30dvh;overflow:auto;font-size:13px}
 @media(max-width:800px){.pdf-workspace-page .workspace-search{display:none}.pdf-workspace-page .topbar{min-height:48px;padding:2px 8px}.pdf-workspace .pdf-controls{gap:4px;padding:4px}.pdf-workspace .pdf-controls label{font-size:11px}}
 .pdf-workspace-page.editor-fullscreen #main-content{padding:4px;overflow:hidden}
+
+/* The viewer owns a adjustable pane; large panes scroll with the page. */
+.pdf-workspace-page{height:auto;min-height:100dvh;overflow:auto}
+.pdf-workspace-page .main-shell{height:auto;min-height:100dvh}
+.pdf-workspace-page #main-content{overflow:visible;flex:none}
+.pdf-workspace{flex:none}
+.pdf-resizable{height:calc(100dvh - 160px)}
+.pdf-workspace-page.editor-fullscreen #main-content{overflow:auto}

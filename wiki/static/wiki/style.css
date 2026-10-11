@@ -53,7 +53,7 @@ label.checkbox-hit input[type=checkbox],label.checkbox-hit input[type=radio]{fle
   .permission-matrix label.checkbox-hit{gap:4px}.permission-matrix input[type=checkbox]{margin:4px}
   .form-actions>label{flex-basis:100%}.directory-menu-panel{position:fixed;top:80px;right:16px;max-height:calc(100dvh - 96px)}
 }
-.folder-settings-link{margin-bottom:16px}
+.folder-settings-link{margin-bottom:0}
 @media(max-width:520px){.creation-permissions .permission-matrix th:first-child{width:42%}}
 
 /* Preserve line breaks in saved Canvas cards and diagram labels. */
@@ -225,7 +225,7 @@ small,.muted,.helptext{line-height:1.6}
 .file-creation-form{max-width:1000px;margin-top:0}
 .type-picker{margin:0 0 24px;padding-bottom:24px;border-bottom:1px solid var(--line-soft)}
 .type-picker h2{font-size:16px;margin-bottom:12px}
-.type-options{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px}
+.type-options{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:12px}
 .type-option{display:flex;gap:12px;align-items:center;flex-direction:column;padding:16px 8px;border:1px solid var(--line-soft);background:var(--panel);border-radius:10px;font-size:13px;min-width:0}
 .type-option:hover{background:var(--surface);border-color:var(--line)}
 .type-option[aria-checked=true]{border:2px solid var(--primary);background:var(--hover);padding:15px 7px;color:var(--primary-ink);font-weight:600}
@@ -294,3 +294,49 @@ small,.muted,.helptext{line-height:1.6}
 
 #access{scroll-margin-top:132px}#access fieldset{min-width:0;margin:16px 0}#access select{width:100%;max-width:100%}
 .provider-grants{display:grid;gap:12px;margin:16px 0}.provider-grant{padding:12px;border:1px solid var(--border);border-radius:8px;overflow-wrap:anywhere}.provider-grant>span{display:block;margin-top:4px}.provider-grant p{margin:8px 0}.break-anywhere{overflow-wrap:anywhere}
+
+/* A persistent desktop explorer can be collapsed on every authenticated page. */
+@media(min-width:801px){
+  .menu-button,.sidebar-close{display:inline-flex}
+  body.sidebar-open .sidebar{transform:none;width:var(--sidebar);visibility:visible;pointer-events:auto}
+  body.sidebar-open .main-shell{margin-left:var(--sidebar)}
+  body:not(.sidebar-open) .sidebar{transform:translateX(-105%);visibility:hidden;pointer-events:none}
+  body:not(.sidebar-open) .main-shell{margin-left:0}
+  body .sidebar-scrim{display:none!important}
+}
+.resizable-workspace{display:flex;flex-direction:column;min-height:260px;min-width:0;position:relative;flex:none}
+.workspace-resizer{display:flex;align-items:center;justify-content:center;flex:none;height:24px;cursor:ns-resize;touch-action:none;background:var(--surface);border:1px solid var(--line-soft);border-radius:0 0 8px 8px}
+.workspace-resizer::before{content:"";width:48px;height:4px;border-radius:4px;background:var(--muted)}
+.workspace-resizer:hover,.workspace-resizer:focus-visible{background:var(--hover)}
+.workspace-resizing{cursor:ns-resize;user-select:none}
+.workspace-resizing iframe{pointer-events:none}
+@media(pointer:coarse){.workspace-resizer{height:44px}}
+
+/* One creation menu for files and folders. */
+.create-menu{position:relative}
+.create-menu>summary{list-style:none;cursor:pointer}
+.create-menu-panel{position:absolute;right:0;top:calc(100% + 6px);width:180px;padding:6px;background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:8px;box-shadow:var(--shadow);z-index:40}
+.create-menu-panel .nav-item{min-height:44px}
+
+.heading-actions .create-menu-panel{left:0;right:auto}
+
+.form-progress{display:flex;align-items:center;gap:12px;color:var(--text)}.form-progress::before{content:"";width:18px;height:18px;flex:none;border:2px solid var(--line);border-top-color:var(--primary-ink);border-radius:50%;animation:form-spin 1s linear infinite}@keyframes form-spin{to{transform:rotate(360deg)}}@media(prefers-reduced-motion:reduce){.form-progress::before{animation:none}}
+
+/* Keep external-edit conflicts visible in light, dark and fullscreen workspaces. */
+.source-conflict-banner:not([hidden]){position:sticky;top:8px;z-index:40;max-width:none;max-height:45dvh;overflow:auto;flex-shrink:0;border:2px solid var(--danger);border-left-width:6px;background:var(--panel);color:var(--text);box-shadow:var(--shadow)}
+.source-conflict-banner>strong{display:block;color:var(--danger);font-size:18px}
+.source-conflict-banner .form-actions{flex-wrap:wrap}
+.source-conflict-banner p:empty{display:none}
+
+@media(max-width:520px){.directory-row .file-actions{gap:0}}
+.version-panel{margin-top:1rem}.version-panel>summary{cursor:pointer;font-weight:600;padding:.5rem 0}.version-row{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:.75rem;padding:.8rem 0;border-top:1px solid var(--line)}.version-row>span{min-width:0;overflow-wrap:anywhere}.version-row .form-actions{margin:0;flex-wrap:wrap}
+
+/* Shared progress stays outside the layout and never blocks editor input. */
+.loading-indicator{position:fixed;bottom:20px;right:20px;z-index:1000;display:flex;align-items:center;gap:10px;padding:10px 16px;border:1px solid var(--border,#cbd5e1);border-radius:12px;background:var(--surface,#fff);color:var(--text,#172033);box-shadow:0 4px 20px #0002;pointer-events:none;max-width:calc(100vw - 40px)}
+.loading-indicator[hidden]{display:none}
+.loading-spinner,.form-progress::before,button[aria-busy=true]::before,a[aria-busy=true]::before{content:'';display:inline-block;width:16px;height:16px;flex-shrink:0;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:yourwiki-loading .8s linear infinite}
+.form-progress::before,button[aria-busy=true]::before,a[aria-busy=true]::before{margin-right:8px;vertical-align:middle}
+form[aria-busy=true] button[type=submit]::before{content:'';display:inline-block;width:14px;height:14px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;margin-right:8px;animation:yourwiki-loading .8s linear infinite}
+html[data-theme=dark] .loading-indicator{background:#202735;color:#f1f5f9;border-color:#465167}
+@keyframes yourwiki-loading{to{transform:rotate(360deg)}}
+@media(prefers-reduced-motion:reduce){.loading-spinner,.form-progress::before,button[aria-busy=true]::before,a[aria-busy=true]::before,form[aria-busy=true] button[type=submit]::before{animation:none;border-right-color:currentColor}}

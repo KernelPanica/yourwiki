@@ -48,12 +48,21 @@ def _text(paragraph):
 
 
 def _paragraph(paragraph):
-    from docx.enum.text import WD_ALIGN_PARAGRAPH
+    from docx.oxml.ns import qn
     style = paragraph.style.name if paragraph.style else ''
     attrs = {}
-    alignments = {WD_ALIGN_PARAGRAPH.LEFT: 'left', WD_ALIGN_PARAGRAPH.CENTER: 'center', WD_ALIGN_PARAGRAPH.RIGHT: 'right', WD_ALIGN_PARAGRAPH.JUSTIFY: 'justify'}
-    if paragraph.alignment in alignments:
-        attrs['textAlign'] = alignments[paragraph.alignment]
+    # Collabora emits OOXML start/end alignment values, which python-docx's
+    # enum accessor cannot parse. Inspect the standard XML without modifying it.
+    properties = paragraph._p.pPr
+    jc = properties.find(qn('w:jc')) if properties is not None else None
+    value = jc.get(qn('w:val')) if jc is not None else None
+    bidi = properties.find(qn('w:bidi')) if properties is not None else None
+    rtl = bidi is not None and bidi.get(qn('w:val'), '1') not in ('0', 'false', 'off')
+    alignments = {'left':'left', 'right':'right', 'center':'center', 'both':'justify',
+                  'start':'right' if rtl else 'left', 'end':'left' if rtl else 'right',
+                  'distribute':'justify'}
+    if value in alignments:
+        attrs['textAlign'] = alignments[value]
     spacing = paragraph.paragraph_format.line_spacing
     if isinstance(spacing, float) and spacing in (1, 1.15, 1.5, 2):
         attrs['lineHeight'] = f'{spacing:g}'

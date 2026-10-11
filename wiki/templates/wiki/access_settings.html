@@ -1,4 +1,4 @@
-{% load i18n %}
+{% load i18n l10n %}
 <section id="access" class="settings-card">
 <h2>{% translate 'Access' %}</h2>
 <p>{% translate 'Read makes this item visible and allows opening and downloading it. Write also grants Read. Administrators retain access.' %}</p>
@@ -14,7 +14,12 @@
 <details><summary>{% translate 'Permissions for selected groups' %}</summary><p class="muted">{% translate 'Selected group rules override the defaults above. For several matching groups, permissions are combined.' %}</p>
 <table class="policy-table responsive-permissions"><thead><tr><th>{% translate 'Group' %}</th><th>{% translate 'Read' %}</th><th>{% translate 'Write' %}</th></tr></thead><tbody>
 {% for group,grant,enabled in group_rows %}<tr data-rw-row><th><label><input type="checkbox" data-group-access name="group.{{ group.pk }}.enabled" {% if enabled %}checked{% endif %}>{{ group.name }}</label></th><td><label class="checkbox-hit"><input type="checkbox" name="group.{{ group.pk }}.read" data-rw="read" aria-label="{{ group.name }}: {% translate 'Read' %}" {% if grant.read %}checked{% endif %}></label></td><td><label class="checkbox-hit"><input type="checkbox" name="group.{{ group.pk }}.write" data-rw="write" aria-label="{{ group.name }}: {% translate 'Write' %}" {% if grant.write %}checked{% endif %}></label></td></tr>{% endfor %}
-</tbody></table></details></fieldset>
+</tbody></table></details>
+</fieldset><details><summary>Права отдельных пользователей</summary><p class="muted">Персональные права можно задать, сохранив наследование папки. Правило на этом объекте имеет приоритет над унаследованными, групповыми и общими правами. Запись включает чтение. Если снять обе галочки, выбранный пользователь потеряет доступ. Администраторы сохраняют доступ.</p>
+<label>Поиск пользователя<input type="search" data-user-access-search placeholder="Имя или логин"></label>
+<table class="policy-table responsive-permissions"><thead><tr><th>Пользователь</th><th>Чтение</th><th>Запись</th></tr></thead><tbody>
+{% for account,grant,enabled in user_rows %}<tr data-rw-row data-user-access-row><th><label><input type="checkbox" data-group-access name="user.{{ account.pk|unlocalize }}.enabled" {% if enabled %}checked{% endif %}>{{ account.label }} <small>@{{ account.username }}</small></label></th><td><label class="checkbox-hit"><input type="checkbox" name="user.{{ account.pk|unlocalize }}.read" data-rw="read" aria-label="{{ account.username }}: Чтение" {% if grant.read %}checked{% endif %}></label></td><td><label class="checkbox-hit"><input type="checkbox" name="user.{{ account.pk|unlocalize }}.write" data-rw="write" aria-label="{{ account.username }}: Запись" {% if grant.write %}checked{% endif %}></label></td></tr>{% endfor %}
+</tbody></table></details>
 <button class="button primary">{% translate 'Save permissions' %}</button>
 </form>{% else %}<p class="muted">{% translate 'An administrator can change access to this item.' %}</p>{% endif %}
 </section>

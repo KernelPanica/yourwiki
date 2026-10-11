@@ -1,0 +1,8 @@
+{% extends 'wiki/base.html' %}{% load i18n %}{% block content %}
+<h1>{% translate 'Move folder and files to trash' %}: {{ folder.name }}</h1>
+<section class="settings-card danger-zone"><p>{% blocktranslate %}This will move {{ file_count }} files and {{ folder_count }} nested folders to trash. Originals and history are preserved. Only an administrator can restore or permanently delete them.{% endblocktranslate %}</p>
+<form method="post" data-busy-message="{% translate 'Moving to trash. Please wait…' %}">{% csrf_token %}
+<input type="hidden" name="deletion_version" value="{{ deletion_version }}">
+<label class="checkbox-hit"><input type="checkbox" name="confirm" required>{% translate 'Confirm moving the folder and all its contents to trash.' %}</label>
+<div class="form-actions"><button class="button danger">{% translate 'Move folder and files to trash' %}</button><a class="button" href="{% url 'folder' folder.pk %}">{% translate 'Cancel' %}</a></div></form></section>
+{% endblock %}

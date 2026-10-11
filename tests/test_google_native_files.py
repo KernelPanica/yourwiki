@@ -403,3 +403,79 @@ def test_sheet_topology_is_one_native_batch_with_stable_provider_ids(workspace, 
     ids = drive.sheet_ids[ref]
     assert ids[result['sheetOrder'][0]] == 1
     assert ids[result['sheetOrder'][2]] == 0
+
+
+def test_collabora_google_sheet_opens_and_saves_same_original(workspace, google, settings):
+    from django.test import Client
+    from wiki.collabora import eligible, open_session, token_for
+    from urllib.parse import urlencode
+    drive, _ = google
+    settings.COLLABORA_URL = 'https://office.example.test/collabora'
+    settings.COLLABORA_WOPI_URL = 'https://yourwiki.example.test'
+    doc = save_document(workspace['admin'], 'Office sheet', 'table', 'Notes', 'Name,Value\nKeep,1', workspace['team'])
+    reference, original_url = doc.reference, doc.original_url
+    assert eligible(doc)
+    client = Client(); client.force_login(workspace['admin'])
+    assert client.get(f'/documents/{doc.pk}/live/').url.endswith('/office/')
+    session = open_session(doc, workspace['admin'])
+    path = f'/wopi/files/{session.pk}/contents?' + urlencode({'access_token':token_for(session,workspace['admin'])})
+    assert client.get(path).status_code == 200
+    data = write_ods('Name,Value\nKeep,99', 'Office sheet')
+    drive.calls.clear()
+    result = client.post(path, data, content_type='application/octet-stream', HTTP_X_WOPI_OVERRIDE='PUT')
+    assert result.status_code == 200, result.content
+    doc.refresh_from_db()
+    assert doc.reference == reference and doc.original_url == original_url
+    assert drive.files[reference]['mimeType'] == GoogleDrive.sheet_mime
+    cells = unpack(read_ods(active_storage().read(reference)))['data']['sheets']['sheet1']['cellData']
+    assert cells['1']['0']['v'] == 'Keep' and cells['1']['1']['v'] == '99'
+    assert any(call[0] == 'PATCH' and call[2].get('params',{}).get('uploadType') == 'multipart' for call in drive.calls)
+    assert client.get(path).status_code == 200
+    from wiki.models import OfficeSession
+    assert not OfficeSession.objects.get(pk=session.pk).pending
+
+
+def test_collabora_uncertain_google_import_keeps_recovery_without_second_import(workspace, google, settings):
+    from django.test import Client
+    from wiki.collabora import open_session, token_for
+    from wiki.models import OfficeSession
+    from urllib.parse import urlencode
+    drive, _ = google
+    settings.COLLABORA_URL = 'https://office.example.test/collabora'
+    doc = save_document(workspace['admin'], 'Office retry', 'table', 'Notes', 'Name,Value\nKeep,1', workspace['team'])
+    session = open_session(doc, workspace['admin'])
+    path = f'/wopi/files/{session.pk}/contents?' + urlencode({'access_token':token_for(session,workspace['admin'])})
+    data = write_ods('Name,Value\nKeep,99', 'Office retry')
+    imports = []
+    def timeout_after_commit(method, endpoint, **kwargs):
+        response = drive.request(method, endpoint, **kwargs)
+        if method == 'PATCH' and kwargs.get('params',{}).get('uploadType') == 'multipart':
+            imports.append(endpoint)
+            raise StorageError('Timeout after remote commit')
+        return response
+    with patch.object(GoogleDrive,'request',side_effect=timeout_after_commit):
+        client = Client()
+        first = client.post(path,data,content_type='application/octet-stream',HTTP_X_WOPI_OVERRIDE='PUT')
+        assert first.status_code == 503
+        second = client.post(path,data,content_type='application/octet-stream',HTTP_X_WOPI_OVERRIDE='PUT')
+        assert second.status_code == 409
+    assert len(imports) == 1
+    assert OfficeSession.objects.get(pk=session.pk).pending == data
+    client.force_login(workspace['admin'])
+    assert client.get(f'/documents/{doc.pk}/office/recovery/').content == data
+
+
+def test_office_import_rechecks_native_version_before_dispatch(workspace, google):
+    from wiki.storage import mount_adapter
+    drive, mount = google
+    doc = save_document(workspace['admin'], 'Office race', 'table', 'Notes', 'Name,Value\nKeep,1', workspace['team'])
+    _, ref = active_storage().reference(doc.reference)
+    adapter = mount_adapter(mount)
+    before = adapter.read(ref)
+    original = drive.files[ref]['data']
+    drive.files[ref]['version'] = str(int(drive.files[ref]['version']) + 1)
+    drive.calls.clear()
+    with pytest.raises(Conflict):
+        adapter.write('Office race.ods', write_ods('Name,Value\nKeep,99', 'Office race'), ref)
+    assert drive.files[ref]['data'] == original
+    assert not any(call[2].get('params',{}).get('uploadType') for call in drive.calls)

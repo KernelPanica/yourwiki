@@ -12,7 +12,7 @@ from pathlib import Path
 import uuid
 from django.conf import settings
 from django.db import transaction
-from .storage import StorageError, StorageRejected, StorageMissing, MAX_BYTES
+from .storage import StorageError, StorageRejected, StorageMissing
 
 
 class WriteUncertain(StorageError):
@@ -50,7 +50,7 @@ def _load(document):
     try:
         meta = json.loads(path.read_bytes())
         payload = (directory / meta.get('payload', 'payload')).read_bytes()
-        if meta['document'] != str(document.pk) or len(payload) > MAX_BYTES or hashlib.sha256(payload).hexdigest() != meta['digest']:
+        if meta['document'] != str(document.pk) or hashlib.sha256(payload).hexdigest() != meta['digest']:
             raise ValueError()
         return directory, meta, payload
     except (ValueError, KeyError, OSError):
@@ -123,7 +123,7 @@ def recover(document, adapter, content):
             Collaboration.objects.filter(document=document).update(saved_structure=meta['baseline_structure'])
         _remove(directory, meta['attempt'])
         return None
-    if not _equivalent(document, actual, intended):
+    if (actual != intended if meta.get('operation') == 'raw' else not _equivalent(document, actual, intended)):
         from .services import Conflict
         raise Conflict('The original changed after an uncertain write. Copy or download your edits before explicitly reloading.')
     document.reference = ref
@@ -147,7 +147,7 @@ def perform(document, user, adapter, key, data, reference, expected, *, content,
     from .native import unpack
     directory = _directory(document)
     directory.mkdir(mode=0o700, exist_ok=True)
-    meta = {'attempt':str(uuid.uuid4()), 'document':str(document.pk), 'author':user.pk if user else None,
+    meta = {'attempt':str(uuid.uuid4()), 'document':str(document.pk), 'author':user.pk if user else None, 'operation':operation,
             'key':key, 'reference':reference, 'expected':expected or '',
             'digest':hashlib.sha256(data).hexdigest(),
             'content_digest':hashlib.sha256(content if isinstance(content,bytes) else content.encode()).hexdigest(),
@@ -210,7 +210,7 @@ def prepare_move(document, adapter, reference, key, field):
         if mount.path != '/': target = f'mount:{mount.pk}:{target}'
     elif isinstance(adapter, (GoogleDrive, OneDrive)):
         target = reference
-    raw = adapter.read(reference, limit=50*1024*1024)
+    raw = adapter.read(reference, limit=None)
     directory = _directory(document)
     directory.mkdir(mode=0o700, exist_ok=True)
     path = directory / 'moves.json'
@@ -233,7 +233,7 @@ def recover_moves(document, adapter):
     for move in json.loads(path.read_bytes()):
         selected = None
         for ref in dict.fromkeys((move['source'], move['target'])):
-            try: raw = adapter.read(ref, limit=50*1024*1024)
+            try: raw = adapter.read(ref, limit=None)
             except (StorageMissing, FileNotFoundError): continue
             except (StorageError, OSError):
                 raise WriteUncertain('The pending rename could not be verified. Retry when storage is available.') from None

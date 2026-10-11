@@ -4,10 +4,11 @@ import json
 import logging
 from django.utils import timezone
 from .file_formats import digest, encode
-from .storage import active_storage, bounded, StorageError, HISTORY_MAX_BYTES
+from .storage import active_storage, bounded, StorageError, auxiliary_limit_bytes
 
 
-def persist(document, content, key, *, new=False, adapter=None, user=None):
+def persist(document, content, key, *, new=False, adapter=None, user=None, raw=False):
+    history_limit = auxiliary_limit_bytes()
     from .services import Conflict
     adapter = adapter or active_storage()
     from . import write_journal
@@ -23,7 +24,7 @@ def persist(document, content, key, *, new=False, adapter=None, user=None):
             strict_styles = mount.provider != 'google'
         else:
             strict_styles = not isinstance(adapter, GoogleDrive)
-    data = bounded(encode(document, content, strict_styles=strict_styles))
+    data = bounded(content if raw else encode(document, content, strict_styles=strict_styles))
     reference = None if new else document.reference
     previous = None if new else adapter.read(reference)
     if not new and document.storage_digest and adapter.fingerprint(reference, previous) != document.storage_digest:
@@ -36,22 +37,23 @@ def persist(document, content, key, *, new=False, adapter=None, user=None):
     try:
         if not new and document.history_enabled() and previous != data:
             try:
-                previous_history = adapter.read(original_history, limit=HISTORY_MAX_BYTES) if original_history else None
+                previous_history = adapter.read(original_history, limit=None) if original_history else None
                 history = json.loads(previous_history) if previous_history is not None else {'format': 'yourwiki-history', 'version': 1, 'entries': []}
                 if history.get('format') != 'yourwiki-history' or not isinstance(history.get('entries'), list):
                     raise ValueError()
                 if not history['entries'] or history['entries'][-1]['sha256'] != digest(previous):
                     history['entries'].append({'saved_at': timezone.now().isoformat(), 'revision': document.revision,
+                        'kind': document.kind, 'file_format': document.file_format, 'title': document.title,
                         'author': {'id':user.pk, 'name':user.label} if user else None,
                         'sha256': digest(previous), 'state_reference':reference,
                         'content_base64': base64.b64encode(previous).decode()})
             except (ValueError, KeyError, TypeError, AttributeError):
                 raise StorageError('Invalid file history. Save cancelled to protect existing history.') from None
-            # ponytail: one bounded history file; archive it when the 50 MiB limit is reached.
+            # Keep history within a budget proportional to the configured file limit.
             payload = json.dumps(history, ensure_ascii=False).encode()
-            if len(payload) > HISTORY_MAX_BYTES:
-                raise StorageError('File history exceeds 50 MB. Download and archive the history, then disable history to continue saving. The original was not overwritten.')
-            document.history_reference = adapter.write(key + '.json', payload, original_history or None, limit=HISTORY_MAX_BYTES)
+            if history_limit is not None and len(payload) > history_limit:
+                raise StorageError('File history exceeds its configured size budget. Download and archive the history, then disable history to continue saving. The original was not overwritten.')
+            document.history_reference = adapter.write(key + '.json', payload, original_history or None, limit=None)
             history_written = True
             if not original_history:
                 created_history = document.history_reference
@@ -67,17 +69,17 @@ def persist(document, content, key, *, new=False, adapter=None, user=None):
                 else: document.history_reference = ref
         if moved and previous is not None:
             after_move = adapter.read(reference)
-            if not write_journal._equivalent(document, after_move, previous):
+            if (after_move != previous if raw else not write_journal._equivalent(document, after_move, previous)):
                 raise Conflict('The original changed while being renamed. Your edits have not overwritten it.')
             previous = after_move
             document.storage_digest = adapter.fingerprint(reference, previous)
-        if previous is not None and document.kind == 'table' and document.file_format == 'ods':
+        if not raw and previous is not None and document.kind == 'table' and document.file_format == 'ods':
             from .models import Collaboration
             structure = Collaboration.objects.filter(document=document).values_list('saved_structure', flat=True).first()
             reference = write_journal.perform(document,user,adapter,key,data,reference,document.storage_digest,
                 content=content,operation='table',previous=previous,structure=structure)
         else:
-            reference = write_journal.perform(document,user,adapter,key,data,reference,document.storage_digest,content=content)
+            reference = write_journal.perform(document,user,adapter,key,data,reference,document.storage_digest,content=content,operation='raw' if raw else 'file')
     except write_journal.WriteUncertain:
         # Remote success is possible; moving back or deleting history would make
         # reconciliation impossible. Keep the journal and recovery artifacts.
@@ -92,7 +94,7 @@ def persist(document, content, key, *, new=False, adapter=None, user=None):
             if created_history:
                 adapter.delete(created_history)
             elif history_written and previous_history is not None:
-                adapter.write(key + '.json', previous_history, original_history, limit=HISTORY_MAX_BYTES)
+                adapter.write(key + '.json', previous_history, original_history, limit=None)
         except Exception:
             logging.getLogger('wiki').exception('File history rollback failed for %s', document.pk)
         document.history_reference = original_history

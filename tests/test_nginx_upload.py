@@ -11,11 +11,14 @@ import requests
 pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.skipif(os.environ.get('RUN_NGINX') != '1', reason='Requires an Nginx executable and local sockets')]
 
 
-def test_production_proxy_upload_limits(workspace, client, live_server, tmp_path, settings):
+@pytest.mark.parametrize("limit_mb", [1, 5, 8])
+def test_production_proxy_upload_limits(workspace, client, live_server, tmp_path, settings, limit_mb):
     binary = os.environ.get('NGINX_BINARY') or shutil.which('nginx')
     assert binary, 'Set NGINX_BINARY to the nginx executable.'
     settings.ALLOWED_HOSTS += ['localhost', '127.0.0.1']
     settings.SESSION_COOKIE_SECURE = False
+    from wiki.models import SiteConfiguration
+    SiteConfiguration.objects.update_or_create(pk=1, defaults={'document_limit_mb': limit_mb})
     client.force_login(workspace['admin'])
     with socket.socket() as probe:
         probe.bind(('127.0.0.1', 0))
@@ -38,19 +41,29 @@ def test_production_proxy_upload_limits(workspace, client, live_server, tmp_path
         page = session.get(url + '/files/upload/', timeout=10)
         assert page.status_code == 200
         csrf = session.cookies.get('csrftoken')
-        def upload(name, data):
-            return session.post(url+'/files/upload/', files={'file': (name, data)}, data={'path':'/', 'csrfmiddlewaretoken':csrf}, headers={'Origin':url}, allow_redirects=False, timeout=30)
+        def upload(name, data, accept='text/html'):
+            return session.post(url+'/files/upload/', files={'file': (name, data)}, data={'path':'/', 'csrfmiddlewaretoken':csrf}, headers={'Origin':url, 'Accept':accept}, allow_redirects=False, timeout=30)
         settings.CSRF_TRUSTED_ORIGINS = [url]
-        response = upload('within-limit.bin', b'x' * (5*1024*1024))
+        response = upload('within-limit.bin', b'x' * (limit_mb*1024*1024))
         assert response.status_code == 302, response.text[:500]
         from wiki.models import Document
         from wiki.storage import active_storage
         doc = Document.objects.get(title='within-limit.bin')
-        assert len(active_storage().read(doc.reference)) == 5*1024*1024
-        response = upload('over-app-limit.bin', b'x'*(5*1024*1024+1))
-        assert response.status_code == 400 and '5 MB' in response.text
+        assert len(active_storage().read(doc.reference)) == limit_mb*1024*1024
+        response = upload('over-app-limit.bin', b'x'*(limit_mb*1024*1024+1))
+        assert response.status_code == 400 and f'{limit_mb} MB' in response.text
+        response = upload('over-json-limit.bin', b'x'*(limit_mb*1024*1024+1), 'application/json')
+        assert response.status_code == 400
+        assert f'{limit_mb} MB' in response.json()['errors']['file'][0]['message']
+        assert f'{limit_mb} MB' in response.json()['error']
+        assert not Document.objects.filter(title__startswith='over-').exists()
         response = upload('over-proxy-limit.bin', b'x'*(61*1024*1024))
-        assert response.status_code == 413 and 'Nginx rejected this upload' in response.text
+        assert response.status_code == 400 and f'{limit_mb} MB' in response.text
+        SiteConfiguration.objects.filter(pk=1).update(document_limit_mb=0)
+        response = upload('unlimited.bin', b'x'*(61*1024*1024))
+        assert response.status_code == 302, response.text[:500]
+        doc = Document.objects.get(title='unlimited.bin')
+        assert len(active_storage().read(doc.reference)) == 61*1024*1024
     finally:
         process.terminate()
         process.wait(timeout=10)

@@ -26,7 +26,7 @@ COPY --chown=wiki:wiki locale locale
 COPY --from=editors --chown=wiki:wiki /build/wiki/static/wiki/dist wiki/static/wiki/dist
 COPY --from=diagrams --chown=wiki:wiki /build/wiki/static/drawio wiki/static/drawio
 COPY --chown=wiki:wiki docker docker
-COPY --chown=wiki:wiki manage.py install.py ./
+COPY --chown=wiki:wiki manage.py install.py install_gui.py install_ui.html ./
 USER wiki
 RUN DJANGO_SECRET_KEY=build-only-static-collection python manage.py collectstatic --noinput
 EXPOSE 8000

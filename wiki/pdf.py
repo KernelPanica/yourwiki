@@ -10,10 +10,12 @@ def process_pdf(data, *, extract=False):
     import sys
     from django.core.exceptions import ValidationError
     from django.utils.translation import gettext as _
+    from .storage import file_limit_bytes
+    cap = file_limit_bytes()
     if hasattr(data, 'read'):
-        data = data.read(5 * 1024 * 1024 + 1)
-    if not isinstance(data, bytes) or len(data) > 5 * 1024 * 1024 or not data.startswith(b'%PDF-'):
-        raise ValidationError(_('Use a PDF file no larger than 5 MB.'))
+        data = data.read(cap + 1 if cap is not None else -1)
+    if not isinstance(data, bytes) or (cap is not None and len(data) > cap) or not data.startswith(b'%PDF-'):
+        raise ValidationError(_('Use a PDF file within the configured size limit.'))
     try:
         result = subprocess.run([sys.executable, '-m', 'wiki.pdf', 'extract' if extract else 'validate'],
                                 input=data, capture_output=True, timeout=20, check=True)
@@ -56,7 +58,7 @@ def _worker():
     resource.setrlimit(resource.RLIMIT_CPU, (15, 15))
     from pypdf import PdfReader
     try:
-        reader = PdfReader(BytesIO(sys.stdin.buffer.read(5 * 1024 * 1024 + 1)))
+        reader = PdfReader(BytesIO(sys.stdin.buffer.read()))
         if reader.is_encrypted:
             raise ValueError('Unlock password-protected PDFs before uploading.')
         if not 1 <= len(reader.pages) <= 200:

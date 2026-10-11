@@ -23,3 +23,5 @@ def test_quick_number_formats_survive_ods(pattern):
         assert _style_fields(style)['userEnteredFormat.numberFormat']['type'] == 'CURRENCY'
         with ZipFile(BytesIO(raw)) as archive:
             assert '₽'.encode() in archive.read('content.xml')
+
+pytestmark = pytest.mark.django_db

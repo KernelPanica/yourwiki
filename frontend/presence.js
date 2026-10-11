@@ -35,8 +35,9 @@ export function createPresence(getEditor, send) {
   function scheduleRender() {
     cancelAnimationFrame(renderFrame); renderFrame = requestAnimationFrame(render);
   }
-  const heartbeat = setInterval(() => publish(true), 10000);
-  const expiry = setInterval(render, 1000);
+  const heartbeat = setInterval(() => {if(!document.hidden)publish(true);}, 10000);
+  let activeSignature='';
+  const expiry = setInterval(()=>{if(document.hidden)return;const signature=entries.filter(entry=>Date.parse(entry.expires_at)>Date.now()).map(entry=>entry.id).join(',');if(signature!==activeSignature){activeSignature=signature;render();}},1000);
   document.addEventListener('selectionchange', changed);
   host.addEventListener('pointerup', changed);
   host.addEventListener('keyup', changed);

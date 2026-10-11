@@ -1,3 +1,4 @@
+import {loadGoogleFont,extendFontSelector,loadDocumentFonts} from './google-fonts.js';
 import './docs-formatting.css';
 import {docsShell} from './docs-shell.js';
 import {documentPages} from './document-pages.js';
@@ -71,8 +72,9 @@ export function richEditor(){
   group('Editing');const editingControls=activeGroup;button('Undo',()=>editor.commands.undo());button('Redo',()=>editor.commands.redo());
   group('Formatting');
   const styleControl=select('Style',[['0','Paragraph'],...[1,2,3,4,5,6].map(level=>[String(level),`Heading ${level}`])],v=>v==='0'?editor.chain().focus().setParagraph().run():editor.chain().focus().setHeading({level:Number(v)}).run());
-  const fonts=['Arial','Calibri','Cambria','Comic Sans MS','Courier New','Georgia','Helvetica','Tahoma','Times New Roman','Trebuchet MS','Verdana','monospace','sans-serif','serif'];
-  const fontControl=select('Font',fonts.map(v=>[v,v]),v=>editor.chain().focus().setFontFamily(v).run());
+  const fonts=['Arial','Calibri','Cambria','Comic Sans MS','Courier New','Georgia','Helvetica','Tahoma','Times New Roman','Tinos','Oswald','Anton','Roboto','Open Sans','Arimo','Cousine','Impact','Trebuchet MS','Verdana','monospace','sans-serif','serif'];
+  const fontControl=select('Font',fonts.map(v=>[v,v]),async v=>{await loadGoogleFont(v);editor.chain().focus().setFontFamily(v).run();});
+  extendFontSelector(fontControl,cause=>error(cause.message));loadDocumentFonts(host,cause=>error(cause.message));editor.on('update',()=>loadDocumentFonts(host,cause=>error(cause.message)));
   for(const option of fontControl.options)option.style.fontFamily=option.value;
   const sizeControl=select('Size',[8,9,10,11,12,14,16,18,20,24,28,32,36,48,72].map(v=>[`${v}pt`,String(v)]),v=>editor.chain().focus().setFontSize(v).run());
   const setControl=(control,value)=>{
@@ -142,6 +144,10 @@ export function richEditor(){
       },{parent:card});list.append(card);
     }
   }
-  refresh().catch(e=>error(e.message));setInterval(()=>refresh().catch(()=>{}),3000);
+  refresh().catch(e=>error(e.message));let refreshing=false;
+  const refreshReviews=async()=>{if(document.hidden||refreshing)return;refreshing=true;try{await refresh();}catch{/* Retry on the next heartbeat. */}finally{refreshing=false;}};
+  const reviewTimer=setInterval(refreshReviews,10000);
+  document.addEventListener('visibilitychange',()=>{if(!document.hidden)void refreshReviews();});
+  window.addEventListener('pagehide',()=>clearInterval(reviewTimer),{once:true});
   return editor;
 }

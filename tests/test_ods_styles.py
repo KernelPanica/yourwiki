@@ -55,3 +55,5 @@ def test_standard_datetime_uses_month_and_minute_elements():
     with zipfile.ZipFile(io.BytesIO(raw)) as archive:
         xml=archive.read('content.xml')
     assert b'<number:month' in xml and b'<number:minutes' in xml
+
+pytestmark = pytest.mark.django_db

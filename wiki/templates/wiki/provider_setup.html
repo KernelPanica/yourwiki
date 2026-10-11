@@ -10,6 +10,6 @@
 {% if grants %}<section class="settings-card"><h2>{% translate "Access synchronization" %}</h2>
 {% for grant in grants %}<p>{{ grant.provider_label }} · {{ grant.desired_role }} · {{ grant.get_status_display }}{% if grant.error %}<br>{{ grant.error }}{% endif %}</p>{% endfor %}
 <p>{% translate "GitHub repository invitations must be accepted in GitHub. Failed permissions require administrator assistance; write access is never substituted for read access." %}</p></section>{% endif %}
-<form method="post">{% csrf_token %}<button class="button primary" {% if not can_finish %}disabled{% endif %}>{% translate "Synchronize access and continue" %}</button></form>
+<form method="post" data-busy-message="{% translate 'Synchronizing access. Please wait…' %}">{% csrf_token %}<button class="button primary" {% if not can_finish %}disabled{% endif %}>{% translate "Synchronize access and continue" %}</button></form>
 <form method="post" action="{% url 'logout' %}">{% csrf_token %}<button class="button">{% translate "Sign out" %}</button></form>
 {% endblock %}

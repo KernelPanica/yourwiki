@@ -122,9 +122,11 @@ class TestDocuments:
             adapter.return_value.move.side_effect = active_storage().move
             adapter.return_value.delete.side_effect=StorageError('offline')
             response=client.delete(f'/api/docs/{document.pk}')
-        assert response.status_code==202
+        assert response.status_code==200
+        assert response.json()['trashed'] is True
         assert not Document.objects.exists()
-        assert PendingDeletion.objects.count()==1
+        assert Document.all_objects.get(pk=document.pk).trash_id
+        assert PendingDeletion.objects.count()==0
         cleanup_storage()
         assert PendingDeletion.objects.count()==0
 

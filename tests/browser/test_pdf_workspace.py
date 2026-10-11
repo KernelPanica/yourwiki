@@ -33,7 +33,7 @@ def test_pdf_viewport_zoom_pan_and_explorer(realtime_server, workspace):
         assert bounds['y'] + bounds['height'] <= 900
         page.get_by_role('button', name='Open file explorer', exact=True).click()
         expect(page.locator('#workspace-sidebar')).to_have_attribute('aria-hidden', 'false')
-        page.locator('#workspace-sidebar [data-sidebar-close]').click()
+        page.locator('[data-sidebar-open]').click()
         expect(page.locator('#workspace-sidebar')).to_have_attribute('aria-hidden', 'true')
         page.locator('#pdf-zoom').select_option('2')
         page.wait_for_function('document.getElementById("pdf-container").scrollWidth > document.getElementById("pdf-container").clientWidth')

@@ -58,3 +58,15 @@ def test_canvas_group_background_is_behind_saved_cards():
         {'id':'group','type':'group','label':'Group','x':0,'y':0,'width':300,'height':300}
     ], 'edges':[]}))
     assert [node['id'] for node in result['nodes']] == ['group', 'card']
+
+pytestmark = pytest.mark.django_db
+
+
+def test_canvas_preview_obeys_obsidian_edge_sides_and_ends():
+    result = preview('canvas', json.dumps({'nodes':[
+        {'id':'a','type':'text','x':0,'y':0,'width':100,'height':100},
+        {'id':'b','type':'text','x':300,'y':0,'width':100,'height':100},
+    ], 'edges':[{'id':'e','fromNode':'a','toNode':'b','fromSide':'right','toSide':'left','fromEnd':'arrow','toEnd':'none'}]}))
+    assert result['edges'][0]['path'] == 'M100,50.0 C160,50.0 240,50.0 300,50.0'
+    assert result['edges'][0]['from_arrow'] is True
+    assert result['edges'][0]['to_arrow'] is False

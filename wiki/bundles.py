@@ -12,9 +12,8 @@ from django.db import transaction
 from .models import Attachment, Collaboration, Document, Review, PendingDeletion
 from .collaboration import current_content, derive
 from .services import save_document, validate_content
-from .storage import active_storage
+from .storage import active_storage, auxiliary_limit_bytes, image_limit_bytes
 
-MAX_BUNDLE = 50*1024*1024
 
 
 def export_bundle(document):
@@ -29,14 +28,14 @@ def export_bundle(document):
     output=io.BytesIO();total=len(content.encode())
     with zipfile.ZipFile(output,'w',zipfile.ZIP_DEFLATED) as archive:
         for attachment in document.attachments.all():
-            data=adapter.read(attachment.reference);total+=len(data)
-            if total>MAX_BUNDLE:raise ValidationError('This bundle exceeds 50 MB. Back up the workspace volumes instead.')
+            data=adapter.read(attachment.reference, limit=image_limit_bytes());total+=len(data)
+            if (auxiliary_limit_bytes() is not None and total>auxiliary_limit_bytes()):raise ValidationError('This bundle exceeds the configured size budget. Back up the workspace volumes instead.')
             name=f'images/{attachment.pk}.png';archive.writestr(name,data)
             manifest['attachments'].append({'id':str(attachment.pk),'file':name})
         if room:
             state=bytes(room.state);total+=len(state);archive.writestr('state.bin',state)
         metadata=json.dumps(manifest,ensure_ascii=False).encode();total+=len(metadata)
-        if total>MAX_BUNDLE:raise ValidationError('This bundle exceeds 50 MB.')
+        if (auxiliary_limit_bytes() is not None and total>auxiliary_limit_bytes()):raise ValidationError('This bundle exceeds the configured size budget.')
         archive.writestr('manifest.json',metadata)
     return output.getvalue()
 
@@ -46,7 +45,7 @@ def import_bundle(user,group,upload):
     try:
         with zipfile.ZipFile(upload) as archive:
             infos=archive.infolist()
-            if len(infos)>200 or sum(i.file_size for i in infos)>MAX_BUNDLE or len({i.filename for i in infos})!=len(infos):
+            if len(infos)>200 or (auxiliary_limit_bytes() is not None and sum(i.file_size for i in infos)>auxiliary_limit_bytes()) or len({i.filename for i in infos})!=len(infos):
                 raise ValidationError('Invalid or oversized wiki bundle.')
             manifest=json.loads(archive.read('manifest.json'))
             if manifest.get('format')!='yourwiki-bundle' or manifest.get('version')!=1:
@@ -60,7 +59,7 @@ def import_bundle(user,group,upload):
                 image=Image.open(io.BytesIO(archive.read(item['file'])))
                 if image.format!='PNG' or image.width*image.height>16000000:raise ValidationError('Invalid bundle image.')
                 clean=io.BytesIO();image.save(clean,format='PNG');data=clean.getvalue()
-                if len(data)>5*1024*1024:raise ValidationError('Bundle image exceeds 5 MB.')
+                if (image_limit_bytes() is not None and len(data)>image_limit_bytes()):raise ValidationError('Bundle image exceeds the configured image size limit.')
                 replacements[f'/attachments/{old}/']=f'/attachments/{new}/'
                 assets.append((new,data))
             state=None
@@ -84,7 +83,7 @@ def import_bundle(user,group,upload):
                 if review.get('kind') not in ('comment','suggestion') or review.get('status') not in ('open','accepted','rejected','resolved') or not isinstance(review.get('body'),str) or len(review['body'])>10000 or len(json.dumps(review.get('anchor',{})))>8000:
                     raise ValidationError('Invalid review record.')
             for id,data in assets:
-                reference=adapter.write(f'{id}.png',data);written.append((id,reference))
+                reference=adapter.write(f'{id}.png',data,limit=image_limit_bytes());written.append((id,reference))
             title = manifest['title']
             if Document.objects.filter(folder=None, title=title).exists():
                 title = title[:180] + ' (' + uuid.uuid4().hex[:8] + ')'

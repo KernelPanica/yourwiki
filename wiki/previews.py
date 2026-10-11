@@ -1,3 +1,4 @@
+from .storage import file_limit_bytes, auxiliary_limit_bytes
 import base64
 import csv
 import html
@@ -58,8 +59,10 @@ def graph(nodes, edges):
     for e in edges:
         a,b = mapping.get(str(e.get('from'))),mapping.get(str(e.get('to')))
         if a and b:
-            ax,ay,bx,by=a['x']+a['width']/2,a['y']+a['height'],b['x']+b['width']/2,b['y']
-            links.append({'path':f'M{ax},{ay} C{ax},{ay+60} {bx},{by-60} {bx},{by}', 'label':e.get('label',''), 'x':(ax+bx)/2,'y':(ay+by)/2})
+            def anchor(node, side):
+                return {'top':(node['x']+node['width']/2,node['y'],0,-1),'bottom':(node['x']+node['width']/2,node['y']+node['height'],0,1),'left':(node['x'],node['y']+node['height']/2,-1,0),'right':(node['x']+node['width'],node['y']+node['height']/2,1,0)}.get(side, (node['x']+node['width']/2,node['y']+node['height'],0,1))
+            ax,ay,dx,dy=anchor(a,e.get('fromSide','bottom')); bx,by,ex,ey=anchor(b,e.get('toSide','top'))
+            links.append({'path':f'M{ax},{ay} C{ax+dx*60},{ay+dy*60} {bx+ex*60},{by+ey*60} {bx},{by}', 'from_arrow':e.get('fromEnd')=='arrow','to_arrow':e.get('toEnd')!='none','label':e.get('label',''), 'x':(ax+bx)/2,'y':(ay+by)/2})
     return {'nodes': result, 'edges': links, 'viewbox': f'{x} {y} {width} {height}'}
 
 
@@ -126,7 +129,7 @@ def preview(kind, text):
         data = json.loads(text)
         nodes = [{**n, 'label':n.get('text') or n.get('file') or n.get('url') or n.get('label') or 'Group'} for n in data['nodes']]
         nodes.sort(key=lambda node: node.get('type') != 'group')
-        edges = [{'from':e.get('fromNode'),'to':e.get('toNode'),'label':e.get('label','')} for e in data.get('edges',[])]
+        edges = [{**e,'from':e.get('fromNode'),'to':e.get('toNode'),'label':e.get('label','')} for e in data.get('edges',[])]
         return graph(nodes,edges)
     root = fromstring(text)
     model = root if root.tag == 'mxGraphModel' else root.find('.//mxGraphModel')
@@ -135,8 +138,8 @@ def preview(kind, text):
         if diagram is None or not diagram.text:
             raise ValueError('No diagram page found.')
         inflater = zlib.decompressobj(-15)
-        raw = inflater.decompress(base64.b64decode(diagram.text), 5*1024*1024+1)
-        if len(raw) > 5*1024*1024 or not inflater.eof:
+        raw = inflater.decompress(base64.b64decode(diagram.text), (file_limit_bytes() + 1) if file_limit_bytes() is not None else 0)
+        if (file_limit_bytes() is not None and len(raw) > file_limit_bytes()) or not inflater.eof:
             raise ValueError('The decompressed diagram is too large.')
         model = fromstring(unquote(raw.decode()))
     nodes,edges=[],[]

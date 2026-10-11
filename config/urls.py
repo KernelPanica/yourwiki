@@ -1,3 +1,4 @@
+from wiki import version_views
 from django.urls import include, path
 from django.views.i18n import JavaScriptCatalog
 from wiki import views
@@ -7,7 +8,21 @@ from wiki import administration
 from wiki import mounts
 from wiki import ai
 from wiki import identities
+from wiki import collabora
+from wiki import trash
+from wiki import fonts
 urlpatterns = [
+    path('office/google-fonts.json', fonts.catalogue, name='google-font-catalogue'),
+    path('office/google-fonts/<str:stamp>.ttf', fonts.font_file, name='google-font-file'),
+    path('office/google-fonts/<str:stamp>/', fonts.font_file, name='google-font-file-legacy'),
+    path('office/fonts.json', fonts.configuration, name='office-fonts'),
+    path('trash/', trash.index, name='trash'),
+    path('trash/<uuid:id>/', trash.manage, name='trash-item'),
+    path('documents/<uuid:id>/office/', collabora.editor, name='office'),
+    path('documents/<uuid:id>/office/status/', collabora.office_status, name='office-status'),
+    path('documents/<uuid:id>/office/recovery/', collabora.recovery, name='office-recovery'),
+    path('wopi/files/<uuid:id>', collabora.wopi_info, name='wopi-info'),
+    path('wopi/files/<uuid:id>/contents', collabora.wopi_contents, name='wopi-contents'),
     path('account/setup/', identities.setup, name='provider-setup'),
     path('account/providers/', identities.accounts, name='provider-accounts'),
     path('account/providers/retry/', identities.retry, name='provider-retry'),
@@ -30,6 +45,7 @@ urlpatterns = [
     path('api/docs/<uuid:id>/attachments', editor_views.upload_attachment),
     path('attachments/<uuid:id>/', editor_views.attachment),
     path('folders/new/', folders.create_directory, name='new-directory'),
+    path('folders/<uuid:id>/delete/', folders.delete_directory, name='delete-directory'),
     path('folders/', folders.folder_page, name='folders'),
     path('folders/<uuid:id>/', folders.folder_page, name='folder'),
     path('folders/<uuid:id>/permissions/', folders.folder_policy, name='folder-policy'),
@@ -48,6 +64,10 @@ urlpatterns = [
     path('documents/<uuid:id>/edit/', views.editor, name='edit'),
     path('documents/<uuid:id>/export/', views.export_document, name='export'),
     path('documents/<uuid:id>/file-settings/', views.file_settings, name='file-settings'),
+    path('documents/<uuid:id>/versions/', version_views.versions, name='file-versions'),
+    path('documents/<uuid:id>/versions/<int:index>/', version_views.preview, name='version-preview'),
+    path('documents/<uuid:id>/versions/<int:index>/download/', version_views.download, name='version-download'),
+    path('documents/<uuid:id>/versions/<int:index>/restore/', version_views.restore, name='version-restore'),
     path('documents/<uuid:id>/history/', views.file_history, name='file-history'),
     path('documents/<uuid:id>/delete/', views.remove, name='delete'),
     path('documents/<uuid:id>/star/', views.star, name='star'),

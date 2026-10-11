@@ -2206,3 +2206,245 @@ msgstr "Caracteres"
 
 msgid "Spreadsheet action failed: %(message)s"
 msgstr "No se pudo realizar la acción en la hoja: %(message)s"
+
+msgid "Download saved file"
+msgstr "Descargar archivo guardado"
+
+msgid "Download recovery copy"
+msgstr "Descargar copia de recuperación"
+
+msgid "Loading office editor…"
+msgstr "Cargando el editor de oficina…"
+
+msgid "Office document editor"
+msgstr "Editor de documentos de oficina"
+
+msgid "Office editor ready. Changes save automatically."
+msgstr "Editor listo. Los cambios se guardan automáticamente."
+
+msgid "The office editor is still loading. Check the Collabora connection."
+msgstr "El editor sigue cargando. Compruebe la conexión con Collabora."
+
+msgid "The original changed. Download your recovery copy."
+msgstr "El original ha cambiado. Descargue su copia de recuperación."
+
+msgid "Saving failed. Your office recovery copy is retained; retry saving."
+msgstr "No se pudo guardar. Se conserva su copia de recuperación; vuelva a guardar."
+
+msgid "Presentation"
+msgstr "Presentación"
+
+msgid "Google Sheets is edited through ODS export and import. Google-specific features may differ."
+msgstr "Google Sheets se edita mediante exportación e importación ODS. Las funciones específicas de Google pueden variar."
+
+msgid "Resize editor height"
+msgstr "Cambiar la altura del editor"
+
+msgid "Drag to resize. Double-click to reset."
+msgstr "Arrastre para cambiar el tamaño. Doble clic para restablecer."
+
+msgid "Create"
+msgstr "Crear"
+
+msgid "Folder"
+msgstr "Carpeta"
+
+msgid "Automatic saving is paused. Leaving this page will not save your changes to the original. Copy or download your changes before leaving or reloading."
+msgstr "El guardado automático está en pausa. Salir de esta página no guardará los cambios en el original. Copia o descarga tus cambios antes de salir o recargar."
+
+msgid "Automatic saving is paused. Leaving this page will not save your changes to the original. Download your changes before leaving or reloading."
+msgstr "El guardado automático está en pausa. Salir de esta página no guardará los cambios en el original. Descarga tus cambios antes de salir o recargar."
+
+msgid "The original changed. Download your edits before leaving or reloading."
+msgstr "El original ha cambiado. Descarga tus cambios antes de salir o recargar."
+
+msgid "Automatic saving is paused. Before leaving, select your changes in the editor and copy them to the clipboard, or download the current copy. The remote original will not be overwritten."
+msgstr "El guardado automático está en pausa. Antes de salir, copie sus cambios al portapapeles o descargue la copia actual. No se sobrescribirá el original remoto."
+
+msgid "Download current copy"
+msgstr "Descargar copia actual"
+
+msgid "The original document changed. Copy your changes to the clipboard or download the current copy before leaving. Leave without saving?"
+msgstr "El documento original cambió. Copie sus cambios o descargue la copia actual antes de salir. ¿Salir sin guardar?"
+
+msgid "Some changes have not been saved yet. Copy or download them before leaving. Leave without saving?"
+msgstr "Hay cambios sin guardar. Cópielos o descárguelos antes de salir. ¿Salir sin guardar?"
+
+msgid "Discard current editor changes and open the remote original?"
+msgstr "¿Descartar los cambios actuales y abrir el original remoto?"
+
+msgid "Office editor ready. View only."
+msgstr "Editor listo. Solo lectura."
+
+msgid "Editing permission was removed. Copy or download your changes before leaving."
+msgstr "Se retiró el permiso de edición. Copie o descargue sus cambios antes de salir."
+
+msgid "The original document changed. Automatic saving is paused. Copy your changes or download a recovery copy before leaving."
+msgstr "El original cambió. El guardado automático está en pausa. Copie sus cambios o descargue una copia de recuperación antes de salir."
+
+msgid "GitHub does not support personal per-file grants. Originals retain existing GitHub access. Yourwiki does not grant repository access and revokes its previously managed grants; failed revocations must be retried. Reading and saving through Yourwiki still use the connected storage account."
+msgstr "GitHub no admite permisos personales por archivo. Los originales conservan el acceso existente de GitHub. Yourwiki no concede acceso al repositorio y revoca los permisos que gestionaba; las revocaciones fallidas deben reintentarse. La lectura y el guardado mediante Yourwiki siguen usando la cuenta de almacenamiento conectada."
+
+msgid "Connecting your account and synchronizing access. Please wait…"
+msgstr "Conectando su cuenta y sincronizando el acceso. Espere…"
+
+msgid "Synchronizing access. Please wait…"
+msgstr "Sincronizando el acceso. Espere…"
+
+msgid "Delete directory and files"
+msgstr "Eliminar carpeta y archivos"
+
+msgid "Deleting directory and files. Please wait…"
+msgstr "Eliminando carpeta y archivos. Espere…"
+
+#, python-format
+msgid "This will delete %(file_count)s files and %(folder_count)s nested directories, including originals in storage. This cannot be undone."
+msgstr "Se eliminarán %(file_count)s archivos y %(folder_count)s subcarpetas, incluidos los originales del almacenamiento. Esta acción no se puede deshacer."
+
+msgid "Confirm deleting the directory and all its contents."
+msgstr "Confirmar la eliminación de la carpeta y todo su contenido."
+
+msgid "Directory and files removed. Unfinished storage cleanup retries automatically."
+msgstr "Carpeta y archivos eliminados. La limpieza pendiente del almacenamiento se reintentará automáticamente."
+
+msgid "Directory contents changed. Review the deletion again."
+msgstr "El contenido de la carpeta ha cambiado. Revise la eliminación de nuevo."
+
+msgid "Google access is inherited from a parent. Remove parent sharing before synchronizing per-file access."
+msgstr "El acceso de Google se hereda de una carpeta superior. Quite ese acceso antes de sincronizar permisos por archivo."
+
+msgid "Google access is inherited from a parent. Remove parent sharing before revoking per-file access."
+msgstr "El acceso de Google se hereda de una carpeta superior. Quite ese acceso antes de revocar permisos por archivo."
+
+msgid "Your changes will not be saved"
+msgstr "Tus cambios no se guardarán"
+
+msgid "The document changed in its source while you were editing. Saving to the original is blocked. Copy your changes to the clipboard or download a local copy before leaving or reloading."
+msgstr "El documento cambió en su origen mientras lo editabas. Guardar en el original está bloqueado. Copia tus cambios al portapapeles o descarga una copia local antes de salir o recargar."
+
+msgid "To copy text, select it inside the editor and press Ctrl+C (⌘C on Mac). Download a local copy to preserve formatting."
+msgstr "Para copiar texto, selecciónalo en el editor y pulsa Ctrl+C (⌘C en Mac). Descarga una copia local para conservar el formato."
+
+msgid "The original PDF changed. Your annotations will not be saved to this version. Download the current PDF before leaving or reloading."
+msgstr "El PDF original cambió. Tus anotaciones no se guardarán en esta versión. Descarga el PDF actual antes de salir o recargar."
+
+msgid "Reconnect with Google"
+msgstr "Volver a conectar Google"
+
+msgid "Google requests access to all Drive files to discover files created outside Yourwiki. Yourwiki scans only the connected folder and its subfolders. Reconnect an existing Google source to grant this access."
+msgstr "Google solicita acceso a todos los archivos de Drive para descubrir archivos creados fuera de Yourwiki. Yourwiki solo examina la carpeta conectada y sus subcarpetas. Vuelve a conectar la fuente de Google para conceder este acceso."
+
+msgid "Storage credentials changed during authorization. Start again."
+msgstr "Las credenciales cambiaron durante la autorización. Vuelve a empezar."
+
+msgid "Root folder settings"
+msgstr "Configuración de la raíz"
+
+msgid "Workspace permissions"
+msgstr "Permisos del espacio de trabajo"
+
+msgid "Settings for %(name)s"
+msgstr "Configuración de %(name)s"
+
+msgid "A preview is unavailable. The file remains in the source."
+msgstr "La vista previa no está disponible. El archivo sigue en su origen."
+
+msgid "Trash"
+msgstr "Papelera"
+
+msgid "Move %(title)s to trash?"
+msgstr "¿Mover %(title)s a la papelera?"
+
+msgid "Move to trash"
+msgstr "Mover a la papelera"
+
+msgid "Move folder and files to trash"
+msgstr "Mover carpeta y archivos a la papelera"
+
+msgid "The file will disappear from the workspace. Its original, history and attachments are preserved. Only an administrator can restore or permanently delete it."
+msgstr "El archivo desaparecerá del espacio. Se conservan el original, historial y adjuntos. Solo un administrador puede restaurarlo o eliminarlo definitivamente."
+
+msgid "This will move %(file_count)s files and %(folder_count)s nested folders to trash. Originals and history are preserved. Only an administrator can restore or permanently delete them."
+msgstr "Se moverán %(file_count)s archivos y %(folder_count)s carpetas anidadas a la papelera. Se conservan originales e historial. Solo un administrador puede restaurarlos o eliminarlos definitivamente."
+
+msgid "Moving to trash. Please wait…"
+msgstr "Moviendo a la papelera. Espera…"
+
+msgid "Confirm moving the folder and all its contents to trash."
+msgstr "Confirmar mover la carpeta y su contenido a la papelera."
+
+msgid "Only administrators can manage trash. Files, history and permissions are preserved until permanent deletion."
+msgstr "Solo los administradores gestionan la papelera. Se conservan archivos, historial y permisos hasta eliminarlos definitivamente."
+
+msgid "Restore"
+msgstr "Restaurar"
+
+msgid "Permanently delete…"
+msgstr "Eliminar definitivamente…"
+
+msgid "Trash is empty."
+msgstr "La papelera está vacía."
+
+msgid "Files: %(file_count)s. Folders: %(folder_count)s."
+msgstr "Archivos: %(file_count)s. Carpetas: %(folder_count)s."
+
+msgid "Restore returns the item to its original folder with its previous permissions. Restore its parent first if that folder is also in trash."
+msgstr "Restaurar devuelve el elemento a su carpeta original con los permisos anteriores. Si la carpeta superior está en la papelera, restáurala primero."
+
+msgid "Permanent deletion"
+msgstr "Eliminación definitiva"
+
+msgid "This deletes originals from storage, history and attachments. All nested items are included, even items moved to trash earlier. This cannot be undone."
+msgstr "Se eliminarán los originales del almacenamiento, historial y adjuntos. Incluye todos los elementos anidados, incluso los enviados antes a la papelera. No se puede deshacer."
+
+msgid "Deleting. Please wait…"
+msgstr "Eliminando. Espera…"
+
+msgid "Confirm permanent deletion."
+msgstr "Confirmar eliminación definitiva."
+
+msgid "Permanently delete"
+msgstr "Eliminar definitivamente"
+
+msgid "Moved to trash. An administrator can restore this file."
+msgstr "Archivo movido a la papelera. Un administrador puede restaurarlo."
+
+msgid "Moved to trash. An administrator can restore these files and folders."
+msgstr "Carpeta y archivos movidos a la papelera. Un administrador puede restaurarlos."
+
+msgid "Restored with its original permissions."
+msgstr "Restaurado con sus permisos originales."
+
+msgid "Permanently deleted. Unfinished storage cleanup retries automatically."
+msgstr "Eliminado definitivamente. La limpieza pendiente se reintentará automáticamente."
+
+msgid "Restore the parent folder first."
+msgstr "Restaura primero la carpeta superior."
+
+msgid "Restore or permanently delete trashed contents before moving this folder."
+msgstr "Restaura o elimina definitivamente el contenido de la papelera antes de mover esta carpeta."
+
+msgid "Confirm permanent deletion or choose restore."
+msgstr "Confirma la eliminación definitiva o elige restaurar."
+
+msgid "A folder with this name already exists. Rename it before restoring."
+msgstr "Ya existe una carpeta con este nombre. Renómbrala antes de restaurar."
+
+msgid "A file with this name already exists. Rename it before restoring."
+msgstr "Ya existe un archivo con este nombre. Renómbralo antes de restaurar."
+
+msgid "Google Drive trash synchronization pending: %(cloud_pending)s. Yourwiki will retry automatically."
+msgstr "Pendientes de sincronizar con la papelera de Google Drive: %(cloud_pending)s. Yourwiki lo reintentará automáticamente."
+
+msgid "Google Drive trash synchronization failed. It will retry automatically."
+msgstr "No se pudo sincronizar la papelera de Google Drive. Se reintentará automáticamente."
+
+msgid "Google Drive could not restore the original. The file remains in Yourwiki trash; try again."
+msgstr "No se pudo restaurar el original en Google Drive. El archivo permanece en la papelera de Yourwiki; inténtalo de nuevo."
+
+msgid "The file is in Yourwiki trash. Moving the original to Google Drive trash is pending; synchronization will retry automatically."
+msgstr "El archivo está en la papelera de Yourwiki. El original aún no se ha movido a la papelera de Google Drive; se reintentará automáticamente."
+
+#: wiki/static/wiki/loading.js
+msgid "Loading…"
+msgstr "Cargando…"

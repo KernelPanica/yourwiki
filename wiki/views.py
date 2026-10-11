@@ -1,3 +1,4 @@
+from django.utils.translation import gettext as _
 from datetime import timedelta
 from functools import wraps
 import hashlib
@@ -17,7 +18,7 @@ from django.utils import timezone
 from django.views.decorators.http import require_http_methods, require_POST
 from .forms import DocumentForm, InviteForm, MemberForm, RegistrationForm
 from .middleware import deny
-from .models import Document, Invitation, LoginAttempt, User, Workspace
+from .models import Folder, Document, Invitation, LoginAttempt, User, Workspace
 from .previews import preview, image_type
 from .acl import normalize_policy, normalize_rule, ResourcePermissionDenied
 from .services import Conflict, EXTENSIONS, redeem_invitation, require, save_document, validate_policy, delete_document
@@ -83,7 +84,10 @@ def failure(request, message, status):
 
 
 def visible_docs(user):
-    return [d for d in Document.objects.select_related('owner','group') if d.allows(user, 'read')]
+    from .access_graph import access_graph, attach_documents
+    _, folders, site = access_graph(user)
+    documents = attach_documents(list(Document.objects.select_related('owner', 'group')), folders, site, user)
+    return [d for d in documents if d.allows(user, 'read')]
 
 
 def document_for(user, id, action='read'):
@@ -153,24 +157,40 @@ def library(request):
     return render(request, 'wiki/library.html', {'docs':docs, 'quick':quick, 'section':section, 'query':q, 'kind':kind, 'kinds':Document.KINDS, 'grid':request.GET.get('view')=='grid'})
 
 
+def file_details(request, doc, preview_error='', *, inspect=True):
+    from .collabora import eligible
+    is_image = False
+    if inspect and doc.kind == 'file':
+        try:
+            is_image = bool(image_type(active_storage().read(doc.reference)))
+        except StorageError as error:
+            preview_error = str(error)
+    return render(request, 'wiki/file.html', {'doc':doc, 'office_eligible':eligible(doc),
+        'is_image':is_image, 'preview_error':preview_error,
+        'can_write':doc.allows(request.user,'write'), 'can_policy':request.user.is_superuser})
+
+
 @guarded
 def detail(request, id):
     doc = document_for(request.user, id)
     if doc.kind == 'file' and doc.title.lower().endswith('.pdf'):
-        with transaction.atomic():
-            doc=document_for(request.user,id)
-            raw=active_storage().read(doc.reference)
-            fingerprint=active_storage().fingerprint(doc.reference,raw)
-            if fingerprint!=doc.storage_digest:
-                if doc.storage_digest:doc.revision+=1
-                doc.storage_digest=fingerprint
-                doc.save(update_fields=['storage_digest','revision'])
-        from .pdf_layers import layer_state
-        return render(request, 'wiki/pdf.html', {'doc': doc, 'section':doc.title, 'can_write': doc.allows(request.user, 'write'),
-            'pdf_bootstrap': {'id': str(doc.pk), 'title': doc.title, 'revision': doc.revision,
-                'layer_state': layer_state(doc, raw), 'write': doc.allows(request.user, 'write')}})
-    if doc.kind == 'file':
-        return render(request, 'wiki/file.html', {'doc':doc, 'is_image':bool(image_type(active_storage().read(doc.reference))), 'can_write':doc.allows(request.user,'write'), 'can_policy':request.user.is_superuser})
+        try:
+            with transaction.atomic():
+                doc=document_for(request.user,id)
+                raw=active_storage().read(doc.reference)
+                fingerprint=active_storage().fingerprint(doc.reference,raw)
+                if fingerprint!=doc.storage_digest:
+                    if doc.storage_digest:doc.revision+=1
+                    doc.storage_digest=fingerprint
+                    doc.save(update_fields=['storage_digest','revision'])
+            from .pdf_layers import layer_state
+            return render(request, 'wiki/pdf.html', {'doc': doc, 'section':doc.title, 'can_write': doc.allows(request.user, 'write'),
+                'pdf_bootstrap': {'id': str(doc.pk), 'title': doc.title, 'revision': doc.revision,
+                    'layer_state': layer_state(doc, raw), 'write': doc.allows(request.user, 'write')}})
+        except StorageError as error:
+            return file_details(request, doc, str(error), inspect=False)
+    if doc.kind in ('file', 'presentation'):
+        return file_details(request, doc)
     from .collaboration import current_content
     content = current_content(doc)
     try:
@@ -185,7 +205,13 @@ def detail(request, id):
 def editor(request, id=None):
     doc = document_for(request.user, id, 'write') if id else None
     if doc: require(doc, request.user, 'read')
-    if doc and doc.kind == 'file': return redirect('document', id=doc.pk)
+    if doc and doc.kind == 'file':
+        from .editor_views import live
+        return live(request, id)
+    if doc and doc.kind == 'presentation':
+        if request.method == 'POST':
+            raise ValidationError('Open the visual editor to edit this presentation.')
+        return redirect('live', id=doc.pk)
     source_token = None
     if doc and request.GET.get('source'):
         from .source import acquire, release
@@ -215,7 +241,7 @@ def editor(request, id=None):
             try:
                 data = form.cleaned_data
                 if not doc and data['content'] in ('', '# New document\n\nStart writing here.'):
-                    data['content'] = {'file':'', 'document':'', 'table':'', 'canvas':'{"nodes":[],"edges":[]}', 'drawio':'<mxfile><diagram id="page1" name="Page 1"><mxGraphModel><root><mxCell id="0"/><mxCell id="1" parent="0"/></root></mxGraphModel></diagram></mxfile>'}[data['kind']]
+                    data['content'] = {'file':'', 'document':'', 'table':'', 'presentation':'', 'canvas':'{"nodes":[],"edges":[]}', 'drawio':'<mxfile><diagram id="page1" name="Page 1"><mxGraphModel><root><mxCell id="0"/><mxCell id="1" parent="0"/></root></mxGraphModel></diagram></mxfile>'}[data['kind']]
                 if not doc and data.get('folder'):
                     require(data['folder'], request.user, 'write')
                 from .models import SiteConfiguration
@@ -233,6 +259,23 @@ def editor(request, id=None):
     return render(request, 'wiki/editor.html', {'form':form,'doc':doc,'section':'Edit document' if doc else 'New document'}, status=status)
 
 
+def save_office_upload(user, upload, group, folder=None):
+    """Keep uploaded office files intact, including headers and slide assets."""
+    from .collabora import validate_file
+    from .office_formats import extension
+    content = upload.read()
+    probe = Document(title=upload.name, kind='file')
+    validate_file(probe, content)
+    doc = save_document(user, upload.name, 'file', 'Uploads', content, group, folder=folder)
+    if extension(doc) == 'ods':
+        mount, _ = active_storage().reference(doc.reference)
+        if mount.provider == 'google':
+            # The provider imported the ODS as a native Sheet; retain its API editor.
+            doc.kind, doc.file_format, doc.title = 'table', 'ods', doc.title[:-4]
+            doc.save(update_fields=['kind', 'file_format', 'title'])
+    return doc
+
+
 @guarded
 @require_http_methods(['GET','POST'])
 def upload_file(request):
@@ -243,8 +286,8 @@ def upload_file(request):
                       initial={'path':request.GET.get('path', '/'), 'folder':request.GET.get('folder')})
     if request.method == 'POST' and form.is_valid():
         upload = form.cleaned_data['file']
-        limit = min(5, SiteConfiguration.current().document_limit_mb)*1024*1024
-        if upload.size > limit:
+        limit = SiteConfiguration.current().document_limit_mb*1024*1024
+        if limit and upload.size > limit:
             form.add_error('file', f'Choose a file no larger than {limit//(1024*1024)} MB.')
         else:
             with transaction.atomic():
@@ -252,14 +295,18 @@ def upload_file(request):
                 folder = target_folder(request.user, form.cleaned_data['folder']) if form.cleaned_data['folder'] else resolve_path(request.user, form.cleaned_data['path'])
                 group = folder.group if folder else request.user.groups.first() or (Group.objects.first() if request.user.is_superuser else None)
                 if not group: raise PermissionDenied
-                if upload.name.lower().endswith('.docx'):
+                from .office_formats import SUPPORTED
+                from django.conf import settings
+                if settings.COLLABORA_URL and upload.name.rsplit('.', 1)[-1].lower() in SUPPORTED:
+                    doc = save_office_upload(request.user, upload, group, folder)
+                elif upload.name.lower().endswith('.docx'):
                     from .file_formats import read_docx as to_native
                     doc = save_document(request.user, upload.name[:-5], 'document', 'Uploads', to_native(upload.read()), group, folder=folder, file_format='docx')
                 elif upload.name.lower().endswith('.ods'):
                     from .file_formats import read_ods
                     doc = save_document(request.user, upload.name[:-4], 'table', 'Uploads', read_ods(upload.read()), group, folder=folder)
                 else:
-                    content = upload.read(limit+1)
+                    content = upload.read(limit+1 if limit else -1)
                     if upload.name.lower().endswith('.pdf'):
                         from .pdf import process_pdf
                         process_pdf(content)
@@ -267,7 +314,7 @@ def upload_file(request):
                 form.apply_permissions(doc)
             return redirect('document', id=doc.pk)
     if request.method == 'POST' and form.errors and 'application/json' in request.headers.get('Accept', ''):
-        return JsonResponse({'error':'Check the highlighted fields.', 'errors':form.errors.get_json_data()}, status=400)
+        return JsonResponse({'error':' '.join(str(message) for messages in form.errors.values() for message in messages), 'errors':form.errors.get_json_data()}, status=400)
     return render(request, 'wiki/upload.html', {'form':form, 'section':'Upload file'}, status=400 if form.errors else 200)
 
 
@@ -278,8 +325,10 @@ def import_document(request):
         upload = request.FILES.get('file')
         is_bundle=upload and upload.name.endswith('.wiki.zip')
         is_recovery=upload and upload.name.endswith('.recovery.json')
-        if not upload or upload.size > (50 if is_bundle else 20 if is_recovery else 5)*1024*1024:
-            raise ValidationError('Choose a file smaller than 5 MB.')
+        from .storage import file_limit_bytes, auxiliary_limit_bytes
+        cap = auxiliary_limit_bytes() if is_bundle else auxiliary_limit_bytes(20*1024*1024, 4) if is_recovery else file_limit_bytes()
+        if not upload or (cap is not None and upload.size > cap):
+            raise ValidationError('The file exceeds the configured size limit.')
         ext = upload.name.rsplit('.',1)[-1].lower()
         kind = {'md':'document','txt':'document','csv':'table','ods':'table','canvas':'canvas','drawio':'drawio','xml':'drawio','doc':'file','docx':'file','pdf':'file'}.get(ext)
         group = request.user.groups.first() or (Group.objects.first() if request.user.is_superuser else None)
@@ -293,6 +342,11 @@ def import_document(request):
             from .bundles import import_bundle
             doc=import_bundle(request.user,group,upload)
             return redirect('document',id=doc.pk)
+        from .office_formats import SUPPORTED
+        from django.conf import settings
+        if settings.COLLABORA_URL and ext in SUPPORTED:
+            doc = save_office_upload(request.user, upload, group)
+            return redirect('document', id=doc.pk)
         if ext == 'docx':
             from .file_formats import read_docx as to_native
             content = to_native(upload.read())
@@ -326,6 +380,15 @@ def import_document(request):
 @guarded
 def export_document(request,id):
     doc=document_for(request.user,id)
+    from .collabora import eligible
+    if doc.kind == 'presentation' or (eligible(doc) and request.GET.get('format') in (None, doc.file_format)):
+        from .office_formats import extension, mime
+        from django.utils.http import content_disposition_header
+        name = doc.title if doc.kind == 'file' else doc.title + '.' + extension(doc)
+        response = HttpResponse(active_storage().read(doc.reference), content_type=mime(extension(doc)))
+        response['Content-Disposition'] = content_disposition_header(True, name)
+        response['X-Content-Type-Options'] = 'nosniff'
+        return response
     if doc.kind == 'file':
         from django.utils.http import content_disposition_header
         content = active_storage().read(doc.reference)
@@ -391,6 +454,11 @@ def remove(request,id):
     if request.method=='POST':
         if not delete_document(request.user, doc):
             messages.info(request, 'Document removed from the wiki. Storage cleanup will retry automatically.')
+        from .models import ProviderTrashState
+        if ProviderTrashState.objects.filter(document_id=doc.pk, confirmed=False).exists():
+            messages.warning(request, _('The file is in Yourwiki trash. Moving the original to Google Drive trash is pending; synchronization will retry automatically.'))
+        else:
+            messages.success(request, _('Moved to trash. An administrator can restore this file.'))
         return redirect('library')
     return render(request,'wiki/delete.html',{'doc':doc})
 
@@ -477,7 +545,7 @@ def groups(request):
             if not name or len(name)>150: raise ValidationError('Provide a group name of at most 150 characters.')
             group.name=name;group.save(update_fields=['name'])
         elif action == 'delete' and group:
-            if User.objects.filter(groups=group).exists() or Document.objects.filter(group=group).exists() or group.folder_set.exists(): raise ValidationError('Remove members and document assignments before deleting this group.')
+            if User.objects.filter(groups=group).exists() or Document.all_objects.filter(group=group).exists() or Folder.all_objects.filter(group=group).exists(): raise ValidationError('Remove members and document assignments before deleting this group.')
             group.delete()
         elif action == 'create':
             name=request.POST.get('name','').strip()
@@ -530,7 +598,7 @@ def account(request):
 
 def serialized(doc,user):
     folder = doc.folder if doc.folder_id and doc.folder.allows(user, 'read') else None
-    return {'id':str(doc.pk),'title':doc.title,'kind':doc.kind,'owner':doc.owner.username,'group':doc.group.name,'policy':normalize_policy(doc.policy),'group_policies':{key:normalize_rule(rule) for key,rule in doc.group_policies.items()},'effective_policy':doc.effective_policy()[0],'inherit_permissions':doc.inherit_permissions,'folder':str(folder.pk) if folder else None,'file_format':doc.file_format,'format_version':doc.format_version,'revision':doc.revision,'starred':doc.starred,'updated_at':doc.updated_at.isoformat(),'access':{k:doc.allows(user,k) for k in ('read','write')}}
+    return {'id':str(doc.pk),'title':doc.title,'kind':doc.kind,'owner':doc.owner.username,'group':doc.group.name,'policy':normalize_policy(doc.policy),'group_policies':{key:normalize_rule(rule) for key,rule in doc.group_policies.items()},'user_policies':doc.user_policies,'effective_policy':doc.effective_policy()[0],'inherit_permissions':doc.inherit_permissions,'folder':str(folder.pk) if folder else None,'file_format':doc.file_format,'format_version':doc.format_version,'revision':doc.revision,'starred':doc.starred,'updated_at':doc.updated_at.isoformat(),'access':{k:doc.allows(user,k) for k in ('read','write')}}
 
 
 @guarded
@@ -542,7 +610,7 @@ def api_documents(request):
     from .folders import target_folder, resolve_path
     from .models import SiteConfiguration
     if 'collection' in data: raise ValidationError('Labels are no longer supported.')
-    if any(key in data for key in ('policy','group_policies','inherit_permissions')):
+    if any(key in data for key in ('policy','group_policies','user_policies','inherit_permissions')):
         raise ValidationError('New files inherit access. Use file settings to change permissions.')
     with transaction.atomic():
         folder = target_folder(request.user,data.get('folder')) if data.get('folder') else resolve_path(request.user,data.get('path','/'))
@@ -563,16 +631,18 @@ def api_document(request,id):
         return JsonResponse({**serialized(doc,request.user),'content':current_content(doc)})
     if request.method=='DELETE':
         complete = delete_document(request.user, doc)
-        return JsonResponse({'deleted': True, 'storage_cleanup_pending': not complete}, status=200 if complete else 202)
+        from .models import ProviderTrashState
+        pending = ProviderTrashState.objects.filter(document_id=doc.pk, confirmed=False).exists()
+        return JsonResponse({'deleted': True, 'trashed': True, 'provider_trash_pending': pending, 'storage_cleanup_pending': False}, status=202 if pending else 200)
     data=json.loads(request.body)
     if not isinstance(data,dict): raise ValidationError('Use a JSON object.')
     if 'collection' in data: raise ValidationError('Labels are no longer supported.')
-    if any(k in data for k in ('content','title')) and any(k in data for k in ('policy','group','group_policies','inherit_permissions','starred')):
+    if any(k in data for k in ('content','title')) and any(k in data for k in ('policy','group','group_policies','user_policies','inherit_permissions','starred')):
         raise ValidationError('Save content and access metadata in separate requests.')
     if 'content' in data or 'title' in data:
         if 'content' not in data: raise ValidationError('Supply the complete content with a revision when saving.')
         doc=save_document(request.user,data.get('title',doc.title),doc.kind,doc.collection,data['content'],doc.group,doc,data.get('revision'))
-    if {'policy','group','group_policies','inherit_permissions','starred'} & data.keys():
+    if {'policy','group','group_policies','user_policies','inherit_permissions','starred'} & data.keys():
         from .acl import apply_api_access
         with transaction.atomic():
             doc=document_for(request.user,id,'write')
@@ -594,8 +664,9 @@ def save_pdf(request, id):
     if doc.kind != 'file' or not doc.title.lower().endswith('.pdf'):
         raise ValidationError('Choose a PDF file.')
     upload = request.FILES.get('file')
-    if not upload or upload.size > min(5, SiteConfiguration.current().document_limit_mb) * 1024 * 1024:
-        raise ValidationError('Use a PDF file no larger than 5 MB.')
+    limit = SiteConfiguration.current().document_limit_mb * 1024 * 1024
+    if not upload or (limit and upload.size > limit):
+        raise ValidationError(f'Choose a PDF within the configured limit ({limit // (1024*1024)} MB).')
     content = upload.read()
     process_pdf(content)
     from .saves import stage
@@ -656,8 +727,7 @@ def file_history(request, id):
     if not doc.history_reference:
         raise ValidationError('This file has no saved history.')
     from django.utils.http import content_disposition_header
-    from .storage import HISTORY_MAX_BYTES
-    response = HttpResponse(active_storage().read(doc.history_reference, limit=HISTORY_MAX_BYTES), content_type='application/json')
+    response = HttpResponse(active_storage().read(doc.history_reference, limit=None), content_type='application/json')
     response['Content-Disposition'] = content_disposition_header(True, doc.title + '.' + (doc.file_format or 'file') + '.json')
     return response
 

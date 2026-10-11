@@ -127,3 +127,10 @@ main>#review-panel{margin:16px 0;max-height:60vh;width:100%;box-sizing:border-bo
   .docs-page #editor-toolbar.document-toolbar-ribbon{scrollbar-width:thin}
   .document-actions>.button{font-size:12px;padding:8px 10px}
 }
+.canvas-edge-hit{stroke:transparent!important;stroke-width:18!important;pointer-events:stroke;cursor:pointer}
+.canvas-edges path.selected{stroke:var(--primary-ink);stroke-width:4}
+.canvas-edges .canvas-arrow{fill:var(--canvas-connection,#2563eb);stroke:none}
+.canvas-node .card-content{max-height:calc(100% - 28px);overflow:auto;line-height:1.5}
+.canvas-zoom-label{font-size:.8rem;color:var(--muted);min-width:3rem;text-align:center}
+.canvas-stage:focus-visible{outline:2px solid var(--primary-ink);outline-offset:-2px}
+.google-font-control{width:12rem!important;max-width:100%}

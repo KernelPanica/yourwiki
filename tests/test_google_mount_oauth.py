@@ -137,3 +137,32 @@ def test_saved_client_requires_explicit_selection(client, workspace):
     response = client.post('/mounts/', {'provider': 'google', 'path': '/Manual', 'client_id': 'another-id'})
     assert response.status_code == 400
     assert b'private-client-secret' not in response.content
+
+
+def test_reconnect_existing_root_requests_full_drive_access(client,workspace):
+    from wiki.storage import root_mount
+    mount=root_mount();mount.provider='google';mount.encrypted_config=encrypt({'provider':'google','root':'same-root','client_id':'client-id','client_secret':'private','refresh_token':'old-token'});mount.save()
+    client.force_login(workspace['admin'])
+    response=client.post('/mounts/',{'action':'reconnect','mount':mount.pk})
+    assert response.status_code==302
+    query=parse_qs(urlsplit(response['Location']).query)
+    assert query['scope']==['https://www.googleapis.com/auth/drive']
+    pending=decrypt(client.session['google_mount_oauth'])
+    assert pending['mount']==mount.pk and pending['config']['root']=='same-root'
+
+
+def test_reconnect_updates_same_root_and_keeps_existing_objects(client,workspace):
+    from wiki.storage import root_mount
+    mount=root_mount();mount.provider='google';mount.encrypted_config=encrypt({'provider':'google','root':'same-root','client_id':'client-id','client_secret':'private','refresh_token':'old-token'});mount.save()
+    client.force_login(workspace['admin']);client.post('/mounts/',{'action':'reconnect','mount':mount.pk})
+    pending=decrypt(client.session['google_mount_oauth'])
+    response=Mock(status_code=200);response.json.return_value={'refresh_token':'new-token'}
+    with patch('install.requests.post',return_value=response),patch('wiki.mounts.SafeAdapter') as adapter:
+        result=client.post(CALLBACK,{'state':pending['state'],'code':'auth-code'})
+        adapter.return_value.probe.assert_called_once()
+    assert result.status_code==302
+    mount.refresh_from_db()
+    assert MountPoint.objects.count()==1 and mount.path=='/' and decrypt(mount.encrypted_config)['root']=='same-root'
+    assert decrypt(mount.encrypted_config)['refresh_token']=='new-token'
+    workspace['ws'].refresh_from_db()
+    assert workspace['ws'].encrypted_config==mount.encrypted_config

@@ -2215,3 +2215,245 @@ msgstr "Символы"
 
 msgid "Spreadsheet action failed: %(message)s"
 msgstr "Не удалось выполнить действие с таблицей: %(message)s"
+
+msgid "Download saved file"
+msgstr "Скачать сохранённый файл"
+
+msgid "Download recovery copy"
+msgstr "Скачать копию для восстановления"
+
+msgid "Loading office editor…"
+msgstr "Загрузка офисного редактора…"
+
+msgid "Office document editor"
+msgstr "Офисный редактор документов"
+
+msgid "Office editor ready. Changes save automatically."
+msgstr "Редактор готов. Изменения сохраняются автоматически."
+
+msgid "The office editor is still loading. Check the Collabora connection."
+msgstr "Редактор ещё загружается. Проверьте подключение Collabora."
+
+msgid "The original changed. Download your recovery copy."
+msgstr "Оригинал изменился. Скачайте копию для восстановления."
+
+msgid "Saving failed. Your office recovery copy is retained; retry saving."
+msgstr "Не удалось сохранить. Копия для восстановления сохранена; повторите сохранение."
+
+msgid "Presentation"
+msgstr "Презентация"
+
+msgid "Google Sheets is edited through ODS export and import. Google-specific features may differ."
+msgstr "Google Sheets редактируется через экспорт и импорт ODS. Специфичные функции Google могут работать иначе."
+
+msgid "Resize editor height"
+msgstr "Изменить высоту редактора"
+
+msgid "Drag to resize. Double-click to reset."
+msgstr "Перетащите для изменения размера. Двойной щелчок — сброс."
+
+msgid "Create"
+msgstr "Создать"
+
+msgid "Folder"
+msgstr "Папка"
+
+msgid "Automatic saving is paused. Leaving this page will not save your changes to the original. Copy or download your changes before leaving or reloading."
+msgstr "Автоматическое сохранение приостановлено. Уход с этой страницы не сохранит изменения в оригинале. Скопируйте или скачайте свои изменения перед выходом или перезагрузкой."
+
+msgid "Automatic saving is paused. Leaving this page will not save your changes to the original. Download your changes before leaving or reloading."
+msgstr "Автоматическое сохранение приостановлено. Уход с этой страницы не сохранит изменения в оригинале. Скачайте свои изменения перед выходом или перезагрузкой."
+
+msgid "The original changed. Download your edits before leaving or reloading."
+msgstr "Оригинал изменился. Скачайте свои изменения перед выходом или перезагрузкой."
+
+msgid "Automatic saving is paused. Before leaving, select your changes in the editor and copy them to the clipboard, or download the current copy. The remote original will not be overwritten."
+msgstr "Автосохранение приостановлено. Перед выходом выделите ваши изменения в редакторе и скопируйте их в буфер обмена или скачайте текущую копию. Удалённый оригинал не будет перезаписан."
+
+msgid "Download current copy"
+msgstr "Скачать текущую копию"
+
+msgid "The original document changed. Copy your changes to the clipboard or download the current copy before leaving. Leave without saving?"
+msgstr "Основной документ изменён. Перед выходом скопируйте ваши изменения в буфер обмена или скачайте текущую копию. Выйти без сохранения?"
+
+msgid "Some changes have not been saved yet. Copy or download them before leaving. Leave without saving?"
+msgstr "Некоторые изменения ещё не сохранены. Скопируйте или скачайте их перед выходом. Выйти без сохранения?"
+
+msgid "Discard current editor changes and open the remote original?"
+msgstr "Отбросить текущие изменения редактора и открыть удалённый оригинал?"
+
+msgid "Office editor ready. View only."
+msgstr "Редактор готов. Только просмотр."
+
+msgid "Editing permission was removed. Copy or download your changes before leaving."
+msgstr "Право редактирования отозвано. Скопируйте или скачайте изменения перед выходом."
+
+msgid "The original document changed. Automatic saving is paused. Copy your changes or download a recovery copy before leaving."
+msgstr "Основной документ изменён. Автосохранение приостановлено. Скопируйте ваши изменения или скачайте копию восстановления перед выходом."
+
+msgid "GitHub does not support personal per-file grants. Originals retain existing GitHub access. Yourwiki does not grant repository access and revokes its previously managed grants; failed revocations must be retried. Reading and saving through Yourwiki still use the connected storage account."
+msgstr "GitHub не поддерживает персональные права на отдельные файлы. Оригиналы сохраняют существующие права GitHub. Yourwiki не выдаёт доступ к репозиторию и отзывает ранее выданные им права; неудачные отзывы нужно повторить. Чтение и сохранение через Yourwiki по-прежнему используют подключённый аккаунт хранилища."
+
+msgid "Connecting your account and synchronizing access. Please wait…"
+msgstr "Подключаем аккаунт и синхронизируем права. Пожалуйста, подождите…"
+
+msgid "Synchronizing access. Please wait…"
+msgstr "Синхронизируем права. Пожалуйста, подождите…"
+
+msgid "Delete directory and files"
+msgstr "Удалить папку и файлы"
+
+msgid "Deleting directory and files. Please wait…"
+msgstr "Удаляем папку и файлы. Пожалуйста, подождите…"
+
+#, python-format
+msgid "This will delete %(file_count)s files and %(folder_count)s nested directories, including originals in storage. This cannot be undone."
+msgstr "Будут удалены %(file_count)s файлов и %(folder_count)s вложенных папок, включая оригиналы в хранилище. Это действие нельзя отменить."
+
+msgid "Confirm deleting the directory and all its contents."
+msgstr "Подтверждаю удаление папки и всего её содержимого."
+
+msgid "Directory and files removed. Unfinished storage cleanup retries automatically."
+msgstr "Папка и файлы удалены из Yourwiki. Незавершённое удаление в хранилище будет повторено автоматически."
+
+msgid "Directory contents changed. Review the deletion again."
+msgstr "Содержимое папки изменилось. Проверьте и подтвердите удаление ещё раз."
+
+msgid "Google access is inherited from a parent. Remove parent sharing before synchronizing per-file access."
+msgstr "Доступ Google унаследован от родительской папки. Уберите общий доступ родителя перед синхронизацией прав отдельных файлов."
+
+msgid "Google access is inherited from a parent. Remove parent sharing before revoking per-file access."
+msgstr "Доступ Google унаследован от родительской папки. Уберите общий доступ родителя перед отзывом прав отдельного файла."
+
+msgid "Your changes will not be saved"
+msgstr "Изменения не будут сохранены"
+
+msgid "The document changed in its source while you were editing. Saving to the original is blocked. Copy your changes to the clipboard or download a local copy before leaving or reloading."
+msgstr "Документ изменён в источнике, пока вы его редактировали. Сохранение в оригинал заблокировано. Скопируйте свои изменения в буфер обмена или скачайте локальную копию перед выходом или перезагрузкой."
+
+msgid "To copy text, select it inside the editor and press Ctrl+C (⌘C on Mac). Download a local copy to preserve formatting."
+msgstr "Чтобы скопировать текст, выделите его внутри редактора и нажмите Ctrl+C (⌘C на Mac). Скачайте локальную копию, чтобы сохранить форматирование."
+
+msgid "The original PDF changed. Your annotations will not be saved to this version. Download the current PDF before leaving or reloading."
+msgstr "Исходный PDF изменён. Ваши аннотации не будут сохранены для этой версии. Скачайте текущий PDF перед выходом или перезагрузкой."
+
+msgid "Reconnect with Google"
+msgstr "Переподключить Google"
+
+msgid "Google requests access to all Drive files to discover files created outside Yourwiki. Yourwiki scans only the connected folder and its subfolders. Reconnect an existing Google source to grant this access."
+msgstr "Google запрашивает доступ ко всем файлам Drive, чтобы обнаруживать файлы, созданные вне Yourwiki. Yourwiki сканирует только подключённую папку и её подпапки. Переподключите существующий источник Google, чтобы предоставить этот доступ."
+
+msgid "Storage credentials changed during authorization. Start again."
+msgstr "Данные подключения изменились во время авторизации. Начните заново."
+
+msgid "Root folder settings"
+msgstr "Настройки корня"
+
+msgid "Workspace permissions"
+msgstr "Права рабочего пространства"
+
+msgid "Settings for %(name)s"
+msgstr "Настройки %(name)s"
+
+msgid "A preview is unavailable. The file remains in the source."
+msgstr "Предпросмотр недоступен. Файл остаётся в источнике."
+
+msgid "Trash"
+msgstr "Корзина"
+
+msgid "Move %(title)s to trash?"
+msgstr "Переместить «%(title)s» в корзину?"
+
+msgid "Move to trash"
+msgstr "В корзину"
+
+msgid "Move folder and files to trash"
+msgstr "Переместить папку и файлы в корзину"
+
+msgid "The file will disappear from the workspace. Its original, history and attachments are preserved. Only an administrator can restore or permanently delete it."
+msgstr "Файл исчезнет из рабочего пространства. Оригинал, история и вложения сохранятся. Восстановить или окончательно удалить его сможет только администратор."
+
+msgid "This will move %(file_count)s files and %(folder_count)s nested folders to trash. Originals and history are preserved. Only an administrator can restore or permanently delete them."
+msgstr "В корзину будут перемещены файлы: %(file_count)s, вложенные папки: %(folder_count)s. Оригиналы и история сохранятся. Восстановление и окончательное удаление доступны только администратору."
+
+msgid "Moving to trash. Please wait…"
+msgstr "Перемещаем в корзину. Подождите…"
+
+msgid "Confirm moving the folder and all its contents to trash."
+msgstr "Подтверждаю перемещение папки и её содержимого в корзину."
+
+msgid "Only administrators can manage trash. Files, history and permissions are preserved until permanent deletion."
+msgstr "Управлять корзиной могут только администраторы. Файлы, история и права сохраняются до окончательного удаления."
+
+msgid "Restore"
+msgstr "Восстановить"
+
+msgid "Permanently delete…"
+msgstr "Удалить навсегда…"
+
+msgid "Trash is empty."
+msgstr "Корзина пуста."
+
+msgid "Files: %(file_count)s. Folders: %(folder_count)s."
+msgstr "Файлы: %(file_count)s. Папки: %(folder_count)s."
+
+msgid "Restore returns the item to its original folder with its previous permissions. Restore its parent first if that folder is also in trash."
+msgstr "Восстановление вернёт объект в исходную папку с прежними правами. Если родительская папка тоже в корзине, сначала восстановите её."
+
+msgid "Permanent deletion"
+msgstr "Окончательное удаление"
+
+msgid "This deletes originals from storage, history and attachments. All nested items are included, even items moved to trash earlier. This cannot be undone."
+msgstr "Оригиналы в хранилище, история и вложения будут удалены. Включены все вложенные объекты, даже перемещённые в корзину ранее. Отменить это действие нельзя."
+
+msgid "Deleting. Please wait…"
+msgstr "Удаляем. Подождите…"
+
+msgid "Confirm permanent deletion."
+msgstr "Подтверждаю окончательное удаление."
+
+msgid "Permanently delete"
+msgstr "Удалить навсегда"
+
+msgid "Moved to trash. An administrator can restore this file."
+msgstr "Файл перемещён в корзину. Администратор может его восстановить."
+
+msgid "Moved to trash. An administrator can restore these files and folders."
+msgstr "Папка и файлы перемещены в корзину. Администратор может их восстановить."
+
+msgid "Restored with its original permissions."
+msgstr "Восстановлено с прежними правами."
+
+msgid "Permanently deleted. Unfinished storage cleanup retries automatically."
+msgstr "Удалено навсегда. Очистка хранилища при необходимости повторится автоматически."
+
+msgid "Restore the parent folder first."
+msgstr "Сначала восстановите родительскую папку."
+
+msgid "Restore or permanently delete trashed contents before moving this folder."
+msgstr "Перед перемещением папки восстановите или окончательно удалите её содержимое из корзины."
+
+msgid "Confirm permanent deletion or choose restore."
+msgstr "Подтвердите окончательное удаление или выберите восстановление."
+
+msgid "A folder with this name already exists. Rename it before restoring."
+msgstr "Папка с этим именем уже существует. Переименуйте её перед восстановлением."
+
+msgid "A file with this name already exists. Rename it before restoring."
+msgstr "Файл с этим именем уже существует. Переименуйте его перед восстановлением."
+
+msgid "Google Drive trash synchronization pending: %(cloud_pending)s. Yourwiki will retry automatically."
+msgstr "Ожидают синхронизации с корзиной Google Drive: %(cloud_pending)s. Yourwiki повторит попытку автоматически."
+
+msgid "Google Drive trash synchronization failed. It will retry automatically."
+msgstr "Не удалось синхронизировать корзину Google Drive. Попытка повторится автоматически."
+
+msgid "Google Drive could not restore the original. The file remains in Yourwiki trash; try again."
+msgstr "Не удалось восстановить оригинал на Google Drive. Файл остаётся в корзине Yourwiki; повторите попытку."
+
+msgid "The file is in Yourwiki trash. Moving the original to Google Drive trash is pending; synchronization will retry automatically."
+msgstr "Файл в корзине Yourwiki. Перемещение оригинала в корзину Google Drive ещё не завершено; попытка повторится автоматически."
+
+#: wiki/static/wiki/loading.js
+msgid "Loading…"
+msgstr "Загрузка…"

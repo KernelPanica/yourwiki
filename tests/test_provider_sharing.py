@@ -7,6 +7,23 @@ class Response:
     def __init__(self,data,status=200):self.data=data;self.status_code=status;self.headers={}
     def json(self):return self.data
 
+@pytest.mark.parametrize('operation', ['set', 'revoke'])
+def test_google_inherited_permission_is_not_reported_as_synced(operation):
+    adapter=GoogleDrive({});adapter.headers=lambda:{};adapter.private_info=Mock()
+    adapter.request=Mock(return_value=Response({'permissions':[{'id':'parent-permission','type':'user',
+        'emailAddress':'user@example.org','role':'writer','permissionDetails':[{'inherited':True}]}]}))
+    with pytest.raises(StorageError,match='inherited'):
+        if operation=='set':adapter.set_grant('file','user@example.org','read')
+        else:adapter.revoke_grant('file','user@example.org')
+    assert all(call.args[0]=='GET' for call in adapter.request.call_args_list)
+
+def test_google_never_demotes_or_revokes_owner():
+    adapter=GoogleDrive({});adapter.headers=lambda:{};adapter.private_info=Mock()
+    adapter.request=Mock(return_value=Response({'permissions':[{'id':'owner','type':'user','emailAddress':'user@example.org','role':'owner'}]}))
+    assert adapter.set_grant('file','user@example.org','read')=='owner'
+    adapter.revoke_grant('file','user@example.org')
+    assert all(call.args[0]=='GET' for call in adapter.request.call_args_list)
+
 @pytest.mark.parametrize('role,external',[('read','reader'),('write','writer')])
 def test_google_personal_create_update_revoke(role,external):
     adapter=GoogleDrive({});adapter.headers=lambda:{};adapter.private_info=Mock()

@@ -1,7 +1,7 @@
 """Durable, retryable personal sharing derived exclusively from effective ACL.
 
 Never share folders: provider inheritance cannot represent a denied child.
-GitHub grants are aggregated across all mounted paths in one repository.
+GitHub cannot represent per-file ACLs; reconcile its old receipts only to revoke.
 """
 import hashlib
 import logging
@@ -16,7 +16,7 @@ from .crypto import decrypt
 from .models import Document, Folder, User, SiteConfiguration, ProviderIdentity, ProviderGrant
 from .storage import MountedStorage, mount_adapter
 
-PROVIDERS = ('google', 'onedrive', 'github')
+PROVIDERS = ('google', 'onedrive')
 log = logging.getLogger(__name__)
 
 
@@ -138,8 +138,8 @@ def synchronize_after_commit():
 
 
 WATCHED = {
-    Document: ('policy','group_policies','inherit_permissions','group_id','owner_id','folder_id','reference'),
-    Folder: ('policy','group_policies','inherit_permissions','group_id','owner_id','parent_id'),
+    Document: ('policy','group_policies','user_policies','inherit_permissions','group_id','owner_id','folder_id','reference'),
+    Folder: ('policy','group_policies','user_policies','inherit_permissions','group_id','owner_id','parent_id'),
     User: ('is_active','is_superuser'),
     SiteConfiguration: ('default_document_policy',),
     ProviderIdentity: ('user_id','provider','active','email','login','external_id'),
