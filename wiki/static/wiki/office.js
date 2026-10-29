@@ -11,10 +11,10 @@
   let loaded=false,running=false,modified=false,conflicted=false,allowLeave=false;
   const show=(message,failed=false)=>{status.textContent=message;status.setAttribute('role',failed?'alert':'status');};
   const post=(MessageId,Values={})=>frame.contentWindow.postMessage(JSON.stringify({MessageId,Values}),boot.origin);
-  let detachFontFocus=()=>{};
-  const attachFontFocus=()=>{detachFontFocus();detachFontFocus=window.yourwikiOfficeFontFocus.attach(frame,()=>post('Grab_Focus'),boot.write);};
+  let detachFontFocus=()=>{},detachFontCatalogue=()=>{};
+  const attachFontFocus=()=>{detachFontFocus();detachFontCatalogue();detachFontCatalogue=window.yourwikiOfficeFonts.attach(frame,boot.write);detachFontFocus=window.yourwikiOfficeFontFocus.attach(frame,()=>post('Grab_Focus'),boot.write);};
   frame.addEventListener('load',attachFontFocus);
-  window.addEventListener('pagehide',()=>detachFontFocus(),{once:true});
+  window.addEventListener('pagehide',()=>{detachFontFocus();detachFontCatalogue();},{once:true});
   const leaveMessage=()=>t(conflicted
     ? 'The original document changed. Copy your changes to the clipboard or download the current copy before leaving. Leave without saving?'
     : 'Some changes have not been saved yet. Copy or download them before leaving. Leave without saving?');
@@ -40,7 +40,7 @@
     if(!link||link.target==='_blank'||link.hasAttribute('download')||link===recovery||!link.href.startsWith(location.origin)||link.href.includes('/export'))return;
     if(modified||conflicted){event.preventDefault();leave(link.href);}
   });
-  document.getElementById('office-download-current').addEventListener('click',()=>post('Action_Export',{Format:boot.export_format}));
+  document.getElementById('office-download-current').addEventListener('click',()=>{if(boot.export!==false)post('Action_Export',{Format:boot.export_format});});
   document.getElementById('office-reload').addEventListener('click',()=>{
     if(!window.confirm(t('Discard current editor changes and open the remote original?')))return;
     allowLeave=true;location.reload();
@@ -51,7 +51,12 @@
       const body=new FormData(document.getElementById('office-heartbeat'));body.set('session',boot.session);
       const response=await window.yourwikiUI.request(boot.status,{method:'POST',body,headers:{Accept:'application/json'}});
       const data=await window.yourwikiUI.check(response);
-      recovery.hidden=!data.recovery;
+      if(data.export===false&&boot.export!==false){
+        boot.export=false;
+        const download=document.getElementById('office-download-current');download.hidden=true;download.disabled=true;
+        show(t('Export permission was removed. Save your work and reopen the editor to update its toolbar.'),true);
+      }
+      if(recovery)recovery.hidden=boot.export===false||!data.recovery;
       if(data.changed){
         if(!boot.write){allowLeave=true;location.reload();return;}
         warnConflict(data.error);

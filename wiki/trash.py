@@ -13,7 +13,7 @@ from .views import guarded
 
 
 def administrator(user):
-    if not user.is_authenticated or not user.is_active or not user.is_superuser:
+    if not user.is_authenticated or not user.is_active or not user.is_workspace_admin:
         raise ResourcePermissionDenied
 
 
@@ -84,6 +84,8 @@ def trash_directory(user, folder, directories=None, documents=None):
 def restore(user, entry, *, provider_restored=False):
     administrator(user)
     entry = TrashEntry.objects.get(pk=entry.pk)
+    if entry.kind in ('user','group','invite'):
+        return restore_record(user,entry)
     model = Folder if entry.kind == 'folder' else Document
     root = get_object_or_404(model.all_objects, pk=entry.root_id, trash=entry)
     parent = root.parent_policy
@@ -108,7 +110,11 @@ def restore(user, entry, *, provider_restored=False):
 @transaction.atomic
 def purge(user, entry):
     administrator(user)
+    if not user.is_superuser:
+        raise ResourcePermissionDenied
     entry = TrashEntry.objects.get(pk=entry.pk)
+    if entry.kind in ('user','group','invite'):
+        return purge_record(user,entry)
     model = Folder if entry.kind == 'folder' else Document
     root = get_object_or_404(model.all_objects, pk=entry.root_id, trash=entry)
     folders, documents = subtree(root) if isinstance(root, Folder) else ([], [root])
@@ -144,8 +150,7 @@ def purge(user, entry):
     TrashEntry.objects.filter(pk__in=batches).delete()
     from .provider_grants import synchronize_after_commit
     synchronize_after_commit()
-    from .services import cleanup_storage
-    transaction.on_commit(cleanup_storage)
+    # PendingDeletion is durable; maintenance cleans storage independently.
 
 
 @guarded
@@ -174,7 +179,87 @@ def manage(request, id):
         else:
             raise ValidationError('Confirm permanent deletion or choose restore.')
         return redirect('trash')
-    model = Folder if entry.kind == 'folder' else Document
-    root = get_object_or_404(model.all_objects, pk=entry.root_id, trash=entry)
-    folders, documents = subtree(root) if entry.kind == 'folder' else ([], [root])
+    if entry.kind in ('user','group','invite'):
+        folders,documents=[],[]
+    else:
+        model = Folder if entry.kind == 'folder' else Document
+        root = get_object_or_404(model.all_objects, pk=entry.root_id, trash=entry)
+        folders, documents = subtree(root) if entry.kind == 'folder' else ([], [root])
     return render(request, 'wiki/trash_item.html', {'entry':entry, 'file_count':len(documents), 'folder_count':len(folders), 'section':'Trash'})
+
+
+@transaction.atomic
+def trash_user(actor, account):
+    from .models import User
+    import uuid
+    administrator(actor)
+    account=User.objects.select_for_update().get(pk=account.pk)
+    if (account.is_superuser or account.is_simple_admin) and not actor.is_superuser:
+        raise ResourcePermissionDenied
+    if account.is_superuser and not User.objects.exclude(pk=account.pk).filter(is_superuser=True,is_active=True).exists():
+        raise ValidationError('Keep at least one active Gigaadmin.')
+    if TrashEntry.objects.filter(kind='user',details__pk=account.pk).exists():
+        raise ValidationError('This account is already in trash.')
+    entry=TrashEntry.objects.create(root_id=uuid.uuid4(),kind='user',name=account.label,deleted_by=actor,details={'pk':account.pk,'is_active':account.is_active})
+    account.is_active=False;account.save(update_fields=['is_active'])
+    return entry
+
+
+@transaction.atomic
+def trash_group(actor, group):
+    import uuid
+    from django.contrib.auth.models import Group
+    administrator(actor)
+    group=Group.objects.select_for_update().get(pk=group.pk)
+    if TrashEntry.objects.filter(kind='group',details__pk=group.pk).exists():
+        raise ValidationError('This group is already in trash.')
+    entry=TrashEntry.objects.create(root_id=uuid.uuid4(),kind='group',name=group.name,deleted_by=actor,details={'pk':group.pk,'members':list(group.user_set.values_list('pk',flat=True))})
+    group.user_set.clear()
+    return entry
+
+
+def restore_record(actor,entry):
+    from .models import User
+    from django.contrib.auth.models import Group
+    if entry.kind=='user':
+        account=get_object_or_404(User,pk=entry.details['pk'])
+        if account.is_workspace_admin or account.is_superuser or account.is_simple_admin:
+            if not actor.is_superuser:raise ResourcePermissionDenied
+        account.is_active=entry.details['is_active'];account.save(update_fields=['is_active'])
+    elif entry.kind=='invite':
+        from .models import Invitation
+        invitation=get_object_or_404(Invitation,pk=entry.details['pk'])
+        invitation.revoked=entry.details['revoked'];invitation.save(update_fields=['revoked'])
+    else:
+        group=get_object_or_404(Group,pk=entry.details['pk'])
+        group.user_set.add(*User.objects.filter(pk__in=entry.details['members']))
+    entry.delete()
+
+
+def purge_record(actor,entry):
+    from .models import User
+    from django.contrib.auth.models import Group
+    from django.db.models.deletion import ProtectedError
+    from .models import Invitation
+    target=get_object_or_404(User if entry.kind=='user' else Invitation if entry.kind=='invite' else Group,pk=entry.details['pk'])
+    if entry.kind=='user' and target.pk==actor.pk:raise ValidationError('Cannot permanently delete your current account.')
+    try:target.delete()
+    except ProtectedError:raise ValidationError('Reassign owned files, folders and other linked records before permanent deletion.')
+    entry.delete()
+
+
+def active_groups():
+    from django.contrib.auth.models import Group
+    return Group.objects.exclude(pk__in=TrashEntry.objects.filter(kind='group').values_list('details__pk',flat=True))
+
+
+@transaction.atomic
+def trash_invitation(actor,invitation):
+    from .models import Invitation
+    import uuid
+    invitation=Invitation.objects.select_for_update().get(pk=invitation.pk)
+    if not (actor.is_workspace_admin or actor.can_invite and invitation.creator_id==actor.pk):
+        raise ResourcePermissionDenied
+    entry,_=TrashEntry.objects.get_or_create(kind='invite',details__pk=invitation.pk,defaults={'root_id':uuid.uuid4(),'name':'Invitation '+str(invitation.pk),'deleted_by':actor,'details':{'pk':invitation.pk,'revoked':invitation.revoked}})
+    invitation.revoked=True;invitation.save(update_fields=['revoked'])
+    return entry

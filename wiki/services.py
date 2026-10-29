@@ -159,7 +159,7 @@ def redeem_invitation(token, user):
             raise PermissionDenied
         creator = invitation.creator
         groups = list(invitation.groups.all())
-        if not creator.is_active or (not creator.is_superuser and (not creator.can_invite or any(not creator.invite_groups.filter(pk=g.pk).exists() for g in groups))):
+        if not creator.is_active or (not creator.is_workspace_admin and (not creator.can_invite or any(not creator.invite_groups.filter(pk=g.pk).exists() for g in groups))):
             raise PermissionDenied
         user.full_clean(exclude=['password'])
         user.provider_setup_required = True

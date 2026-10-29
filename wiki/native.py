@@ -63,7 +63,7 @@ def safe_style(attrs):
         value = str(attrs.get(key, ''))
         valid = (key in ('color','backgroundColor') and re.fullmatch(r'#[0-9a-fA-F]{3,8}', value)
             or key == 'fontSize' and re.fullmatch(r'\d+(?:\.\d+)?(?:px|pt)', value) and 8 <= float(value[:-2]) <= 72
-            or key == 'fontFamily' and value in ('Arial','Calibri','Cambria','Comic Sans MS','Courier New','Georgia','Helvetica','Tahoma','Times New Roman','Trebuchet MS','Verdana','monospace','sans-serif','serif')
+            or key == 'fontFamily' and re.fullmatch(r'[\w .-]{1,200}', value)
             or key == 'lineHeight' and value in ('1','1.15','1.5','2')
             or key == 'textAlign' and value in ('left','center','right','justify'))
         if valid:

@@ -17,8 +17,8 @@ services:
       aliasgroup1: ${COLLABORA_WOPI_URL}
       extra_params: "--o:ssl.enable=false --o:ssl.termination=true --o:net.service_root=/collabora --o:logging.level=warning --o:welcome.enable=false --o:remote_font_config.url=${COLLABORA_WOPI_URL}/office/fonts.json"
     volumes:
-      - ${COLLABORA_CUSTOM_FONTS:-./instance/office-fonts}:/usr/share/fonts/truetype/yourwiki-private:ro
-      - ${COLLABORA_CUSTOM_FONTS:-./instance/office-fonts}:/opt/cool/systemplate/usr/share/fonts/truetype/yourwiki-private:ro
+      - ${COLLABORA_ACTIVE_FONTS:-./instance/office-active-fonts}:/usr/share/fonts/truetype/yourwiki-private:ro
+      - ${COLLABORA_ACTIVE_FONTS:-./instance/office-active-fonts}:/opt/cool/systemplate/usr/share/fonts/truetype/yourwiki-private:ro
     ulimits:
       nofile:
         soft: 65536

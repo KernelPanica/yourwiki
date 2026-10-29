@@ -80,15 +80,16 @@ function saveNow(manual=false){
   else{saveRequested=manual;connect();}
 }
 saveButton.onclick=()=>saveNow(true);
-document.getElementById('print-live').onclick=()=>window.yourwikiUI.run(()=>window.print(),document.getElementById('editor-error'));
+document.getElementById('print-live').onclick=()=>window.yourwikiUI.run(()=>{if(boot.export!==false)window.print();},document.getElementById('editor-error'));
 // Leaving only warns: never submit or flush edits as a navigation side effect.
 window.addEventListener('beforeunload',event=>{if(dirty||remotePending||conflicted||unknown){event.preventDefault();event.returnValue='';}});
 document.addEventListener('keydown',event=>{if((event.ctrlKey||event.metaKey)&&event.key==='s'){event.preventDefault();saveNow(true);}});
 function localSnapshot(){editor?.flush?.();return JSON.stringify({format:'yourwiki-recovery',version:1,kind:boot.kind,file_format:boot.file_format,state:b64(Y.encodeStateAsUpdate(ydoc))});}
-function downloadSnapshot(){const url=URL.createObjectURL(new Blob([localSnapshot()],{type:'application/json'}));const a=document.createElement('a');a.href=url;a.download=boot.title+'.recovery.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),60000);}
-document.getElementById('conflict-copy').onclick=()=>window.yourwikiUI.run(async()=>{try{await navigator.clipboard.writeText(editor?.getText?.()||localSnapshot());document.getElementById('conflict-copy-status').textContent=t('Copied');}catch{downloadSnapshot();error(t('Clipboard unavailable. A local snapshot was downloaded.'));}},document.getElementById('editor-error'));
+function downloadSnapshot(){if(boot.export===false)return;const url=URL.createObjectURL(new Blob([localSnapshot()],{type:'application/json'}));const a=document.createElement('a');a.href=url;a.download=boot.title+'.recovery.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),60000);}
+document.getElementById('conflict-copy').onclick=()=>{if(boot.export===false)return;return window.yourwikiUI.run(async()=>{try{await navigator.clipboard.writeText(editor?.getText?.()||localSnapshot());document.getElementById('conflict-copy-status').textContent=t('Copied');}catch{downloadSnapshot();error(t('Clipboard unavailable. A local snapshot was downloaded.'));}},document.getElementById('editor-error'));};
 document.getElementById('conflict-download').onclick=()=>window.yourwikiUI.run(downloadSnapshot,document.getElementById('editor-error'));
 document.getElementById('conflict-save-copy').onclick=async()=>{
+  if(boot.export===false)return;
   try{const values=await dialog('Save a copy',[['title','Title',boot.title+' (copy)']]);if(!values)return;editor?.flush?.();const result=await api(`/api/docs/${boot.id}/recover`,{method:'POST',body:JSON.stringify({action:'copy',title:values.title,update:b64(Y.encodeStateAsUpdate(ydoc))})});closed=true;dirty=false;remotePending=false;conflicted=false;socket?.close();location.assign(result.url);}catch(e){error(e.message);}
 };
 document.getElementById('conflict-reload').onclick=async()=>{

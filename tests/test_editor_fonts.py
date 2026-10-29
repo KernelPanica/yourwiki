@@ -12,7 +12,7 @@ def test_collabora_font_catalogue_is_public_and_assets_are_real(client, workspac
     assert response.status_code == 200
     data = response.json()
     assert data['kind'] == 'fontconfiguration'
-    assert len(data['fonts']) >= 12
+    assert len(data['fonts']) == 5
     families = set()
     for item in data['fonts']:
         assert item['uri'].startswith('https://wiki.example/static/wiki/fonts/office/')
@@ -22,7 +22,7 @@ def test_collabora_font_catalogue_is_public_and_assets_are_real(client, workspac
         assert hashlib.sha256(binary).hexdigest() == item['stamp']
         families.add(path.split('/')[-2])
         assert Path(finders.find('/'.join(path.split('/')[:-1])+'/OFL.txt')).exists()
-    assert {'tinos','oswald','anton','arimo','cousine','roboto','opensans'} <= families
+    assert families == {'tinos','oswald'}
     assert client.post('/office/fonts.json').status_code == 405
 
 
@@ -93,6 +93,9 @@ def test_installed_google_catalogue_serves_only_registered_open_fonts(client, wo
     assert b''.join(font_response.streaming_content) == data
     assert 'license' in font_response['Link']
     assert b''.join(client.get(url+'?license=1').streaming_content)==b'Test open licence'
+    assert not any(item['uri'].endswith(url) for item in client.get('/office/fonts.json').json()['fonts'])
+    from wiki.models import OfficeFontActivation
+    OfficeFontActivation.objects.create(name='Test Font')
     configuration=client.get('/office/fonts.json')
     assert any(item['uri'].endswith(url) for item in configuration.json()['fonts'])
     assert client.get('/office/fonts.json',HTTP_IF_NONE_MATCH=configuration['ETag']).status_code==304
@@ -114,3 +117,71 @@ def test_google_font_catalogue_has_every_declared_upstream_font():
         assert declared <= {font['filename'] for font in family['fonts']},family['name']
         assert all((root/font['path']).is_file() for font in family['fonts'])
         assert family['licenses']
+
+@pytest.mark.django_db
+def test_activation_requires_document_write_access(client, workspace, document, settings, tmp_path):
+    settings.GOOGLE_FONTS_DIR = tmp_path
+    from wiki.models import OfficeFontActivation
+    client.force_login(workspace['admin'])
+    response = client.post('/office/fonts/activate/', {'name':'Anton', 'document':str(document.pk)})
+    assert response.status_code == 200
+    assert client.post('/office/fonts/activate/', {'name':'Anton', 'document':str(document.pk)}).json()['created'] is False
+    assert OfficeFontActivation.objects.count() == 1
+    assert client.post('/office/fonts/activate/', {'name':'../../secret', 'document':str(document.pk)}).status_code == 400
+    assert client.post('/office/fonts/activate/', {'name':'Anton', 'document':'bad'}).status_code == 404
+    client.force_login(workspace['outsider'])
+    assert client.post('/office/fonts/activate/', {'name':'Anton', 'document':str(document.pk)}).status_code == 403
+    client.logout()
+    assert client.post('/office/fonts/activate/', {'name':'Anton', 'document':str(document.pk)}).status_code >= 400
+
+@pytest.mark.django_db
+def test_existing_document_activates_only_used_known_families(settings, tmp_path):
+    import io, zipfile
+    from wiki.fonts import activate_document_fonts
+    from wiki.models import OfficeFontActivation
+    settings.GOOGLE_FONTS_DIR = tmp_path
+    output = io.BytesIO()
+    with zipfile.ZipFile(output, 'w') as archive:
+        archive.writestr('word/document.xml', '<w:document xmlns:w="urn:word"><w:rFonts w:ascii="Anton"/><w:rFonts w:ascii="Unregistered"/></w:document>')
+    activate_document_fonts(output.getvalue())
+    activate_document_fonts(output.getvalue())
+    assert list(OfficeFontActivation.objects.values_list('name',flat=True)) == ['Anton']
+
+@pytest.mark.django_db
+def test_default_original_fonts_are_authenticated_and_never_public(client,workspace,settings,tmp_path):
+    settings.GOOGLE_FONTS_DIR=tmp_path
+    (tmp_path/'Impact.TTF').write_bytes(b'\x00\x01\x00\x00impact')
+    (tmp_path/'Times.TTF').write_bytes(b'\x00\x01\x00\x00times')
+    assert client.get('/office/private-fonts/impact.ttf').status_code >= 400
+    client.force_login(workspace['member'])
+    families=client.get('/office/google-fonts.json').json()['families']
+    assert {f['name'] for f in families} == {'Times New Roman','Impact'}
+    response=client.get('/office/private-fonts/impact.ttf')
+    assert b''.join(response.streaming_content).endswith(b'impact')
+    assert response['Cache-Control'].startswith('private,')
+    assert client.get('/office/private-fonts/../../secret.ttf').status_code >= 400
+    assert client.get('/office/private-fonts/unknown.ttf').status_code == 404
+    client.logout()
+    public=client.get('/office/fonts.json').json()
+    assert not any('private-fonts' in font['uri'] for font in public['fonts'])
+
+
+def test_preview_retains_google_fonts_and_rejects_css_injection():
+    from wiki.native import safe_style
+    assert 'font-family:Anton' in safe_style({'fontFamily':'Anton'})
+    assert 'font-family:Noto Sans' in safe_style({'fontFamily':'Noto Sans'})
+    assert safe_style({'fontFamily':'Arial;position:fixed'}) == ''
+    assert safe_style({'fontFamily':'url(https://evil)'}) == ''
+
+
+def test_preview_imports_inherited_word_font():
+    import io
+    from docx import Document
+    from wiki.docx import to_native
+    from wiki.native import unpack,rich_html
+    document=Document()
+    document.styles['Normal'].font.name='Impact'
+    document.add_paragraph('Inherited font')
+    data=io.BytesIO();document.save(data)
+    native=unpack(to_native(io.BytesIO(data.getvalue())))
+    assert 'font-family:Impact' in rich_html(native['data'])

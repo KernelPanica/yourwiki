@@ -340,3 +340,5 @@ form[aria-busy=true] button[type=submit]::before{content:'';display:inline-block
 html[data-theme=dark] .loading-indicator{background:#202735;color:#f1f5f9;border-color:#465167}
 @keyframes yourwiki-loading{to{transform:rotate(360deg)}}
 @media(prefers-reduced-motion:reduce){.loading-spinner,.form-progress::before,button[aria-busy=true]::before,a[aria-busy=true]::before,form[aria-busy=true] button[type=submit]::before{animation:none;border-right-color:currentColor}}
+
+@media(max-width:520px){.heading-actions .create-menu-panel{left:auto;right:0;max-width:calc(100vw - 32px)}}

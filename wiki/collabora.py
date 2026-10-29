@@ -123,37 +123,48 @@ def editor_action(extension, writable):
 
 def open_session(document, user):
     from .realtime import connections
-    with transaction.atomic():
-        document = Document.objects.get(pk=document.pk)
-        require(document, user, 'read')
-        existing = OfficeSession.objects.filter(document=document, superseded=False).first()
-        if existing and (existing.expires_at > timezone.now() or existing.pending):
-            if existing.pending and existing.expires_at <= timezone.now():
-                existing.expires_at = timezone.now() + LEASE
-                existing.save(update_fields=['expires_at'])
-            return existing
-        from .models import SourceLease
-        if SourceLease.objects.filter(document=document, expires_at__gt=timezone.now()).exists():
+    from .models import SourceLease
+    def reusable(doc):
+        session=OfficeSession.objects.filter(document=doc,superseded=False).first()
+        if session and (session.expires_at>timezone.now() or session.pending):
+            if session.pending and session.expires_at<=timezone.now():
+                session.expires_at=timezone.now()+LEASE;session.save(update_fields=['expires_at'])
+            return session
+    def available(doc):
+        if SourceLease.objects.filter(document=doc,expires_at__gt=timezone.now()).exists():
             raise Conflict('Close the source editor before opening Collabora.')
-        room = Collaboration.objects.filter(document=document).first()
-        if connections.get(str(document.pk)) or (room and room.sequence != room.synced_sequence) or SaveSession.objects.filter(document=document).exclude(state='saved').exists():
+        room=Collaboration.objects.filter(document=doc).first()
+        if connections.get(str(doc.pk)) or (room and room.sequence!=room.synced_sequence) or SaveSession.objects.filter(document=doc).exclude(state='saved').exists():
             raise Conflict('Save and close the existing Yourwiki editors before opening Collabora.')
-        data = active_storage().read(document.reference)
-        validate_file(document, data)
-        fingerprint = active_storage().fingerprint(document.reference, data)
-        if document.storage_digest != fingerprint:
-            document.storage_digest = fingerprint
-            document.revision += 1
-            document.save(update_fields=['storage_digest', 'revision'])
-        if existing:
-            existing.delete()
-        return OfficeSession.objects.create(document=document, base_digest=fingerprint,
-                                            expires_at=timezone.now() + LEASE)
+    document=Document.objects.get(pk=document.pk)
+    require(document,user,'read')
+    existing=reusable(document)
+    if existing:return existing
+    available(document)
+    adapter=active_storage()
+    data=adapter.read(document.reference)
+    validate_file(document,data)
+    fingerprint=adapter.fingerprint(document.reference,data)
+    from .fonts import activate_document_fonts
+    activate_document_fonts(data)
+    with transaction.atomic():
+        current=Document.objects.get(pk=document.pk)
+        require(current,user,'read')
+        existing=reusable(current)
+        if existing:return existing
+        available(current)
+        if (current.reference,current.storage_digest,current.revision)!=(document.reference,document.storage_digest,document.revision):
+            raise Conflict('This document changed while opening. Reload the editor.')
+        if current.storage_digest!=fingerprint:
+            current.storage_digest=fingerprint;current.revision+=1
+            current.save(update_fields=['storage_digest','revision'])
+        OfficeSession.objects.filter(document=current,superseded=False).delete()
+        return OfficeSession.objects.create(document=current,base_digest=fingerprint,expires_at=timezone.now()+LEASE)
 
 
-def token_for(session, user):
+def token_for(session, user, writable=None):
     return signing.dumps({'session': str(session.pk), 'user': user.pk,
-                          'write': session.document.allows(user, 'write'), 'nonce': secrets.token_hex(8)}, salt=SALT)
+                          'write': session.document.allows(user, 'write') if writable is None else bool(writable and session.document.allows(user,'write')), 'nonce': secrets.token_hex(8)}, salt=SALT)
 
 
 @guarded
@@ -162,8 +173,10 @@ def editor(request, id):
     doc = document_for(request.user, id)
     if not eligible(doc):
         raise ValidationError('Collabora is disabled or this file uses another editor.')
+    writable=doc.allows(request.user,'write') and request.GET.get('view')!='1'
+    embedded=request.GET.get('embed')=='1' and not writable
     # Discovery must succeed before reserving the file.
-    action = editor_action(extension(doc), doc.allows(request.user, 'write'))
+    action = editor_action(extension(doc), writable)
     session = open_session(doc, request.user)
     google_sheet = False
     if extension(doc) == 'ods':
@@ -172,13 +185,14 @@ def editor(request, id):
     wopi_url = settings.COLLABORA_WOPI_URL + reverse('wopi-info', args=[session.pk])
     action += '?' + urlencode({'WOPISrc': wopi_url, 'lang': request.LANGUAGE_CODE})
     return render(request, 'wiki/office.html', {'doc': doc, 'section': doc.title,
-        'office_action': action, 'office_token': token_for(session, request.user),
-        'office_google_sheet': google_sheet,
+        'office_base':'wiki/office_embed.html' if embedded else 'wiki/base.html',
+        'office_action': action, 'office_token': token_for(session, request.user,writable),
+        'can_export':doc.can_export(request.user),'office_google_sheet': google_sheet,
         'office_presentation': extension(doc) in {'ppt', 'pptx', 'pptm', 'potx', 'potm', 'ppsx', 'odp', 'otp', 'fodp'},
         'office_recovery': bool(session.pending) and (session.pending_author_id == request.user.pk or request.user.is_superuser),
         'office_ttl': int((timezone.now() + timedelta(seconds=TOKEN_AGE)).timestamp() * 1000),
         'office_bootstrap': {'origin': origin(settings.COLLABORA_URL), 'session': str(session.pk),
-                            'write': doc.allows(request.user, 'write'), 'interval': 30,
+                            'export':doc.can_export(request.user),'write': writable, 'interval': 30,
                             'export_format': 'pptx' if extension(doc) in {'ppt', 'pptx', 'pptm', 'potx', 'potm', 'ppsx', 'odp', 'otp', 'fodp'} else 'xlsx' if extension(doc) in {'ods', 'ots', 'fods', 'xls', 'xlsx', 'xlsm', 'xlsb', 'xltx', 'xltm', 'xla', 'csv', 'tsv', 'dif', 'slk', 'dbf'} else 'docx',
                             'status': reverse('office-status', args=[doc.pk])}})
 
@@ -255,9 +269,14 @@ def wopi_info(request, session):
     if request.method == 'GET':
         doc = session.document
         data = editor_bytes(doc, read_original(session))
+        from .fonts import activate_document_fonts
+        activate_document_fonts(data)
         return JsonResponse({'BaseFileName': PurePosixPath(storage_key(doc)).name, 'OwnerId': str(doc.owner_id),
             'Size': len(data), 'Version': doc.storage_digest, 'LastModifiedTime': doc.updated_at.isoformat(),
             'UserId': str(request.office_user.pk), 'UserFriendlyName': request.office_user.label,
+            'DisableExport':not doc.can_export(request.office_user),'HideExportOption':not doc.can_export(request.office_user),
+            'DisablePrint':not doc.can_export(request.office_user),'HidePrintOption':not doc.can_export(request.office_user),
+            'DisableCopy':not doc.can_export(request.office_user),
             'UserCanWrite': request.office_write, 'ReadOnly': not request.office_write,
             'UserCanNotWriteRelative': True, 'SupportsRename': False, 'SupportsLocks': True,
             'SupportsGetLock': True, 'PostMessageOrigin': origin(settings.PUBLIC_URL)})
@@ -387,7 +406,7 @@ def office_status(request, id):
     session.refresh_from_db()
     OfficeSession.objects.filter(pk=session.pk).update(expires_at=timezone.now() + LEASE)
     return JsonResponse({'error': session.error, 'changed': session.superseded,
-                         'write': doc.allows(request.user, 'write'),
+                         'write': doc.allows(request.user, 'write'),'export':doc.can_export(request.user),
                          'recovery': bool(session.pending) and (session.pending_author_id == request.user.pk or request.user.is_superuser)})
 
 
@@ -395,6 +414,9 @@ def office_status(request, id):
 @require_http_methods(['GET'])
 def recovery(request, id):
     doc = document_for(request.user, id)
+    if not doc.can_export(request.user):
+        from .acl import ResourcePermissionDenied
+        raise ResourcePermissionDenied
     sessions = OfficeSession.objects.filter(document=doc).exclude(pending=b'')
     if request.GET.get('session'):
         sessions = sessions.filter(pk=request.GET['session'])

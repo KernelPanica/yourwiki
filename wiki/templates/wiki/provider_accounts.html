@@ -5,7 +5,7 @@
 {% elif row.configured %}<form method="post" action="{% url 'identity-connect' row.provider %}">{% csrf_token %}<button class="button primary">{% translate "Connect account" %}</button></form>
 {% else %}<p>{% translate "An administrator must configure OAuth before accounts can be connected." %}</p>{% endif %}
 {% if user.is_superuser %}<p>{% translate "OAuth callback URL" %}: <code class="break-anywhere">{{ row.callback }}</code></p>{% endif %}</section>{% endfor %}
-<section class="settings-card"><h2>{% translate "Original access" %}</h2>
+<section class="settings-card">{% if sync_state.pending %}<p role="status">Доступ в облаке синхронизируется в фоне.</p>{% endif %}{% if sync_state.error %}<p role="status">{{ sync_state.error }}</p>{% endif %}<h2>{% translate "Original access" %}</h2>
 <p>{% translate "GitHub does not support personal per-file grants. Originals retain existing GitHub access. Yourwiki does not grant repository access and revokes its previously managed grants; failed revocations must be retried. Reading and saving through Yourwiki still use the connected storage account." %}</p>
 {% include 'wiki/provider_grants.html' %}
 {% if user.is_superuser %}<form method="post" action="{% url 'provider-retry' %}">{% csrf_token %}<button class="button">{% translate "Retry synchronization" %}</button></form>{% endif %}</section>

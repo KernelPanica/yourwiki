@@ -62,9 +62,11 @@ def test_oauth_returns_to_required_setup_and_successful_grants_unlock(client,wor
     response=client.post('/account/providers/google/callback/',{'state':state,'code':'c','display_name':'New member'})
     assert response.status_code==302 and response.url=='/account/setup/'
     calls=[]
-    monkeypatch.setattr('wiki.identities.sync_provider_grants',lambda **kwargs:calls.append(kwargs))
+    monkeypatch.setattr('wiki.identities.enqueue_sync',lambda **kwargs:calls.append(kwargs))
+    from wiki.models import ProviderSyncState
+    ProviderSyncState.objects.create(pk=1,requested_revision=1,completed_revision=1)
     assert client.post('/account/setup/').url=='/'
-    assert calls and ProviderIdentity.objects.get(user__username='newcomer').email=='verified@example.org'
+    assert not calls and ProviderIdentity.objects.get(user__username='newcomer').email=='verified@example.org'
 
 
 @pytest.mark.parametrize('status',['failed','pending'])
@@ -74,9 +76,9 @@ def test_failed_grant_keeps_setup_required(client,workspace,document,monkeypatch
     ProviderIdentity.objects.create(user=user,provider='google',external_id='id',email='member@example.org')
     ProviderGrant.objects.create(user=user,mount=mount,provider='google',object_key='key',reference=document.reference,
         desired_role='read',status=status,error='Provider synchronization failed.')
-    monkeypatch.setattr('wiki.identities.sync_provider_grants',lambda **kwargs:None)
+    monkeypatch.setattr('wiki.identities.enqueue_sync',lambda **kwargs:None)
     response=client.post('/account/setup/')
-    assert response.status_code==400
+    assert response.status_code==302 and response.url=='/account/setup/'
     assert User.objects.get(pk=user.pk).provider_setup_required
 
 
@@ -98,7 +100,11 @@ def test_setup_applies_actual_rw_grants_before_unlocking(client,workspace,docume
         calls.append((reference,recipient,role));return 'personal-permission'
     monkeypatch.setattr('wiki.provider_grants.mount_adapter',lambda mount:SimpleNamespace(set_grant=set_grant))
     response=client.post('/account/setup/')
-    assert response.status_code==302 and response.url=='/'
+    assert response.status_code==302 and response.url=='/account/setup/'
+    assert User.objects.get(pk=user.pk).provider_setup_required
+    from wiki.provider_grants import process_pending
+    assert process_pending()
+    assert client.post('/account/setup/').url=='/'
     grant=ProviderGrant.objects.get(user=user,provider='google')
     assert grant.status=='synced' and grant.applied_role==('write' if write else 'read')
     assert calls==[(document.reference,'verified@example.org',grant.applied_role)]
@@ -124,5 +130,26 @@ def test_every_accessible_cloud_provider_is_required(client,workspace,monkeypatc
     ProviderIdentity.objects.create(user=user,provider='google',external_id='google-id',email='verified@example.org')
     assert client.post('/account/setup/').status_code==400
     ProviderIdentity.objects.create(user=user,provider='onedrive',external_id='microsoft-id',email='verified@example.org')
-    monkeypatch.setattr('wiki.identities.sync_provider_grants',lambda **kwargs:None)
+    from wiki.models import ProviderSyncState
+    ProviderSyncState.objects.update_or_create(pk=1,defaults={'requested_revision':1,'completed_revision':1})
+    monkeypatch.setattr('wiki.identities.enqueue_sync',lambda **kwargs:None)
+    assert client.post('/account/setup/').url=='/'
+
+
+def test_cloud_setup_waits_without_blocking_request(client,workspace,django_capture_on_commit_callbacks):
+    from unittest.mock import patch
+    from wiki.models import ProviderSyncState
+    cloud(workspace);register(client,workspace)
+    user=User.objects.get(username='newcomer')
+    with django_capture_on_commit_callbacks(execute=True):
+        ProviderIdentity.objects.create(user=user,provider='google',external_id='new-id',email='verified@example.org')
+    with patch('wiki.provider_grants.reconcile') as network:
+        response=client.post('/account/setup/')
+        assert response.status_code==302 and response.url=='/account/setup/'
+        network.assert_not_called()
+    assert User.objects.get(pk=user.pk).provider_setup_required
+    assert client.get('/account/setup/status/').json()['pending']
+    page=client.get('/account/setup/');assert b'provider-sync-progress' in page.content
+    state=ProviderSyncState.objects.get(pk=1);state.completed_revision=state.requested_revision;state.save()
+    assert client.get('/account/setup/status/').json()['ready']
     assert client.post('/account/setup/').url=='/'

@@ -108,6 +108,10 @@ def test_acl_commits_trigger_sync(remote,workspace,django_capture_on_commit_call
     sync_provider_grants()
     with django_capture_on_commit_callbacks(execute=True):
         workspace['member'].groups.clear()
+    from wiki.provider_grants import process_pending
+    from wiki.models import ProviderSyncState
+    assert ProviderSyncState.objects.get(pk=1).pending
+    process_pending()
     assert ProviderGrant.objects.get(user=workspace['member'],mount=mount).status=='revoked'
 
 def test_all_deleted_user_receipts_are_retried(remote,workspace):
@@ -154,7 +158,7 @@ def test_onedrive_missing_namespace_is_resolved(document,workspace,monkeypatch):
     assert resolved==target(mount,'item')
 
 def test_content_metadata_does_not_resync_all_grants(document,monkeypatch,django_capture_on_commit_callbacks):
-    sync=Mock();monkeypatch.setattr('wiki.provider_grants.sync_provider_grants',sync)
+    sync=Mock();monkeypatch.setattr('wiki.provider_grants.enqueue_sync',sync)
     with django_capture_on_commit_callbacks(execute=True):
         document.title='Renamed without changing provider identity';document.revision+=1;document.save()
     sync.assert_not_called()
@@ -176,7 +180,7 @@ def test_account_grants_do_not_reveal_unreadable_files(remote,workspace,client):
     assert response.status_code==200 and doc.title not in response.content.decode()
 
 def test_autosave_unchanged_reference_does_not_reconcile_grants(document,monkeypatch,django_capture_on_commit_callbacks):
-    sync=Mock();monkeypatch.setattr('wiki.provider_grants.sync_provider_grants',sync)
+    sync=Mock();monkeypatch.setattr('wiki.provider_grants.enqueue_sync',sync)
     with django_capture_on_commit_callbacks(execute=True):
         document.revision+=1;document.save(update_fields=['revision','reference','storage_digest'])
     sync.assert_not_called()

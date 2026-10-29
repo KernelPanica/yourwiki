@@ -149,7 +149,7 @@ def test_remote_directory_paths_use_provider_folders():
 
 def test_http_errors_do_not_leak_provider_details(monkeypatch):
     def fail(*args,**kwargs):raise requests.HTTPError('SECRET-TOKEN https://provider/private')
-    monkeypatch.setattr(requests,'request',fail)
+    monkeypatch.setattr(requests.Session,'request',fail)
     with pytest.raises(StorageError) as error:HTTP({}).request('GET','https://example.test')
     assert 'SECRET' not in str(error.value)
     broken=Mock();broken.read.side_effect=OSError('secret path')

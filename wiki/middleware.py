@@ -13,7 +13,7 @@ def deny(request, reason='access_denied'):
         response = JsonResponse({'error': 'Server error'}, status=500)
     else:
         response = render(request, 'wiki/error.html', {'error_title': 'Server error', 'error_message': 'The request could not be completed.'}, status=500)
-    if not request.path.startswith('/office/google-fonts/'):
+    if not request.path.startswith(('/office/google-fonts/', '/office/private-fonts/')):
             response['Cache-Control'] = 'no-store'
     return response
 
@@ -38,7 +38,7 @@ class AccessMiddleware:
         if not initialized and request.path not in ('/health/', '/login', '/login/', '/i18n/setlang/', '/jsi18n/'):
             return deny(request, 'not_initialized')
         if request.user.is_authenticated and request.user.provider_setup_required:
-            setup_routes=('/account/setup/','/logout/')
+            setup_routes=('/account/setup/','/account/setup/status/','/logout/')
             oauth_route=any(request.path==f'/account/providers/{provider}/{action}/' for provider in ('google','onedrive','github') for action in ('connect','callback','unlink'))
             if not public and request.path not in setup_routes and not oauth_route and not request.path.startswith('/static/'):
                 if request.path.startswith('/api/') or 'application/json' in request.headers.get('Accept',''):
@@ -55,7 +55,7 @@ class AccessMiddleware:
                 parsed.scheme == request.scheme and parsed.netloc == request.get_host())
             if same_origin:
                 response = JsonResponse({'url': destination})
-        if not request.path.startswith('/office/google-fonts/'):
+        if not request.path.startswith(('/office/google-fonts/', '/office/private-fonts/')):
             response['Cache-Control'] = 'no-store'
         if identity_callback or request.path == '/mounts/google/callback/':
             # Hide the callback query while preserving Origin for the CSRF POST.
@@ -68,6 +68,9 @@ class AccessMiddleware:
                 office_origin = origin(settings.COLLABORA_URL)
                 response['Content-Security-Policy'] = response['Content-Security-Policy'].replace(
                     "form-action 'self'", "frame-src 'self' " + office_origin + "; form-action 'self' " + office_origin)
+            if request.GET.get('embed')=='1' and request.GET.get('view')=='1':
+                response['Content-Security-Policy']=response['Content-Security-Policy'].replace("frame-ancestors 'none'","frame-ancestors 'self'")
+                response['X-Frame-Options']='SAMEORIGIN'
             response['Referrer-Policy'] = 'no-referrer'
         if request.path.startswith('/wopi/'):
             response['Referrer-Policy'] = 'no-referrer'

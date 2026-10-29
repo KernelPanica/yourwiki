@@ -36,28 +36,53 @@ def target(mount, reference, resolve=False):
 
 
 @contextmanager
-def sync_lock():
+def sync_lock(blocking=True):
     # Also serialize management-command retries and separate web processes.
     with (settings.SECRETS_DIR / 'provider-grants.lock').open('a') as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
         try:
-            yield
+            fcntl.flock(lock, fcntl.LOCK_EX | (0 if blocking else fcntl.LOCK_NB))
+        except BlockingIOError:
+            yield False
+            return
+        try:
+            yield True
         finally:
             fcntl.flock(lock, fcntl.LOCK_UN)
 
 
 def sync_provider_grants(force=False):
     with sync_lock():
-        _sync(force=force)
+        reconcile(force=force)
+
+
+def reconcile(force=False):
+    _sync(force=force)
+    from .export_restrictions import sync
+    sync(force=force)
+    from .cloud_trash import synchronize
+    from .models import ProviderTrashState
+    pending=list(ProviderTrashState.objects.filter(confirmed=False,document__trash__isnull=False).values_list('document_id',flat=True))
+    if pending:synchronize(pending)
 
 
 def _sync(force=False):
     users = list(User.objects.filter(is_active=True))
     identities = {(i.user_id,i.provider):i for i in ProviderIdentity.objects.filter(active=True)}
+    memberships={}
+    for user_id,group_id in User.groups.through.objects.values_list('user_id','group_id'):
+        memberships.setdefault(user_id,set()).add(str(group_id))
+    for user in users:user._acl_group_ids=memberships.get(user.pk,set())
+    site=SiteConfiguration.current()
+    folders={folder.pk:folder for folder in Folder.all_objects.all()}
+    for folder in folders.values():
+        folder._state.fields_cache['parent']=folders.get(folder.parent_id)
+        folder._access_site=site
     desired = {}
     blocked_mounts = set()
     scope_keys = {}
     for doc in Document.objects.exclude(reference='').select_related('folder','owner','group'):
+        doc._state.fields_cache['folder']=folders.get(doc.folder_id)
+        doc._access_site=site
         mount, reference = MountedStorage().reference(doc.reference)
         if mount.provider not in PROVIDERS:
             continue
@@ -127,21 +152,70 @@ def _sync(force=False):
         grant.save()
 
 
+def enqueue_sync(*, force=False):
+    from django.db.models import F
+    from .models import ProviderSyncState
+    ProviderSyncState.objects.get_or_create(pk=1)
+    values={'requested_revision':F('requested_revision')+1,'requested_at':timezone.now()}
+    if force:values['force_revision']=F('requested_revision')+1
+    ProviderSyncState.objects.filter(pk=1).update(**values)
+
+
 def synchronize_after_commit():
-    def run():
+    # Commit the local action promptly; network reconciliation is independent.
+    transaction.on_commit(enqueue_sync)
+
+
+def process_pending(*, retry=False):
+    from django.db import close_old_connections, connection
+    from .models import ProviderSyncState, ProviderExportRestriction
+    if not connection.in_atomic_block:close_old_connections()
+    try:
+        with sync_lock(blocking=False) as acquired:
+            if not acquired:return False
+            state,_=ProviderSyncState.objects.get_or_create(pk=1)
+            if not state.pending and not retry:return False
+            revision=state.requested_revision
+            if not retry and state.error and state.attempted_revision==revision:return False
+            ProviderSyncState.objects.filter(pk=1).update(attempted_revision=revision,attempted_at=timezone.now())
+            try:
+                reconcile(force=state.force_revision>state.completed_revision)
+                failed=ProviderGrant.objects.filter(status='failed').exists() or ProviderExportRestriction.objects.exclude(error='').exists()
+                error='Cloud permissions are still synchronizing. Failed operations will retry automatically.' if failed else ''
+            except Exception:
+                ProviderSyncState.objects.filter(pk=1).update(error='Cloud permission synchronization will retry automatically.')
+                log.warning('Provider permission synchronization deferred')
+                return False
+            # Do not acknowledge requests added while remote calls were in flight.
+            ProviderSyncState.objects.filter(pk=1).update(completed_revision=revision,completed_at=timezone.now(),error=error)
+            return True
+    finally:
+        if not connection.in_atomic_block:close_old_connections()
+
+
+async def synchronize_background():
+    import asyncio
+    import time
+    from asgiref.sync import sync_to_async
+    # Recover a process that exited after local commit but before its callback.
+    await sync_to_async(enqueue_sync,thread_sensitive=False)()
+    last_retry=0
+    while True:
         try:
-            sync_provider_grants()
+            now=time.monotonic()
+            retry=now-last_retry>=60
+            await sync_to_async(process_pending,thread_sensitive=False)(retry=retry)
+            if retry:last_retry=now
         except Exception:
-            # Do not undo a committed local ACL, or expose provider credentials.
-            log.error('Provider grant reconciliation failed; run sync_provider_grants to retry')
-    transaction.on_commit(run)
+            log.warning('Provider permission worker deferred')
+        await asyncio.sleep(1)
 
 
 WATCHED = {
-    Document: ('policy','group_policies','user_policies','inherit_permissions','group_id','owner_id','folder_id','reference'),
-    Folder: ('policy','group_policies','user_policies','inherit_permissions','group_id','owner_id','parent_id'),
-    User: ('is_active','is_superuser'),
-    SiteConfiguration: ('default_document_policy',),
+    Document: ('policy','group_policies','user_policies','inherit_permissions','group_id','owner_id','folder_id','reference','export_disabled'),
+    Folder: ('policy','group_policies','user_policies','inherit_permissions','group_id','owner_id','parent_id','export_disabled'),
+    User: ('is_active','is_superuser','is_simple_admin'),
+    SiteConfiguration: ('default_document_policy','export_disabled'),
     ProviderIdentity: ('user_id','provider','active','email','login','external_id'),
 }
 

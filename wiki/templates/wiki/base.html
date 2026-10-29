@@ -20,7 +20,7 @@
     <a class="nav-item" data-nav="all" href="{% url 'library' %}">{% icon 'grid' %}<span>{% translate 'All documents' %}</span></a>
     <a class="nav-item" data-nav="recent" href="{% url 'library' %}?section=Recent">{% icon 'clock' %}<span>{% translate 'Recent' %}</span></a>
     <a class="nav-item" data-nav="starred" href="{% url 'library' %}?section=Starred">{% icon 'star' %}<span>{% translate 'Starred' %}</span></a>
-    {% if user.is_superuser %}<a class="nav-item" data-nav="trash" href="{% url 'trash' %}">{% icon 'delete' %}<span>{% translate 'Trash' %}</span></a>{% endif %}
+    {% if user.is_workspace_admin %}<a class="nav-item" data-nav="trash" href="{% url 'trash' %}">{% icon 'delete' %}<span>{% translate 'Trash' %}</span></a>{% endif %}
   </nav>
   <div class="explorer-caption"><span>{% translate 'Folders' %}</span><div class="explorer-actions">
     {% include 'wiki/create_menu.html' %}
@@ -31,7 +31,7 @@
     {% include 'wiki/explorer_tree.html' with nodes=folder_tree %}{% include 'wiki/explorer_files.html' with files=root_files %}
   </nav>
   <div class="sidebar-bottom">
-    {% if user.is_superuser %}<a class="nav-item" data-nav="settings" href="{% url 'settings' %}">{% icon 'settings' %}<span>{% translate 'Site administration' %}</span></a>{% endif %}
+    {% if user.is_workspace_admin %}<a class="nav-item" data-nav="settings" href="{% url 'settings' %}">{% icon 'settings' %}<span>{% translate 'Site administration' %}</span></a>{% endif %}
     <a class="nav-item" data-nav="account" href="{% url 'account' %}">{% icon 'users' %}<span>{% translate 'Account' %}</span></a>
     <div class="explorer-footer">{% blocktranslate count count=document_count %}{{ count }} file{% plural %}{{ count }} files{% endblocktranslate %} · {% blocktranslate count count=mount_count %}{{ count }} mount{% plural %}{{ count }} mounts{% endblocktranslate %}</div>
   </div>
@@ -54,9 +54,9 @@
     <div class="workspace-menu-panel">
       <strong>{{ user.label }}</strong><small>{{ site_name }}</small>
       <nav aria-label="{% translate 'Workspace' %}"><a class="nav-item" href="{% url 'account' %}">{% icon 'users' %}{% translate 'Account' %}</a><a class="nav-item" href="{% url 'import' %}">{% icon 'upload' %}{% translate 'Import wiki' %}</a></nav>
-      {% if user.is_superuser or user.can_invite %}<nav aria-label="{% translate 'Administration' %}">
+      {% if user.is_workspace_admin or user.can_invite %}<nav aria-label="{% translate 'Administration' %}">
         <a class="nav-item" href="{% url 'invitations' %}">{% icon 'users' %}{% translate 'Invitations' %}</a>
-        {% if user.is_superuser %}<a class="nav-item" href="{% url 'mountpoints' %}">{% icon 'cloud' %}{% translate 'Mountpoints' %}</a><a class="nav-item" href="{% url 'settings' %}">{% icon 'settings' %}{% translate 'Site administration' %}</a>{% endif %}
+        {% if user.is_workspace_admin %}{% if user.is_superuser %}<a class="nav-item" href="{% url 'mountpoints' %}">{% icon 'cloud' %}{% translate 'Mountpoints' %}</a>{% endif %}<a class="nav-item" href="{% url 'settings' %}">{% icon 'settings' %}{% translate 'Site administration' %}</a>{% endif %}
       </nav>{% endif %}
       <form method="post" action="{% url 'set_language' %}" class="language-form">{% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}"><label for="language-choice">{% translate 'Language' %}</label><div class="inline-controls"><select id="language-choice" name="language"><option value="en"{% if CURRENT_LANGUAGE == 'en' %} selected{% endif %}>English</option><option value="ru"{% if CURRENT_LANGUAGE == 'ru' %} selected{% endif %}>Русский</option><option value="es"{% if CURRENT_LANGUAGE == 'es' %} selected{% endif %}>Español</option></select><button class="button" type="submit">{% translate 'Apply' %}</button></div></form>
       <button class="button theme-toggle" type="button" data-theme-toggle aria-label="{% translate 'Use dark theme' %}">{% translate 'Dark theme' %}</button>

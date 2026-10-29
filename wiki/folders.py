@@ -126,6 +126,9 @@ def path_depth(folder):
 @transaction.atomic
 def move_item(user, item, destination, rename=None):
     require(item, user, 'write')
+    if not item.can_export(user):
+        from .acl import ResourcePermissionDenied
+        raise ResourcePermissionDenied
     source = item.parent_policy
     if source:
         require(source, user, 'write')
@@ -258,7 +261,7 @@ def folder_page(request, id=None):
                 raise ValidationError('Invalid folder operation.')
         return redirect('folder', id=folder.pk) if folder else redirect('folders')
     from .access_graph import access_graph, attach_documents
-    all_folders, by_id, site = access_graph(request.user)
+    all_folders, by_id, site = access_graph(request.user, request)
     if folder:
         folder = by_id[folder.pk]
     children = [f for f in all_folders if not f.trash_id and f.parent_id == (folder.pk if folder else None) and f.allows(request.user, 'read')]

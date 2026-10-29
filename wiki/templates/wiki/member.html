@@ -2,4 +2,4 @@
 <div class="page-heading"><h1>{{ person.label }}</h1><p>{% translate 'Account membership and invitation privileges.' %}</p></div>
 <form method="post" class="settings-card">{% csrf_token %}{{ form.as_p }}<div class="form-actions"><button class="button primary">{% translate 'Save member' %}</button><a class="button" href="{% url 'members' %}">{% translate 'Cancel' %}</a></div></form>
 <section class="settings-card"><h2>{% translate 'Groups' %}</h2><p class="muted">{% translate 'Group membership is managed on the group page.' %}</p><div class="membership-tags">{% for group in person.groups.all %}<a class="tag" href="{% url 'group' group.pk %}">{{ group.name }}</a>{% empty %}<p class="muted">{% translate 'No groups' %}</p>{% endfor %}</div><div class="form-actions"><a class="button" href="{% url 'groups' %}">{% translate 'Manage groups' %}</a></div></section>
-{% endblock %}
+<section class="settings-card"><p>Роль: {{ person.admin_role }}</p><form method="post">{% csrf_token %}<input type="hidden" name="action" value="delete"><button class="button danger">Переместить пользователя в корзину</button></form></section>{% endblock %}

@@ -177,6 +177,7 @@ document.getElementById('pdf-reload')?.addEventListener('click',async()=>{
 });
 document.getElementById('pdf-conflict-download').onclick=()=>document.getElementById('pdf-download').click();
 document.getElementById('pdf-download').onclick = async () => {
+  if(boot.export===false)return;
   if (!pdf) return;
   try {
     document.activeElement?.blur(); manager?.commitOrRemove();

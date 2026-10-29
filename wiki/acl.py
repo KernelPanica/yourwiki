@@ -1,3 +1,4 @@
+from .models import TrashEntry
 """Canonical Yourwiki permissions; provider sharing reconciles after commit."""
 from django.core.exceptions import ValidationError, PermissionDenied
 from django.http import Http404
@@ -43,7 +44,7 @@ def validate_group_policies(policies):
     from django.contrib.auth.models import Group
     if not isinstance(policies, dict):
         raise ValidationError('Invalid group permissions.')
-    valid = {str(pk) for pk in Group.objects.values_list('pk', flat=True)}
+    valid = {str(pk) for pk in Group.objects.exclude(pk__in=TrashEntry.objects.filter(kind='group').values_list('details__pk',flat=True)).values_list('pk', flat=True)}
     if not set(policies).issubset(valid):
         raise ValidationError('Choose existing groups.')
     return {key: validate_rule(rule) for key, rule in policies.items()}
@@ -63,12 +64,15 @@ def apply_api_access(item, data, user):
     """Validate the complete update before mutating the instance."""
     from django.contrib.auth.models import Group
     from django.core.exceptions import PermissionDenied
-    keys = {'policy','group','group_policies','user_policies','inherit_permissions'} & data.keys()
+    keys = {'policy','group','group_policies','user_policies','inherit_permissions','export_disabled'} & data.keys()
     if not keys:
         return []
-    if not user.is_superuser:
+    if not user.is_workspace_admin:
         raise ResourcePermissionDenied
     values = {}
+    if 'export_disabled' in keys:
+        if type(data['export_disabled']) is not bool:raise ValidationError('Export restriction must be a boolean.')
+        values['export_disabled']=data['export_disabled']
     if 'policy' in keys:
         values['policy'] = validate_policy(data['policy'])
     if 'group_policies' in keys:
@@ -82,7 +86,7 @@ def apply_api_access(item, data, user):
     elif keys & {'policy', 'group_policies'}:
         values['inherit_permissions'] = False
     if 'group' in keys:
-        group = Group.objects.filter(name=data['group']).first()
+        group = Group.objects.exclude(pk__in=TrashEntry.objects.filter(kind='group').values_list('details__pk',flat=True)).filter(name=data['group']).first()
         if not group:
             raise ValidationError('Choose an existing group.')
         values['group'] = group
@@ -94,7 +98,7 @@ def apply_api_access(item, data, user):
 def settings_context(item, user):
     from django.contrib.auth.models import Group
     source = item.effective_source()
-    result = {'can_policy':user.is_superuser, 'inherited_source': source if source != item and source.allows(user,'read') else None,
+    result = {'can_policy':user.is_workspace_admin, 'inherited_source': source if source != item and source.allows(user,'read') else None,
               'effective_policy':item.effective_policy()[0]}
     from .models import Document, ProviderGrant
     from .provider_grants import target, PROVIDERS
@@ -103,14 +107,18 @@ def settings_context(item, user):
         mount, reference = MountedStorage().reference(item.reference)
         if mount.provider in PROVIDERS:
             result['provider_grants'] = ProviderGrant.objects.filter(provider=mount.provider, object_key=target(mount, reference)).select_related('user')
-            if not user.is_superuser:
+            if not user.is_workspace_admin:
                 result['provider_grants'] = result['provider_grants'].filter(user=user)
             result['external_provider'] = mount.provider
-    if user.is_superuser:
+            from .models import ProviderSyncState
+            result['provider_sync_state']=ProviderSyncState.objects.filter(pk=1).first()
+            from .models import ProviderExportRestriction
+            result['export_sync']=ProviderExportRestriction.objects.filter(mount=mount,reference=reference).first()
+    if user.is_workspace_admin:
         from .models import User
         users=list(User.objects.filter(is_active=True).order_by('username'))
         result['user_rows']=[(account,normalize_rule(item.user_policies.get(str(account.pk))),str(account.pk) in item.user_policies) for account in users]
-        groups=list(Group.objects.order_by('name'))
+        groups=list(Group.objects.exclude(pk__in=TrashEntry.objects.filter(kind='group').values_list('details__pk',flat=True)).order_by('name'))
         result.update(groups=groups, rules=[(scope,list(rule.items())) for scope,rule in normalize_policy(item.policy).items()],
             group_rows=[(group,normalize_rule(item.group_policies.get(str(group.pk))),str(group.pk) in item.group_policies) for group in groups])
     return result
@@ -119,17 +127,18 @@ def settings_context(item, user):
 def save_settings_access(item, data, user):
     from django.core.exceptions import PermissionDenied
     from django.contrib.auth.models import Group
-    if not user.is_superuser:
+    if not user.is_workspace_admin:
         raise ResourcePermissionDenied
-    group = Group.objects.filter(pk=data.get('group')).first()
+    group = Group.objects.exclude(pk__in=TrashEntry.objects.filter(kind='group').values_list('details__pk',flat=True)).filter(pk=data.get('group')).first()
     if not group:
         raise ValidationError('Choose an existing group.')
     policy = {scope: normalize_rule({action:data.get(f'{scope}.{action}')=='on' for action in ACTIONS}) for scope in SCOPES}
     grants = {str(g.pk):normalize_rule({action:data.get(f'group.{g.pk}.{action}')=='on' for action in ACTIONS})
-              for g in Group.objects.all() if data.get(f'group.{g.pk}.enabled')=='on'}
+              for g in Group.objects.exclude(pk__in=TrashEntry.objects.filter(kind='group').values_list('details__pk',flat=True)) if data.get(f'group.{g.pk}.enabled')=='on'}
     from .models import User
     personal = {str(account.pk): normalize_rule({action:data.get(f'user.{account.pk}.{action}')=='on' for action in ACTIONS})
                 for account in User.objects.filter(is_active=True) if data.get(f'user.{account.pk}.enabled')=='on'}
+    item.export_disabled=data.get('export_disabled')=='on'
     item.group=group;item.policy=policy;item.group_policies=grants;item.user_policies=personal
     item.inherit_permissions=data.get('inherit_permissions')=='on'
-    item.save(update_fields=['group','policy','group_policies','user_policies','inherit_permissions'])
+    item.save(update_fields=['group','policy','group_policies','user_policies','inherit_permissions','export_disabled'])

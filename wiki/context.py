@@ -4,9 +4,9 @@ from django.utils.translation import gettext
 def workspace(request):
     if not getattr(request, 'user', None) or not request.user.is_authenticated:
         return {}
-    from .access_graph import access_graph, attach_documents
-    folders, by_id, site = access_graph(request.user)
-    documents = attach_documents(list(Document.objects.select_related('group', 'owner')), by_id, site, request.user)
+    from .access_graph import access_graph, access_documents
+    folders, by_id, site = access_graph(request.user, request)
+    documents = access_documents(request.user,request)
     visible = [d for d in documents if d.allows(request.user, 'read')]
     from .folders import accessible, directory_path, storage_path
     nodes = {f.pk: {'folder':f,'children':[], 'documents':[]} for f in folders if not f.trash_id and f.allows(request.user, 'read')}

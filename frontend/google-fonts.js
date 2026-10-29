@@ -17,6 +17,7 @@ export async function extendFontSelector(select,onError){
   catch(error){onError(error);}
 }
 export async function loadDocumentFonts(root,onError){
-  const names=new Set();for(const element of root.querySelectorAll('[style*="font-family"]')){const value=element.style.fontFamily.split(',')[0].trim();if(value)names.add(value);}
+  const names=new Set();const base=root.style.fontFamily||getComputedStyle(root).fontFamily;
+  if(base)names.add(base.split(',')[0].trim());for(const element of [root,...root.querySelectorAll('[style*="font-family"]')]){const value=element.style.fontFamily.split(',')[0].trim();if(value)names.add(value);}
   await Promise.all([...names].map(name=>loadGoogleFont(name).catch(onError)));
 }

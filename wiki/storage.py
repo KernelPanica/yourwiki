@@ -10,6 +10,7 @@ import posixpath
 import secrets
 import stat
 import threading
+import time
 from urllib.parse import quote
 
 import requests
@@ -195,10 +196,23 @@ class Local(Adapter):
             elif path.is_file(): yield key, key
 
 class HTTP(Adapter):
+    def __init__(self, config, save_config=None):
+        super().__init__(config, save_config)
+        self._http_local = threading.local()
+
+    def http_session(self):
+        # Sessions contain mutable cookie/header state: keep one per thread.
+        session = getattr(self._http_local, 'session', None)
+        if session is None:
+            session = self._http_local.session = requests.Session()
+        return session
+
     def request(self, method, url, **kwargs):
         try:
             allowed_status = kwargs.pop('allowed_status', ())
-            response = requests.request(method, url, timeout=(10, 45), **kwargs)
+            response = self.http_session().request(method, url, timeout=(10, 45), **kwargs)
+            if response.status_code == 401 and hasattr(self, 'invalidate_token'):
+                self.invalidate_token(kwargs.get('headers', {}))
             if method == 'GET' and response.status_code == 404 and 404 not in allowed_status:
                 raise StorageMissing('The storage object does not exist.')
             if response.status_code not in allowed_status:
@@ -217,22 +231,39 @@ class HTTP(Adapter):
                 bounded(data, limit)
             return bytes(data)
 
-# Serialize refreshes on the shared adapter in the single application process.
-_refresh_lock = threading.Lock()
-
 class OAuthHTTP(HTTP):
+    def __init__(self, config, save_config=None):
+        super().__init__(config, save_config)
+        self._token_lock = threading.RLock()
+        self._access_token = None
+        self._token_expires = 0
+
+    def invalidate_token(self, headers):
+        with self._token_lock:
+            if headers.get('Authorization') == 'Bearer ' + str(self._access_token):
+                self._access_token = None
+                self._token_expires = 0
+
     def token(self):
-        with _refresh_lock:
+        with self._token_lock:
+            now = time.monotonic()
+            if self._access_token and now < self._token_expires:
+                return self._access_token
             c = self.config
             endpoint = 'https://oauth2.googleapis.com/token' if c['provider'] == 'google' else f"https://login.microsoftonline.com/{quote(c.get('tenant', 'common'), safe='')}/oauth2/v2.0/token"
             payload = {'grant_type': 'refresh_token', 'client_id': c['client_id'], 'client_secret': c['client_secret'], 'refresh_token': c['refresh_token']}
             if c['provider'] == 'onedrive':
                 payload['scope'] = 'offline_access Files.ReadWrite'
             result = self.request('POST', endpoint, data=payload).json()
-            if result.get('refresh_token'):
+            if result.get('refresh_token') and result['refresh_token'] != c['refresh_token']:
                 c['refresh_token'] = result['refresh_token']
                 self.save_config(c)
-            return result['access_token']
+            token = result['access_token']
+            lifetime = max(0, float(result.get('expires_in', 0)))
+            # Do not extend short-lived tokens or count refresh latency as validity.
+            self._access_token = token
+            self._token_expires = now + max(0, lifetime - min(60, lifetime * .1))
+            return token
 
     def headers(self):
         return {'Authorization': 'Bearer ' + self.token()}

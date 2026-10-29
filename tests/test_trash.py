@@ -2,7 +2,7 @@ import pytest
 from django.core.management import call_command
 from django.core.exceptions import ValidationError
 from wiki.models import Document, Folder, TrashEntry, PendingDeletion, Attachment
-from wiki.services import delete_document
+from wiki.services import delete_document, cleanup_storage
 from wiki.storage import active_storage
 from wiki.trash import restore, purge
 from tests.test_requested_ui_features import tree
@@ -94,6 +94,7 @@ def test_attachment_and_history_retained_then_purged(workspace, document, django
     assert adapter.read(reference) == b'image'
     with django_capture_on_commit_callbacks(execute=True):
         purge(workspace['admin'], TrashEntry.objects.get())
+    cleanup_storage()
     assert not Attachment.objects.exists() and not PendingDeletion.objects.exists()
 
 def test_mount_cannot_hide_trashed_sources_and_group_delete_has_clear_error(client, workspace):
@@ -106,7 +107,7 @@ def test_mount_cannot_hide_trashed_sources_and_group_delete_has_clear_error(clie
     with pytest.raises(ValidationError):
         create_mount(workspace['admin'], '/Reserved', {'provider':'local','root':str(workspace['root'])})
     client.force_login(workspace['admin'])
-    assert client.post('/groups/', {'action':'delete','group':group.pk}).status_code == 400
+    assert client.post('/groups/', {'action':'delete','group':group.pk}).status_code == 302
     assert Group.objects.filter(pk=group.pk).exists()
 
 def test_trashed_ancestor_also_denies_unmarked_children(workspace):

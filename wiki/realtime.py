@@ -81,7 +81,7 @@ async def maintenance():
                     await sync_to_async(flush_room, thread_sensitive=False)(doc_id)
                 except Exception:
                     log.warning('Storage synchronization deferred for document %s', doc_id)
-            await sync_to_async(cleanup_storage)()
+            await sync_to_async(cleanup_storage,thread_sensitive=False)()
             await sync_to_async(expire_presence)()
         except Exception:
             log.warning('Storage maintenance deferred')
@@ -94,16 +94,20 @@ async def application(scope, receive, send):
     if scope['type'] == 'lifespan':
         worker = None
         discovery_worker = None
+        permission_worker = None
         while True:
             event = await receive()
             if event['type'] == 'lifespan.startup':
                 worker = asyncio.create_task(maintenance())
                 from .discovery import discover_sources
                 discovery_worker = asyncio.create_task(discover_sources())
+                from .provider_grants import synchronize_background
+                permission_worker = asyncio.create_task(synchronize_background())
                 await send({'type':'lifespan.startup.complete'})
             elif event['type'] == 'lifespan.shutdown':
                 if worker: worker.cancel()
                 if discovery_worker: discovery_worker.cancel()
+                if permission_worker: permission_worker.cancel()
                 await send({'type':'lifespan.shutdown.complete'})
                 return
     match = re.fullmatch(r'/ws/documents/([0-9a-f-]{36})/',scope['path'])

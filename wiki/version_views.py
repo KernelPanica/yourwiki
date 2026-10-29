@@ -3,7 +3,7 @@ import base64
 import hashlib
 import json
 from django.contrib import messages
-from django.core.exceptions import ValidationError
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
 from django.db.models import F
 from django.http import HttpResponse, JsonResponse
@@ -13,6 +13,7 @@ from django.utils import timezone
 from django.utils.http import content_disposition_header
 from django.views.decorators.http import require_GET, require_POST
 from .views import guarded, document_for
+from .acl import ResourcePermissionDenied
 from .storage import active_storage
 from .services import Conflict, storage_key
 
@@ -64,7 +65,7 @@ def versions(request, id):
         rows.append({'index': index, 'revision': entry.get('revision'), 'saved_at': entry.get('saved_at'),
                      'author': author.get('name', '') if isinstance(author, dict) else '',
                      'view_url': reverse('version-preview', args=[id, index]),
-                     'download_url': reverse('version-download', args=[id, index]),
+                     'download_url': reverse('version-download', args=[id, index]) if doc.can_export(request.user) else None,
                      'restore_url': reverse('version-restore', args=[id, index]), 'sha256': entry.get('sha256', '')})
     return JsonResponse({'versions': rows, 'revision': doc.revision, 'can_write': doc.allows(request.user, 'write'),
                          'enabled': doc.history_enabled()})
@@ -74,10 +75,13 @@ def versions(request, id):
 @require_GET
 def download(request, id, index):
     doc = document_for(request.user, id)
+    if not doc.can_export(request.user) and request.GET.get('inline') != '1':
+        raise ResourcePermissionDenied('Export is disabled for this file.')
     entry, data = snapshot(doc, index)
     name = version_name(doc, entry)
     from .office_formats import mime
     content_type = mime(name.rsplit('.', 1)[-1])
+    if not doc.can_export(request.user) and not (request.GET.get('inline')=='1' and name.lower().endswith('.pdf') and data.startswith(b'%PDF-')):raise ResourcePermissionDenied
     inline = request.GET.get('inline') == '1' and name.lower().endswith('.pdf') and data.startswith(b'%PDF-')
     response = HttpResponse(data, content_type='application/pdf' if inline else content_type)
     response['Content-Disposition'] = content_disposition_header(not inline, name)
@@ -93,7 +97,7 @@ def download(request, id, index):
 def preview(request, id, index):
     doc = document_for(request.user, id)
     entry, data = snapshot(doc, index)
-    context = {'doc': doc, 'entry': entry, 'index': index, 'current_revision': doc.revision,
+    context = {'can_export':doc.can_export(request.user),'doc': doc, 'entry': entry, 'index': index, 'current_revision': doc.revision,
                'can_write': doc.allows(request.user, 'write'), 'history_enabled': doc.history_enabled()}
     try:
         name = version_name(doc, entry)

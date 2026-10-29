@@ -13,7 +13,7 @@ class SiteForm(forms.ModelForm):
     class Meta:
         model = SiteConfiguration
         exclude = ['id', 'default_document_policy', 'default_collection', 'encrypted_ai_config', 'encrypted_google_oauth_client', 'encrypted_identity_oauth_clients']
-        labels = {'revision_history': 'Enable version history for all files','name':'Workspace name','description':'Workspace description','session_hours':'Session lifetime (hours)',
+        labels = {'export_disabled':'Запретить экспорт файлов для всех, кроме Гигаадмина','revision_history': 'Enable version history for all files','name':'Workspace name','description':'Workspace description','session_hours':'Session lifetime (hours)',
             'invite_days':'Default invitation lifetime (days; 0 = no expiry)','invite_uses':'Default invitation uses (0 = unlimited)',
             'login_attempts':'Login attempts per window','login_window_minutes':'Login rate-limit window (minutes)',
             'document_limit_mb':'Document size limit (MB)','image_limit_mb':'Image upload limit (MB)',
@@ -38,7 +38,7 @@ class SiteForm(forms.ModelForm):
 @guarded
 @require_http_methods(['GET','POST'])
 def site_admin(request):
-    if not request.user.is_superuser:
+    if not request.user.is_workspace_admin:
         raise PermissionDenied
     config=SiteConfiguration.current()
     form=SiteForm(request.POST or None,instance=config)

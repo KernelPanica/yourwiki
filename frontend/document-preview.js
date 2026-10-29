@@ -5,7 +5,8 @@ import './document-pages.css';
 // Read-only page furniture never enters the saved document or its export.
 const paper=document.querySelector('.paged-document');
 if(paper){
-  loadDocumentFonts(paper,cause=>window.yourwikiUI?.notify?.(cause.message));
+  const fontsReady=loadDocumentFonts(paper,cause=>window.yourwikiUI?.show?.(new window.yourwikiUI.UIError(cause.message)));
+  const endFontLoading=window.yourwikiLoading?.begin(paper);
   // Native rich_html renders its root document as a neutral div.
   if(paper.children.length===1&&paper.firstElementChild.tagName==='DIV'){
     const root=paper.firstElementChild;root.replaceWith(...root.childNodes);
@@ -47,5 +48,6 @@ if(paper){
       paper.style.paddingBottom=result.bottom+'px';paper.dataset.pages=String(result.pages);
     });
   };
-  window.addEventListener('resize',update);paper.addEventListener('load',update,true);document.fonts?.ready.then(update);update();
+  window.addEventListener('resize',update);paper.addEventListener('load',update,true);document.fonts?.ready.then(update);
+  fontsReady.then(update).finally(()=>endFontLoading?.());update();
 }

@@ -1,6 +1,6 @@
 .docs-page .document-host .tiptap{width:794px;max-width:none;min-height:1123px;padding:72px;box-sizing:border-box;overflow:visible;position:relative}
 .docs-page .document-host .tiptap>p,.docs-page .document-host .tiptap>h1,.docs-page .document-host .tiptap>h2,.docs-page .document-host .tiptap>h3{margin-top:0;margin-bottom:12px}
-.paged-document{width:794px;max-width:none;min-height:1123px;padding:72px;box-sizing:border-box;position:relative;background:white;border:1px solid #dadce0;box-shadow:0 2px 8px #0f172a0d;font:16px/1.5 Arial,sans-serif;color:#202124;margin:24px auto}
+.paged-document{width:794px;max-width:none;min-height:1123px;padding:72px;box-sizing:border-box;position:relative;background:white;border:1px solid #dadce0;box-shadow:0 2px 8px #0f172a0d;font:16px/1.5 "Times New Roman",Tinos,serif;color:#202124;margin:24px auto}
 .paged-document>p,.paged-document>h1,.paged-document>h2,.paged-document>h3{margin-top:0;margin-bottom:12px}
 .preview.document:has(.paged-document){overflow:auto;background:#f8fafd;padding:16px}
 .doc-page-gap{display:block;position:relative;pointer-events:none;user-select:none;clear:both}

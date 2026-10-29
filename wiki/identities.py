@@ -21,7 +21,7 @@ from django.views.decorators.http import require_http_methods, require_POST
 from .acl import ResourcePermissionDenied
 from .crypto import encrypt, decrypt
 from .models import Document, ProviderIdentity, ProviderGrant, SiteConfiguration
-from .provider_grants import PROVIDERS, sync_provider_grants, target
+from .provider_grants import PROVIDERS, enqueue_sync, target
 from .storage import HTTP, MountedStorage
 from .views import guarded
 
@@ -58,21 +58,23 @@ def setup(request):
         if missing:
             error=_('Connect every required provider account before continuing.')
         else:
-            try:
-                sync_provider_grants(force=True)
-            except Exception:
-                error=_('Access synchronization is unavailable. Retry or contact an administrator.')
-            if not error:
-                blocked=ProviderGrant.objects.filter(user=request.user,provider__in=required).exclude(desired_role='').exclude(status='synced').exists()
-                if blocked:
-                    error=_('Provider access is not ready. Check the permissions below, accept any invitation, then retry.')
-                else:
-                    request.user.provider_setup_required=False
-                    request.user.save(update_fields=['provider_setup_required'])
-                    return redirect('library')
+            from .models import ProviderSyncState
+            state=ProviderSyncState.objects.filter(pk=1).first()
+            blocked=ProviderGrant.objects.filter(user=request.user,provider__in=required).exclude(desired_role='').exclude(status='synced').exists()
+            if required and (state is None or state.pending or blocked):
+                if state is None or not state.pending:enqueue_sync(force=True)
+                request.session['provider_setup_waiting']=True
+                return redirect('provider-setup')
+            request.user.provider_setup_required=False
+            request.user.save(update_fields=['provider_setup_required'])
+            request.session.pop('provider_setup_waiting',None)
+            return redirect('library')
+    from .models import ProviderSyncState
+    sync_state=ProviderSyncState.objects.filter(pk=1).first() if required and not missing else None
+    sync_pending=bool(sync_state and sync_state.pending)
     grants=ProviderGrant.objects.filter(user=request.user,provider__in=required).exclude(desired_role='').order_by('provider','pk')
     rows=[{'provider':provider,'label':LABELS[provider],'configured':provider in configured,'identity':identities.get(provider)} for provider in required]
-    return render(request,'wiki/provider_setup.html',{'rows':rows,'grants':grants,'setup_error':error,'can_finish':not missing},status=400 if error else 200)
+    return render(request,'wiki/provider_setup.html',{'rows':rows,'grants':grants,'setup_error':error,'can_finish':not missing and not sync_pending,'sync_pending':sync_pending,'sync_state':sync_state,'sync_autofinish':request.session.get('provider_setup_waiting',False)},status=400 if error else 200)
 
 
 def callback_uri(provider):
@@ -125,6 +127,7 @@ def accounts(request):
             site=SiteConfiguration.current();site.encrypted_identity_oauth_clients=encrypt(config);site.save()
             messages.success(request,'OAuth client saved. Register the callback URL shown below with the provider.')
             return redirect('provider-accounts')
+    from .models import ProviderSyncState
     configured=clients()
     identities={i.provider:i for i in request.user.provider_identities.filter(active=True)}
     rows=[{'provider':p,'label':LABELS[p],'configured':p in configured,'identity':identities.get(p),'callback':callback_uri(p)} for p in PROVIDERS]
@@ -144,7 +147,7 @@ def accounts(request):
         grant.resource_title = doc.title if doc else _('Original no longer in the workspace')
         grant.resource_url = reverse('document',args=[doc.pk]) if doc else ''
         displayed.append(grant)
-    return render(request,'wiki/provider_accounts.html',{'rows':rows,'client_form':form,'grants':displayed,'section':'Settings'},status=400 if form.errors else 200)
+    return render(request,'wiki/provider_accounts.html',{'rows':rows,'client_form':form,'grants':displayed,'section':'Settings','sync_state':ProviderSyncState.objects.filter(pk=1).first()},status=400 if form.errors else 200)
 
 
 @guarded
@@ -204,6 +207,21 @@ def unlink(request,provider):
 @require_POST
 def retry(request):
     if not request.user.is_superuser:raise ResourcePermissionDenied
-    sync_provider_grants(force=True)
-    messages.info(request,'Synchronization finished. Check pending and failed permissions below.')
+    enqueue_sync(force=True)
+    messages.info(request,'Synchronization queued. Cloud permissions update in the background.')
     return redirect('provider-accounts')
+
+
+@guarded
+@require_http_methods(['GET'])
+def setup_status(request):
+    from django.http import JsonResponse
+    from .models import ProviderSyncState
+    from .onboarding import required_providers
+    required=required_providers(request.user)
+    connected=set(request.user.provider_identities.filter(active=True).values_list('provider',flat=True))
+    state=ProviderSyncState.objects.filter(pk=1).first()
+    pending=bool(required and (state is None or state.pending))
+    blocked=ProviderGrant.objects.filter(user=request.user,provider__in=required).exclude(desired_role='').exclude(status='synced').exists()
+    error=bool(required and state and state.pending and state.error) or blocked
+    return JsonResponse({'pending':pending,'error':error,'ready':not pending and not error and set(required).issubset(connected)})

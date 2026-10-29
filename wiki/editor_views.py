@@ -26,8 +26,9 @@ def live(request, id):
         return redirect('office', id=doc.pk)
     if doc.kind in ('file', 'presentation'): return redirect('document', id=doc.pk)
     room = ensure_room(doc)
+    doc = document_for(request.user,id)
     return render(request, 'wiki/live.html', {'doc':doc, 'section':doc.title,
-        'bootstrap':{'id':str(doc.pk),'kind':doc.kind,'title':doc.title,'write':doc.allows(request.user,'write'),
+        'can_export':doc.can_export(request.user),'bootstrap':{'id':str(doc.pk),'kind':doc.kind,'title':doc.title,'export':doc.can_export(request.user),'write':doc.allows(request.user,'write'),
             'generation':str(room.generation), 'file_format':doc.file_format,'user':request.user.label,'state':base64.b64encode(bytes(room.state)).decode(), 'sequence':room.sequence}})
 
 
@@ -196,6 +197,9 @@ def recover(request, id):
             SaveSession.objects.filter(document=doc).delete()
         return JsonResponse({'revision':doc.revision})
     if data.get('action')!='copy' or doc.kind=='file':raise ValidationError('Choose a recovery action.')
+    if not doc.can_export(request.user):
+        from .acl import ResourcePermissionDenied
+        raise ResourcePermissionDenied
     try:
         from pycrdt import Doc
         from .collaboration import derive

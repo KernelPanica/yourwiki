@@ -16,8 +16,20 @@ def _text(paragraph):
                 if active:
                     marks.append({'type': kind})
             attrs = {}
-            if run.font.name:
-                attrs['fontFamily'] = run.font.name
+            family = run.font.name
+            if not family:
+                for style in (run.style, paragraph.style):
+                    seen = set()
+                    while style is not None and style.style_id not in seen:
+                        seen.add(style.style_id)
+                        family = style.font.name
+                        if family:
+                            break
+                        style = style.base_style
+                    if family:
+                        break
+            if family:
+                attrs['fontFamily'] = family
             if run.font.size:
                 attrs['fontSize'] = f'{run.font.size.pt:g}pt'
             if run.font.color.rgb:
@@ -148,6 +160,7 @@ def to_docx(native_text):
     from .native import unpack
     native = unpack(native_text) or {'data': {'content': []}}
     output = Document()
+    output.styles['Normal'].font.name = 'Times New Roman'
 
     def shade(properties, color):
         if isinstance(color, str) and re.fullmatch(r'#[0-9a-fA-F]{6}', color):

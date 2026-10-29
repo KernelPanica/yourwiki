@@ -12,8 +12,17 @@ def default_policy():
 class User(AbstractUser):
     display_name = models.CharField(max_length=150)
     provider_setup_required = models.BooleanField(default=False)
+    is_simple_admin = models.BooleanField(default=False)
     can_invite = models.BooleanField(default=False)
     invite_groups = models.ManyToManyField(Group, related_name='authorized_inviters', blank=True)
+
+    @property
+    def is_workspace_admin(self):
+        return self.is_active and (self.is_superuser or self.is_simple_admin)
+
+    @property
+    def admin_role(self):
+        return 'Гигаадмин' if self.is_superuser else 'Простой админ' if self.is_simple_admin else 'Пользователь'
 
     @property
     def label(self):
@@ -58,6 +67,7 @@ class SiteConfiguration(models.Model):
     encrypted_google_oauth_client = models.TextField(blank=True, default='')
     encrypted_identity_oauth_clients = models.TextField(blank=True, default='')
     revision_history = models.BooleanField(default=False)
+    export_disabled = models.BooleanField(default=False)
     default_collection = models.CharField(max_length=100, default='Getting started')
     default_document_policy = models.JSONField(default=default_policy)
 
@@ -69,8 +79,9 @@ class SiteConfiguration(models.Model):
 class TrashEntry(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     root_id = models.UUIDField()
-    kind = models.CharField(max_length=8, choices=[('file', 'File'), ('folder', 'Folder')])
+    kind = models.CharField(max_length=8, choices=[('file', 'File'), ('folder', 'Folder'), ('user', 'User'), ('group', 'Group'), ('invite', 'Invitation')])
     name = models.CharField(max_length=200)
+    details = models.JSONField(default=dict)
     original_path = models.TextField(blank=True)
     deleted_at = models.DateTimeField(default=timezone.now)
     deleted_by = models.ForeignKey(User, null=True, on_delete=models.SET_NULL)
@@ -94,6 +105,18 @@ class ActiveObjects(models.Manager):
 
 
 class AccessPolicy:
+    def export_restricted(self):
+        if (getattr(self, '_access_site', None) or SiteConfiguration.current()).export_disabled:return True
+        item, seen = self, set()
+        while item is not None:
+            key=(type(item).__name__,item.pk)
+            if key in seen or item.export_disabled:return True
+            seen.add(key);item=item.parent_policy
+        return False
+
+    def can_export(self, user):
+        return self.allows(user,'read') and (user.is_superuser or not self.export_restricted())
+
     def history_enabled(self):
         return SiteConfiguration.current().revision_history
 
@@ -126,7 +149,7 @@ class AccessPolicy:
         action = 'read' if action == 'visible' else action
         if not user.is_authenticated or not user.is_active:
             return False
-        if user.is_superuser:
+        if user.is_workspace_admin:
             return True
         source = self.effective_source()
         from .acl import normalize_rule
@@ -143,6 +166,7 @@ class AccessPolicy:
         def in_group(value):
             if cached_groups is not None and cached_groups[0] == user.pk:
                 return str(value) in cached_groups[1]
+            if hasattr(user, '_acl_group_ids'):return str(value) in user._acl_group_ids
             return user.groups.filter(pk=value).exists()
         if isinstance(source, (Folder, Document)):
             grants = {} if source.inherit_permissions and source.parent_policy is None else (source.group_policies or {})
@@ -163,6 +187,7 @@ class Folder(AccessPolicy, models.Model):
     policy = models.JSONField(default=default_policy)
     group_policies = models.JSONField(default=dict)
     user_policies = models.JSONField(default=dict)
+    export_disabled = models.BooleanField(default=False)
     inherit_permissions = models.BooleanField(default=True)
     revision_history = models.BooleanField(null=True, blank=True, default=None)
 
@@ -198,6 +223,7 @@ class Document(AccessPolicy, models.Model):
     starred = models.BooleanField(default=False)
     updated_at = models.DateTimeField(default=timezone.now)
     folder = models.ForeignKey(Folder, null=True, blank=True, on_delete=models.PROTECT, related_name='documents')
+    export_disabled = models.BooleanField(default=False)
     inherit_permissions = models.BooleanField(default=True)
     revision_history = models.BooleanField(null=True, blank=True, default=None)
     format_version = models.PositiveSmallIntegerField(default=0)
@@ -378,3 +404,37 @@ class OfficeSession(models.Model):
 
     class Meta:
         constraints = [models.UniqueConstraint(fields=['document'], condition=models.Q(superseded=False), name='current_office_session')]
+
+
+class OfficeFontActivation(models.Model):
+    """Only explicitly requested families are advertised to Collabora."""
+    name = models.CharField(max_length=200, unique=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+
+class ProviderExportRestriction(models.Model):
+    mount = models.ForeignKey(MountPoint, on_delete=models.PROTECT)
+    reference = models.TextField()
+    original = models.JSONField(null=True,default=None)
+    applied = models.BooleanField(null=True,default=None)
+    error = models.TextField(blank=True)
+    checked_at = models.DateTimeField(null=True,blank=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=['mount','reference'],name='unique_provider_export_restriction')]
+
+
+class ProviderSyncState(models.Model):
+    """Durable coalescing outbox; revisions arriving during sync stay pending."""
+    requested_revision = models.PositiveBigIntegerField(default=0)
+    completed_revision = models.PositiveBigIntegerField(default=0)
+    force_revision = models.PositiveBigIntegerField(default=0)
+    requested_at = models.DateTimeField(null=True, blank=True)
+    attempted_revision = models.PositiveBigIntegerField(default=0)
+    attempted_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    error = models.TextField(blank=True)
+
+    @property
+    def pending(self):
+        return self.requested_revision > self.completed_revision

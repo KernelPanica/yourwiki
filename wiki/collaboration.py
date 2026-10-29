@@ -281,42 +281,50 @@ def seed(document, content):
     return ydoc
 
 
-@transaction.atomic
 def ensure_room(document):
-    # Callers may have loaded the document before a rename or another save.
+    # Remote reads and CRDT seeding must not hold SQLite's writer lock.
+    from .source import check_available
+    from .realtime import connections
+    from .file_formats import decode
+    from .services import Conflict
     document.refresh_from_db()
     if document.kind == 'file':
         raise ValidationError('Uploaded files do not have a collaborative editor.')
-    from .source import check_available
     check_available(document)
-    room = Collaboration.objects.filter(document=document).first()
-    if room and room.state:
-        from .realtime import connections
-        if room.sequence != room.synced_sequence or connections.get(str(document.pk)):
-            return room
-        raw = active_storage().read(document.reference)
-        if not document.storage_digest or active_storage().fingerprint(document.reference, raw) == document.storage_digest:
-            return room
-        room.delete()
-        document.storage_digest = active_storage().fingerprint(document.reference, raw)
-        document.revision += 1
-        document.save(update_fields=['storage_digest', 'revision'])
-    from .file_formats import decode
-    raw = active_storage().read(document.reference)
-    content = decode(document, raw)
-    if not document.storage_digest:
-        Document.objects.filter(pk=document.pk, storage_digest='').update(storage_digest=active_storage().fingerprint(document.reference, raw))
-        document.storage_digest = active_storage().fingerprint(document.reference, raw)
-    seeded = seed(document, content)
-    state = seeded.get_update()
+    room=Collaboration.objects.filter(document=document).first()
+    if room and room.state and (room.sequence!=room.synced_sequence or connections.get(str(document.pk))):return room
+    adapter=active_storage()
+    raw=adapter.read(document.reference)
+    fingerprint=adapter.fingerprint(document.reference,raw)
+    if room and room.state and fingerprint==document.storage_digest:
+        content,state,seeded=room.snapshot,bytes(room.state),None
+    else:
+        content=decode(document,raw)
+        seeded=seed(document,content)
+        state=seeded.get_update()
     with transaction.atomic():
-        room, _ = Collaboration.objects.get_or_create(document=document)
+        current=Document.objects.get(pk=document.pk)
+        if (current.reference,current.storage_digest,current.revision)!=(document.reference,document.storage_digest,document.revision):
+            raise Conflict('This document changed while opening. Reload the editor.')
+        check_available(current)
+        room=Collaboration.objects.filter(document=current).first()
+        if room and room.state:
+            if room.sequence!=room.synced_sequence or connections.get(str(current.pk)):return room
+            if not current.storage_digest or fingerprint==current.storage_digest:return room
+            room.delete()
+            current.revision+=1
+        if current.storage_digest!=fingerprint:
+            current.storage_digest=fingerprint
+            current.save(update_fields=['storage_digest','revision'])
+        room,_=Collaboration.objects.get_or_create(document=current)
         if not room.state:
-            room.state, room.snapshot = state, content
-            if document.kind == 'table':
-                room.saved_structure = unpack(derive(seeded, 'table'))['data'].get('_axes', {})
+            room.state,room.snapshot=state,content
+            if current.kind=='table':
+                if seeded is None:
+                    seeded=Doc();seeded.apply_update(state)
+                room.saved_structure=unpack(derive(seeded,'table'))['data'].get('_axes',{})
             room.save()
-    return room
+        return room
 
 
 def apply_update(user, document_id, encoded, review_id=None, *, generation=None):
@@ -374,17 +382,21 @@ def flush_room(document_id):
     return commit(session.pk,adapter=active_storage())
 
 
-@transaction.atomic
-def current_content(document):
+def current_content(document, *, cached=False):
     document = Document.objects.get(pk=document.pk)
     room = Collaboration.objects.filter(document=document).first()
     if room and room.snapshot and room.sequence != room.synced_sequence:
         return room.snapshot
-    from .file_formats import decode
-    raw = active_storage().read(document.reference)
-    content = decode(document, raw)
-    # Legacy files need a baseline before a source editor can detect changes
-    # made outside Yourwiki between opening and saving the file.
-    if not document.storage_digest:
-        Document.objects.filter(pk=document.pk, storage_digest='').update(storage_digest=active_storage().fingerprint(document.reference, raw))
-    return content
+    def load():
+        from .file_formats import decode
+        adapter=active_storage()
+        # Remote I/O does not acquire SQLite's global IMMEDIATE writer lock.
+        raw=adapter.read(document.reference)
+        result=decode(document,raw)
+        if not document.storage_digest:
+            Document.objects.filter(pk=document.pk,reference=document.reference,storage_digest='').update(storage_digest=adapter.fingerprint(document.reference,raw))
+        return result
+    if cached:
+        from .preview_cache import content
+        return content(document,load)
+    return load()

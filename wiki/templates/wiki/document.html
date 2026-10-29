@@ -1,6 +1,6 @@
 {% extends 'wiki/base.html' %}{% load wiki_ui i18n l10n static %}{% block content %}<div class="document-toolbar">
 <a class="button primary" href="{% url 'live' doc.pk %}">{% icon 'edit' %}{% translate 'Open visual editor' %}{% if not can_write %} {% translate '/ review' %}{% endif %}</a>
-<a class="button" href="{% url 'export' doc.pk %}">{% icon 'download' %}{% translate 'Export' %}</a>
+{% if can_export %}<a class="button" href="{% url 'export' doc.pk %}">{% icon 'download' %}{% translate 'Export' %}</a>{% endif %}
 
 <details class="more-menu" data-disclosure><summary class="button">{% translate 'More' %}{% icon 'chevron' %}</summary><div class="more-menu-panel">
 {% include 'wiki/file_actions.html' %}

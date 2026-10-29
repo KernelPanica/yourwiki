@@ -144,5 +144,8 @@ def test_office_external_update_reload_or_preserve_edits(realtime_server, worksp
             page.evaluate('window.warned=false;window.addEventListener("beforeunload",e=>window.warned=e.defaultPrevented);window.dispatchEvent(new Event("beforeunload",{cancelable:true}))')
             assert page.evaluate('window.warned')
         else:
-            page.wait_for_function('session => JSON.parse(document.getElementById("office-bootstrap").textContent).session !== session', arg=session, timeout=10000)
+            # A writable office session can contain pending edits before the
+            # modified notification arrives; preserve it and warn explicitly.
+            expect(page.locator('#office-conflict')).to_be_visible(timeout=10000)
+            assert page.evaluate('JSON.parse(document.getElementById("office-bootstrap").textContent).session') == session
         browser.close()

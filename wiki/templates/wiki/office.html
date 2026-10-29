@@ -1,4 +1,4 @@
-{% extends 'wiki/base.html' %}{% load static i18n wiki_ui %}
+{% extends office_base|default:'wiki/base.html' %}{% load static i18n wiki_ui %}
 {% block title %}{{ doc.title }} — Collabora — Yourwiki{% endblock %}
 {% block body_class %}editor-page{% endblock %}
 {% block content %}
@@ -8,14 +8,14 @@
   <a class="button" href="{% url 'document' doc.pk %}">{% icon 'back' %}{% translate 'Back to file' %}</a>
   <button class="button" type="button" data-editor-fullscreen aria-pressed="false">{% translate 'Full screen' %}</button>
   <a class="button" href="{% url 'file-settings' doc.pk %}">{% translate 'File settings' %}</a>
-  <a class="button" href="{% url 'export' doc.pk %}">{% translate 'Download saved file' %}</a>
-  <a class="button" id="office-recovery" href="{% url 'office-recovery' doc.pk %}?session={{ office_bootstrap.session }}" {% if not office_recovery %}hidden{% endif %}>{% translate 'Download recovery copy' %}</a>
+  {% if can_export %}<a class="button" href="{% url 'export' doc.pk %}">{% translate 'Download saved file' %}</a>{% endif %}
+  <a class="button" id="office-recovery" href="{% url 'office-recovery' doc.pk %}?session={{ office_bootstrap.session }}" {% if not office_recovery or not can_export %}hidden{% endif %}>{% translate 'Download recovery copy' %}</a>
 </div>
 {% if office_google_sheet %}<p class="muted">{% translate 'Google Sheets is edited through ODS export and import. Google-specific features may differ.' %}</p>{% endif %}
 <section id="office-conflict" class="settings-card source-conflict-banner" role="alert" tabindex="-1" hidden>
   <strong>{% translate 'Your changes will not be saved' %}</strong>
   <p>{% translate 'The document changed in its source while you were editing. Saving to the original is blocked. Copy your changes to the clipboard or download a local copy before leaving or reloading.' %}</p>
-  <div class="form-actions"><button type="button" class="button" id="office-download-current">{% translate 'Download current copy' %}</button><button type="button" class="button" id="office-reload">{% translate 'Discard and reload original' %}</button></div>
+  <div class="form-actions"><button type="button" class="button" id="office-download-current" {% if not can_export %}hidden disabled{% endif %}>{% translate 'Download current copy' %}</button><button type="button" class="button" id="office-reload">{% translate 'Discard and reload original' %}</button></div>
 <p class="muted">{% translate 'To copy text, select it inside the editor and press Ctrl+C (⌘C on Mac). Download a local copy to preserve formatting.' %}</p>
 </section>
 <p id="office-status" role="status" aria-live="polite">{% translate 'Loading office editor…' %}</p>
@@ -25,9 +25,9 @@
 </form>
 <form id="office-heartbeat" hidden>{% csrf_token %}</form>
 <div class="resizable-workspace office-resizable" data-workspace-resize="{% if office_presentation %}presentation{% else %}office{% endif %}"{% if office_presentation %} data-workspace-extra-height="160" data-workspace-max-ratio="6"{% endif %}>
-<iframe name="office-frame" id="office-frame" class="collabora-frame" title="{% translate 'Office document editor' %}" allow="clipboard-read; clipboard-write; fullscreen"></iframe>
+<iframe name="office-frame" id="office-frame" data-document="{{ doc.pk }}" class="collabora-frame" title="{% translate 'Office document editor' %}" allow="clipboard-read; clipboard-write; fullscreen"></iframe>
 {% include 'wiki/workspace_resizer.html' with resize_target='office-frame' %}
 </div>
 {{ office_bootstrap|json_script:'office-bootstrap' }}
-<script src="{% static 'wiki/office-font-focus.js' %}" defer></script><script src="{% static 'wiki/office.js' %}" defer></script>
+<script src="{% static 'wiki/office-font-focus.js' %}" defer></script><script src="{% static 'wiki/office-fonts.js' %}" defer></script><script src="{% static 'wiki/office.js' %}" defer></script>
 {% endblock %}

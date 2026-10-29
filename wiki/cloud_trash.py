@@ -23,7 +23,8 @@ def enqueue(documents):
             defaults={'mount':mount,'reference':reference,'confirmed':False,'error':''})
         ids.append(document.pk)
     if ids:
-        transaction.on_commit(lambda: synchronize(ids))
+        from .provider_grants import synchronize_after_commit
+        synchronize_after_commit()
 
 
 def synchronize(ids=None):

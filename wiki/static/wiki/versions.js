@@ -14,7 +14,7 @@
           const row=document.createElement('div');row.className='version-row';
           const title=document.createElement('span');const date=new Date(version.saved_at);title.textContent=`Версия ${version.revision ?? version.index+1} · ${Number.isNaN(date.valueOf())?'Дата неизвестна':date.toLocaleString()}${version.author?' · '+version.author:''}`;row.append(title);
           const actions=document.createElement('div');actions.className='form-actions';
-          for(const [label,url] of [['Просмотреть',version.view_url],['Скачать',version.download_url]]){const link=document.createElement('a');link.className='button';link.textContent=label;link.href=url;actions.append(link);}
+          for(const [label,url] of [['Просмотреть',version.view_url],['Скачать',version.download_url]]){if(!url)continue;const link=document.createElement('a');link.className='button';link.textContent=label;link.href=url;actions.append(link);}
           row.append(actions);list.append(row);
         }
       }catch(error){status.textContent=error.message||'Не удалось загрузить историю. Закройте и откройте панель для повторной попытки.';}

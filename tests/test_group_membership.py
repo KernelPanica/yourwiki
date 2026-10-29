@@ -47,5 +47,5 @@ def test_group_with_folder_cannot_be_deleted(client, workspace):
     client.force_login(workspace['admin'])
     group = Group.objects.create(name='Folder owner')
     Folder.objects.create(name='Protected',owner=workspace['admin'],group=group)
-    assert client.post('/groups/', {'action':'delete','group':group.pk}).status_code == 400
+    assert client.post('/groups/', {'action':'delete','group':group.pk}).status_code == 302
     assert Group.objects.filter(pk=group.pk).exists()

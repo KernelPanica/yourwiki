@@ -36,6 +36,8 @@ def test_google_deletion_and_external_restore_preserve_identity(google, workspac
     original_policy, original_reference = doc.policy, doc.reference
     with django_capture_on_commit_callbacks(execute=True):
         delete_document(workspace['admin'],doc)
+    assert not ProviderTrashState.objects.get(document_id=doc.pk).confirmed
+    synchronize()
     assert google[1]['File'] is True
     assert ProviderTrashState.objects.get(document_id=doc.pk).confirmed
     assert not Document.objects.exists()
@@ -49,6 +51,7 @@ def test_google_deletion_and_external_restore_preserve_identity(google, workspac
 def test_restore_in_yourwiki_untrashes_google(google, workspace, django_capture_on_commit_callbacks):
     doc = remote_doc(workspace,google)
     with django_capture_on_commit_callbacks(execute=True):delete_document(workspace['admin'],doc)
+    synchronize()
     restore(workspace['admin'],TrashEntry.objects.get())
     assert google[1]['File'] is False and Document.objects.filter(pk=doc.pk).exists()
 
@@ -57,6 +60,7 @@ def test_network_failure_is_durable_and_not_mistaken_for_restore(google, workspa
     doc = remote_doc(workspace,google)
     google[2].set_trashed.side_effect = StorageError('offline')
     with django_capture_on_commit_callbacks(execute=True):delete_document(workspace['admin'],doc)
+    synchronize()
     row = ProviderTrashState.objects.get();assert not row.confirmed and row.error
     synchronize();assert not Document.objects.exists()
     google[2].set_trashed.side_effect = lambda ref,value:google[1].update({ref:value})
@@ -70,6 +74,7 @@ def test_uncertain_remote_success_is_reconciled(google, workspace, django_captur
         raise StorageError('lost response')
     google[2].set_trashed.side_effect = uncertain
     with django_capture_on_commit_callbacks(execute=True):delete_document(workspace['admin'],doc)
+    synchronize()
     assert google[1]['File'] and not ProviderTrashState.objects.get().confirmed
     synchronize();assert ProviderTrashState.objects.get().confirmed
 
@@ -79,6 +84,7 @@ def test_restore_one_remote_file_from_trashed_tree(google, workspace, django_cap
     child = Folder.objects.create(name='Child',parent=folder,owner=workspace['admin'],group=workspace['team'])
     doc = remote_doc(workspace,google,child,'First');other = remote_doc(workspace,google,child,'Second')
     with django_capture_on_commit_callbacks(execute=True):trash_directory(workspace['admin'],folder)
+    synchronize()
     assert google[1] == {'First':True,'Second':True}
     google[1]['First'] = False;synchronize()
     assert Document.objects.filter(pk=doc.pk).exists()

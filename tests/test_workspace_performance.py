@@ -83,3 +83,31 @@ def test_ajax_redirect_does_not_render_destination(workspace):
     external = AccessMiddleware(lambda request: redirect('https://accounts.google.com/'))(request)
     assert external.status_code == 302
     assert external['Location'] == 'https://accounts.google.com/'
+
+
+def test_library_and_context_share_graph_within_request(workspace):
+    from wiki.views import visible_docs
+    make_tree(workspace,10)
+    request=RequestFactory().get('/');request.user=workspace['member']
+    with CaptureQueriesContext(connection) as queries:
+        docs=visible_docs(request.user,request)
+        result=context(request)
+    assert len(docs)==result['document_count']==10
+    assert len(queries)<=8
+
+
+def test_reconciliation_acl_query_count_does_not_grow_per_user_file(workspace):
+    from unittest.mock import patch
+    from wiki.models import MountPoint,ProviderGrant
+    from wiki.provider_grants import _sync
+    make_tree(workspace,12)
+    # Namespace resolution is stable; no remote adapter is needed for users
+    # without a linked identity. This measures ACL/ancestry, not cloud latency.
+    from wiki.storage import root_mount
+    mount=root_mount()
+    mount.provider='google'
+    with patch('wiki.provider_grants.MountedStorage.reference',return_value=(mount,'same-origin')):
+        _sync()
+        with CaptureQueriesContext(connection) as queries:_sync()
+    reads=[q for q in queries if q['sql'].lstrip().upper().startswith('SELECT')]
+    assert len(reads)<25

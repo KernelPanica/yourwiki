@@ -1,11 +1,13 @@
 {% load i18n l10n %}
 <section id="access" class="settings-card">
 <h2>{% translate 'Access' %}</h2>
+{% if provider_sync_state.pending %}<p class="notice" role="status">Права Yourwiki сохранены. Доступ в облаке синхронизируется в фоне; обновите страницу для проверки результата.</p>{% endif %}{% if provider_sync_state.error %}<p class="notice" role="status">{{ provider_sync_state.error }}</p>{% endif %}{% if export_sync.error %}<p role="alert">{{ export_sync.error }}</p>{% endif %}
 <p>{% translate 'Read makes this item visible and allows opening and downloading it. Write also grants Read. Administrators retain access.' %}</p>
 {% if inherited_source %}<p>{% translate 'Inherited from' %}: {% firstof inherited_source.title inherited_source.name %}</p>{% endif %}
 {% if can_policy %}
 <form method="post" data-rw-policy>{% csrf_token %}<input type="hidden" name="action" value="access">
 <label class="checkbox-hit"><input type="checkbox" name="inherit_permissions" data-inherit-access {% if doc.inherit_permissions %}checked{% endif %}>{% translate 'Inherit access from parent folder (workspace defaults at root)' %}</label>
+<label class="checkbox-hit"><input type="checkbox" name="export_disabled" {% if doc.export_disabled %}checked{% endif %}>Запретить экспорт, скачивание и печать (включая вложенные файлы)</label>
 <fieldset data-own-access><legend>{% translate 'Custom access' %}</legend>
 <label>{% translate 'Primary group' %}<select name="group">{% for group in groups %}<option value="{{ group.pk }}" {% if group.pk == doc.group_id %}selected{% endif %}>{{ group.name }}</option>{% endfor %}</select></label>
 <table class="policy-table responsive-permissions"><thead><tr><th>{% translate 'Who' %}</th><th>{% translate 'Read' %}</th><th>{% translate 'Write' %}</th></tr></thead><tbody>

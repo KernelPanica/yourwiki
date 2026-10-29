@@ -1,3 +1,4 @@
+from .models import TrashEntry
 from django import forms
 from django.utils.translation import gettext_lazy as _
 from django.contrib.auth import get_user_model
@@ -43,7 +44,7 @@ class DocumentForm(CreationPermissions, forms.Form):
         self.editing = editing
         self.setup_permissions(user, editing=editing)
         self.fields['kind'].choices = [(value, _(label)) for value, label in Document.KINDS]
-        self.fields['group'].queryset = Group.objects.all() if user.is_superuser else user.groups.all()
+        self.fields['group'].queryset = Group.objects.exclude(pk__in=TrashEntry.objects.filter(kind='group').values_list('details__pk',flat=True)) if user.is_workspace_admin else user.groups.exclude(pk__in=TrashEntry.objects.filter(kind='group').values_list('details__pk',flat=True))
         self.fields['group'].required = False
         self.fields['group'].disabled = True
         from .folders import accessible
@@ -77,7 +78,7 @@ class DocumentForm(CreationPermissions, forms.Form):
                 self.add_error('path', error)
         if not self.editing:
             folder = data.get('folder')
-            data['group'] = folder.group if folder else self.user.groups.first() or (Group.objects.first() if self.user.is_superuser else None)
+            data['group'] = folder.group if folder else self.user.groups.first() or (Group.objects.first() if self.user.is_workspace_admin else None)
             if not data['group']:
                 self.add_error(None, _('Join a group before creating files.'))
         return data
@@ -125,13 +126,14 @@ class InviteForm(forms.Form):
         config=SiteConfiguration.current()
         self.fields['days'].initial=config.invite_days
         self.fields['max_uses'].initial=config.invite_uses
-        self.fields['groups'].queryset = Group.objects.all() if user.is_superuser else user.invite_groups.all()
+        self.fields['groups'].queryset = Group.objects.exclude(pk__in=TrashEntry.objects.filter(kind='group').values_list('details__pk',flat=True)) if user.is_workspace_admin else user.invite_groups.exclude(pk__in=TrashEntry.objects.filter(kind='group').values_list('details__pk',flat=True))
 
 class MemberForm(forms.Form):
+    admin_role = forms.ChoiceField(label="Роль", choices=[("member","Пользователь"),("simple","Простой админ"),("giga","Гигаадмин")],required=False)
     display_name = forms.CharField(label=_('Display name'), max_length=150)
     is_active = forms.BooleanField(required=False, label=_('Account enabled'))
     can_invite = forms.BooleanField(required=False, label=_('Can create invitations'))
-    invite_groups = forms.ModelMultipleChoiceField(queryset=Group.objects.all(), required=False, widget=forms.CheckboxSelectMultiple, label=_('Groups this member may assign through invitations'))
+    invite_groups = forms.ModelMultipleChoiceField(queryset=Group.objects.exclude(pk__in=TrashEntry.objects.filter(kind='group').values_list('details__pk',flat=True)), required=False, widget=forms.CheckboxSelectMultiple, label=_('Groups this member may assign through invitations'))
 
 
 class HistoryForm(forms.Form):

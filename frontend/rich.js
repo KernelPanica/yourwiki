@@ -72,10 +72,10 @@ export function richEditor(){
   group('Editing');const editingControls=activeGroup;button('Undo',()=>editor.commands.undo());button('Redo',()=>editor.commands.redo());
   group('Formatting');
   const styleControl=select('Style',[['0','Paragraph'],...[1,2,3,4,5,6].map(level=>[String(level),`Heading ${level}`])],v=>v==='0'?editor.chain().focus().setParagraph().run():editor.chain().focus().setHeading({level:Number(v)}).run());
-  const fonts=['Arial','Calibri','Cambria','Comic Sans MS','Courier New','Georgia','Helvetica','Tahoma','Times New Roman','Tinos','Oswald','Anton','Roboto','Open Sans','Arimo','Cousine','Impact','Trebuchet MS','Verdana','monospace','sans-serif','serif'];
+  const fonts=['Times New Roman','Impact','Arial','Calibri','Cambria','Comic Sans MS','Courier New','Georgia','Helvetica','Tahoma','Tinos','Oswald','Anton','Roboto','Open Sans','Arimo','Cousine','Trebuchet MS','Verdana','monospace','sans-serif','serif'];
   const fontControl=select('Font',fonts.map(v=>[v,v]),async v=>{await loadGoogleFont(v);editor.chain().focus().setFontFamily(v).run();});
   extendFontSelector(fontControl,cause=>error(cause.message));loadDocumentFonts(host,cause=>error(cause.message));editor.on('update',()=>loadDocumentFonts(host,cause=>error(cause.message)));
-  for(const option of fontControl.options)option.style.fontFamily=option.value;
+  // Keep the catalogue in the UI font; fetch document fonts only when used.
   const sizeControl=select('Size',[8,9,10,11,12,14,16,18,20,24,28,32,36,48,72].map(v=>[`${v}pt`,String(v)]),v=>editor.chain().focus().setFontSize(v).run());
   const setControl=(control,value)=>{
     // Preserve imported sizes and fonts rather than showing an unrelated default.
@@ -96,7 +96,7 @@ export function richEditor(){
   const indent=button('Increase indent',()=>editor.chain().focus().sinkListItem('listItem').run());
   const outdent=button('Decrease indent',()=>editor.chain().focus().liftListItem('listItem').run());
   const reflect=()=>{
-    const attrs=editor.getAttributes('textStyle');setControl(fontControl,attrs.fontFamily||'Arial');setControl(sizeControl,attrs.fontSize||'12pt');
+    const attrs=editor.getAttributes('textStyle');setControl(fontControl,attrs.fontFamily||'Times New Roman');setControl(sizeControl,attrs.fontSize||'12pt');
     styleControl.value=String(editor.isActive('heading')?editor.getAttributes('heading').level:0);
     spacingControl.value=String(editor.getAttributes(editor.isActive('heading')?'heading':'paragraph').lineHeight||'1.5');
     alignControl.value=editor.getAttributes(editor.isActive('heading')?'heading':'paragraph').textAlign||'left';

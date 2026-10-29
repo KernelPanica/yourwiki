@@ -18,9 +18,9 @@ from django.utils import timezone
 from django.views.decorators.http import require_http_methods, require_POST
 from .forms import DocumentForm, InviteForm, MemberForm, RegistrationForm
 from .middleware import deny
-from .models import Folder, Document, Invitation, LoginAttempt, User, Workspace
+from .models import Folder, Document, Invitation, LoginAttempt, User, Workspace, TrashEntry
 from .previews import preview, image_type
-from .acl import normalize_policy, normalize_rule, ResourcePermissionDenied
+from .acl import normalize_policy, normalize_rule, ResourceNotFound, ResourcePermissionDenied
 from .services import Conflict, EXTENSIONS, redeem_invitation, require, save_document, validate_policy, delete_document
 from .storage import StorageError, active_storage
 
@@ -83,10 +83,9 @@ def failure(request, message, status):
     return render(request, 'wiki/error.html', {'error_title': 'Unable to complete request', 'error_message': message}, status=status)
 
 
-def visible_docs(user):
-    from .access_graph import access_graph, attach_documents
-    _, folders, site = access_graph(user)
-    documents = attach_documents(list(Document.objects.select_related('owner', 'group')), folders, site, user)
+def visible_docs(user, request=None):
+    from .access_graph import access_documents
+    documents = access_documents(user,request)
     return [d for d in documents if d.allows(user, 'read')]
 
 
@@ -139,7 +138,7 @@ def sign_out(request):
 
 @guarded
 def library(request):
-    docs = visible_docs(request.user)
+    docs = visible_docs(request.user, request)
     from .folders import directory_path
     for doc in docs:
         doc.location = directory_path(doc.folder, request.user) or ('Shared file' if doc.folder_id else '/')
@@ -160,14 +159,15 @@ def library(request):
 def file_details(request, doc, preview_error='', *, inspect=True):
     from .collabora import eligible
     is_image = False
-    if inspect and doc.kind == 'file':
+    office_eligible=eligible(doc)
+    if inspect and doc.kind == 'file' and not office_eligible:
         try:
             is_image = bool(image_type(active_storage().read(doc.reference)))
         except StorageError as error:
             preview_error = str(error)
-    return render(request, 'wiki/file.html', {'doc':doc, 'office_eligible':eligible(doc),
+    return render(request, 'wiki/file.html', {'doc':doc, 'office_eligible':office_eligible,
         'is_image':is_image, 'preview_error':preview_error,
-        'can_write':doc.allows(request.user,'write'), 'can_policy':request.user.is_superuser})
+        'can_export':doc.can_export(request.user), 'can_write':doc.allows(request.user,'write'), 'can_policy':request.user.is_workspace_admin})
 
 
 @guarded
@@ -175,29 +175,31 @@ def detail(request, id):
     doc = document_for(request.user, id)
     if doc.kind == 'file' and doc.title.lower().endswith('.pdf'):
         try:
+            raw=active_storage().read(doc.reference)
+            fingerprint=active_storage().fingerprint(doc.reference,raw)
             with transaction.atomic():
-                doc=document_for(request.user,id)
-                raw=active_storage().read(doc.reference)
-                fingerprint=active_storage().fingerprint(doc.reference,raw)
-                if fingerprint!=doc.storage_digest:
-                    if doc.storage_digest:doc.revision+=1
-                    doc.storage_digest=fingerprint
-                    doc.save(update_fields=['storage_digest','revision'])
+                current=document_for(request.user,id)
+                if current.reference==doc.reference and current.storage_digest==doc.storage_digest and fingerprint!=current.storage_digest:
+                    if current.storage_digest:current.revision+=1
+                    current.storage_digest=fingerprint
+                    current.save(update_fields=['storage_digest','revision'])
+                doc=current
             from .pdf_layers import layer_state
-            return render(request, 'wiki/pdf.html', {'doc': doc, 'section':doc.title, 'can_write': doc.allows(request.user, 'write'),
+            return render(request, 'wiki/pdf.html', {'doc': doc, 'section':doc.title, 'can_export':doc.can_export(request.user),'can_write': doc.allows(request.user, 'write'),
                 'pdf_bootstrap': {'id': str(doc.pk), 'title': doc.title, 'revision': doc.revision,
-                    'layer_state': layer_state(doc, raw), 'write': doc.allows(request.user, 'write')}})
+                    'export':doc.can_export(request.user),'layer_state': layer_state(doc, raw), 'write': doc.allows(request.user, 'write')}})
         except StorageError as error:
             return file_details(request, doc, str(error), inspect=False)
     if doc.kind in ('file', 'presentation'):
         return file_details(request, doc)
     from .collaboration import current_content
-    content = current_content(doc)
+    content = current_content(doc,cached=True)
+    doc = document_for(request.user,id)
     try:
         rendered = {'drawio_source': content} if doc.kind == 'drawio' else preview(doc.kind, content)
     except Exception:
         rendered = {'preview_error': 'Preview unavailable. You can export the original file or edit its source.'}
-    return render(request, 'wiki/document.html', {'doc':doc, 'can_write':doc.allows(request.user,'write'), 'can_policy':request.user.is_superuser, **rendered})
+    return render(request, 'wiki/document.html', {'doc':doc, 'can_export':doc.can_export(request.user), 'can_write':doc.allows(request.user,'write'), 'can_policy':request.user.is_workspace_admin, **rendered})
 
 
 @guarded
@@ -380,6 +382,9 @@ def import_document(request):
 @guarded
 def export_document(request,id):
     doc=document_for(request.user,id)
+    preview_only = request.GET.get('inline') == '1' and doc.kind == 'file' and not request.GET.get('format')
+    if not doc.can_export(request.user) and not preview_only:
+        raise ResourcePermissionDenied('Export is disabled for this file.')
     from .collabora import eligible
     if doc.kind == 'presentation' or (eligible(doc) and request.GET.get('format') in (None, doc.file_format)):
         from .office_formats import extension, mime
@@ -397,6 +402,7 @@ def export_document(request,id):
             from .pdf_layers import saved_pdf
             content = saved_pdf(doc, earlier_annotations=request.GET.get('annotations') == '1')
         mime = 'application/pdf' if is_pdf else image_type(content)
+        if not doc.can_export(request.user) and not (is_pdf or mime):raise ResourcePermissionDenied('Export is disabled for this file.')
         response = HttpResponse(content, content_type=mime or 'application/octet-stream')
         response['Content-Disposition'] = content_disposition_header(not (mime and request.GET.get('inline') == '1'), doc.title)
         response['X-Content-Type-Options'] = 'nosniff'
@@ -473,15 +479,15 @@ def policy(request,id):
 
 @guarded
 def permissions(request):
-    if not request.user.is_superuser: raise PermissionDenied
-    return render(request,'wiki/permissions.html',{'docs':visible_docs(request.user),'section':'Permissions'})
+    if not request.user.is_workspace_admin: raise PermissionDenied
+    return render(request,'wiki/permissions.html',{'docs':visible_docs(request.user, request),'section':'Permissions'})
 
 
 @guarded
 @require_http_methods(['GET','POST'])
 def invitations(request):
     user=request.user
-    if not (user.is_superuser or user.can_invite): raise PermissionDenied
+    if not (user.is_workspace_admin or user.can_invite): raise PermissionDenied
     form=InviteForm(request.POST or None,user=user)
     link=None
     if request.method=='POST' and form.is_valid():
@@ -491,7 +497,8 @@ def invitations(request):
             invitation.groups.set(form.cleaned_data['groups'])
         link=settings.PUBLIC_URL+reverse('redeem',args=[token])
         form=InviteForm(user=user)
-    items=Invitation.objects.all() if user.is_superuser else Invitation.objects.filter(creator=user)
+    items=Invitation.objects.exclude(pk__in=TrashEntry.objects.filter(kind='invite').values_list('details__pk',flat=True))
+    if not user.is_workspace_admin:items=items.filter(creator=user)
     return render(request,'wiki/invitations.html',{'form':form,'items':items.order_by('-created_at'),'invite_link':link,'section':'Invitations'},status=400 if form.errors else 200)
 
 
@@ -499,8 +506,9 @@ def invitations(request):
 @require_POST
 def revoke(request,id):
     invitation=get_object_or_404(Invitation,pk=id)
-    if not (request.user.is_superuser or request.user.can_invite and invitation.creator_id==request.user.pk): raise PermissionDenied
-    invitation.revoked=True; invitation.save(update_fields=['revoked'])
+    if not (request.user.is_workspace_admin or request.user.can_invite and invitation.creator_id==request.user.pk): raise PermissionDenied
+    from .trash import trash_invitation
+    trash_invitation(request.user,invitation)
     return redirect('invitations')
 
 
@@ -510,8 +518,8 @@ def redeem(request,token):
     invitation=Invitation.objects.filter(token_hash=Invitation.digest(token)).first()
     if not invitation or not invitation.valid(): raise PermissionDenied
     creator=invitation.creator
-    if not creator.is_active or not (creator.is_superuser or creator.can_invite): raise PermissionDenied
-    if not creator.is_superuser and invitation.groups.exclude(pk__in=creator.invite_groups.values('pk')).exists(): raise PermissionDenied
+    if not creator.is_active or not (creator.is_workspace_admin or creator.can_invite): raise PermissionDenied
+    if not creator.is_workspace_admin and invitation.groups.exclude(pk__in=creator.invite_groups.values('pk')).exists(): raise PermissionDenied
     form=RegistrationForm(request.POST or None)
     if request.method=='POST' and form.is_valid():
         try:
@@ -529,39 +537,43 @@ def redeem(request,token):
 @guarded
 @require_http_methods(['GET'])
 def members(request):
-    if not request.user.is_superuser: raise PermissionDenied
-    return render(request,'wiki/members.html',{'members':User.objects.prefetch_related('groups').order_by('username'),'section':'Members'})
+    if not request.user.is_workspace_admin: raise PermissionDenied
+    return render(request,'wiki/members.html',{'members':User.objects.exclude(pk__in=TrashEntry.objects.filter(kind='user').values_list('details__pk',flat=True)).prefetch_related('groups').order_by('username'),'section':'Members'})
 
 
 @guarded
 @require_http_methods(['GET','POST'])
 def groups(request):
-    if not request.user.is_superuser: raise PermissionDenied
+    if not request.user.is_workspace_admin: raise PermissionDenied
+    from .trash import active_groups
     if request.method == 'POST':
         action=request.POST.get('action')
-        group=Group.objects.filter(pk=request.POST.get('group')).first()
+        group=active_groups().filter(pk=request.POST.get('group')).first()
         if action == 'rename' and group:
             name=request.POST.get('name','').strip()
             if not name or len(name)>150: raise ValidationError('Provide a group name of at most 150 characters.')
             group.name=name;group.save(update_fields=['name'])
         elif action == 'delete' and group:
-            if User.objects.filter(groups=group).exists() or Document.all_objects.filter(group=group).exists() or Folder.all_objects.filter(group=group).exists(): raise ValidationError('Remove members and document assignments before deleting this group.')
-            group.delete()
+            from .trash import trash_group
+            trash_group(request.user,group)
         elif action == 'create':
             name=request.POST.get('name','').strip()
             if not name or len(name)>150: raise ValidationError('Provide a group name of at most 150 characters.')
-            Group.objects.get_or_create(name=name)
+            group,created=Group.objects.get_or_create(name=name)
+            if not created and not active_groups().filter(pk=group.pk).exists():
+                raise ValidationError('Restore this group from trash before using its name.')
         else: raise ValidationError('Invalid group action.')
         return redirect('groups')
-    return render(request,'wiki/groups.html',{'groups':Group.objects.prefetch_related('user_set', 'folder_set').order_by('name'),'section':'Groups'})
+    return render(request,'wiki/groups.html',{'groups':active_groups().prefetch_related('user_set', 'folder_set').order_by('name'),'section':'Groups'})
 
 
 @guarded
 @require_http_methods(['GET','POST'])
 def group_detail(request, id):
-    if not request.user.is_superuser: raise PermissionDenied
+    if not request.user.is_workspace_admin: raise PermissionDenied
     from .forms import GroupMembershipForm
-    group = get_object_or_404(Group, pk=id)
+    from .trash import active_groups
+    group = get_object_or_404(active_groups(), pk=id)
     form = GroupMembershipForm(request.POST or None, group=group,
         initial={'name':group.name, 'members':group.user_set.all()})
     if request.method == 'POST' and form.is_valid():
@@ -577,15 +589,30 @@ def group_detail(request, id):
 @guarded
 @require_http_methods(['GET','POST'])
 def member(request,id):
-    if not request.user.is_superuser: raise PermissionDenied
+    if not request.user.is_workspace_admin: raise PermissionDenied
     person=get_object_or_404(User,pk=id)
-    form=MemberForm(request.POST or None,initial={'display_name':person.label,'is_active':person.is_active,'can_invite':person.can_invite,'groups':person.groups.all(),'invite_groups':person.invite_groups.all()})
+    if TrashEntry.objects.filter(kind='user',details__pk=person.pk).exists():
+        raise ResourceNotFound
+    if not request.user.is_superuser and (person.is_superuser or person.is_simple_admin):
+        raise ResourcePermissionDenied
+    if request.method == 'POST' and request.POST.get('action') == 'delete':
+        from .trash import trash_user
+        trash_user(request.user,person)
+        return redirect('trash')
+    form=MemberForm(request.POST or None,initial={'display_name':person.label,'is_active':person.is_active,'can_invite':person.can_invite,'admin_role':'giga' if person.is_superuser else 'simple' if person.is_simple_admin else 'member','groups':person.groups.all(),'invite_groups':person.invite_groups.all()})
+    if not request.user.is_superuser:
+        form.fields.pop('admin_role',None)
     if request.method=='POST' and form.is_valid():
         if person.is_superuser and not form.cleaned_data['is_active']:
             form.add_error('is_active','Administrator accounts cannot be disabled here.')
         else:
             with transaction.atomic():
                 for key in ('display_name','is_active','can_invite'): setattr(person,key,form.cleaned_data[key])
+                if request.user.is_superuser and 'admin_role' in request.POST:
+                    role=form.cleaned_data['admin_role']
+                    if person.is_superuser and role!='giga' and not User.objects.exclude(pk=person.pk).filter(is_superuser=True,is_active=True).exists():
+                        raise ValidationError('Keep at least one active Gigaadmin.')
+                    person.is_superuser=role=='giga';person.is_simple_admin=role=='simple'
                 person.save()
                 person.invite_groups.set(form.cleaned_data['invite_groups'])
             return redirect('members')
@@ -598,13 +625,13 @@ def account(request):
 
 def serialized(doc,user):
     folder = doc.folder if doc.folder_id and doc.folder.allows(user, 'read') else None
-    return {'id':str(doc.pk),'title':doc.title,'kind':doc.kind,'owner':doc.owner.username,'group':doc.group.name,'policy':normalize_policy(doc.policy),'group_policies':{key:normalize_rule(rule) for key,rule in doc.group_policies.items()},'user_policies':doc.user_policies,'effective_policy':doc.effective_policy()[0],'inherit_permissions':doc.inherit_permissions,'folder':str(folder.pk) if folder else None,'file_format':doc.file_format,'format_version':doc.format_version,'revision':doc.revision,'starred':doc.starred,'updated_at':doc.updated_at.isoformat(),'access':{k:doc.allows(user,k) for k in ('read','write')}}
+    return {'id':str(doc.pk),'title':doc.title,'kind':doc.kind,'owner':doc.owner.username,'group':doc.group.name,'policy':normalize_policy(doc.policy),'group_policies':{key:normalize_rule(rule) for key,rule in doc.group_policies.items()},'user_policies':doc.user_policies,'effective_policy':doc.effective_policy()[0],'inherit_permissions':doc.inherit_permissions,'folder':str(folder.pk) if folder else None,'file_format':doc.file_format,'format_version':doc.format_version,'revision':doc.revision,'starred':doc.starred,'updated_at':doc.updated_at.isoformat(),'export_disabled':doc.export_restricted(),'can_export':doc.can_export(user),'access':{k:doc.allows(user,k) for k in ('read','write')}}
 
 
 @guarded
 @require_http_methods(['GET','POST'])
 def api_documents(request):
-    if request.method=='GET': return JsonResponse([serialized(d,request.user) for d in visible_docs(request.user)],safe=False)
+    if request.method=='GET': return JsonResponse([serialized(d,request.user) for d in visible_docs(request.user, request)],safe=False)
     data=json.loads(request.body)
     if not isinstance(data,dict): raise ValidationError('Use a JSON object.')
     from .folders import target_folder, resolve_path
@@ -627,7 +654,7 @@ def api_document(request,id):
     if request.method=='GET':
         from .collaboration import current_content
         if doc.kind == 'file':
-            return JsonResponse({**serialized(doc,request.user), 'download_url':reverse('export', args=[doc.pk])})
+            return JsonResponse({**serialized(doc,request.user), 'download_url':reverse('export', args=[doc.pk]) if doc.can_export(request.user) else None})
         return JsonResponse({**serialized(doc,request.user),'content':current_content(doc)})
     if request.method=='DELETE':
         complete = delete_document(request.user, doc)
@@ -724,6 +751,7 @@ def file_settings(request, id):
 @require_http_methods(['GET'])
 def file_history(request, id):
     doc = document_for(request.user, id)
+    if not doc.can_export(request.user):raise ResourcePermissionDenied
     if not doc.history_reference:
         raise ValidationError('This file has no saved history.')
     from django.utils.http import content_disposition_header

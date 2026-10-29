@@ -4,7 +4,7 @@
 .docs-page #editor-toolbar .document-tool-group{max-width:100%;box-sizing:border-box}
 .docs-page #editor-toolbar select{max-width:160px}
 .docs-page #editor-toolbar button:disabled,.docs-page .docs-menu-items button:disabled{opacity:.45;cursor:default}
-.docs-page .document-host .tiptap{font-size:12pt}
+.docs-page .document-host .tiptap{font-size:12pt;font-family:"Times New Roman",Tinos,serif}
 .docs-page .tiptap h4,.docs-page .tiptap h5,.docs-page .tiptap h6{font-family:Arial,sans-serif;color:#202124;margin:1em 0 .5em;font-weight:600}
 .docs-page .tiptap h4{font-size:1.2em}.docs-page .tiptap h5{font-size:1.1em}.docs-page .tiptap h6{font-size:1em}
 .docs-page .tiptap blockquote{border-left:3px solid #dadce0;padding-left:16px;margin-left:0;color:#444746}

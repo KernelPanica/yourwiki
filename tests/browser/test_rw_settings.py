@@ -40,8 +40,9 @@ def test_simple_creation_and_rw_settings(realtime_server,workspace):
             with page.expect_navigation(), page.expect_response(lambda response: response.request.method == 'POST') as saved:
                 page.get_by_role('button',name='Save permissions',exact=True).click()
             assert saved.value.url == realtime_server + url
-            assert saved.value.status == 302
-            page.wait_for_url(realtime_server + url)
+            assert saved.value.status == 200
+            assert saved.value.json()['url'] == url+'#access'
+            page.wait_for_url(realtime_server + url+'#access')
             api_url = f'/api/docs/{doc_id}' if '/documents/' in url else f'/api/folders/{folder.pk}'
             assert page.request.get(realtime_server + api_url).json()['inherit_permissions'] is False
             expect(write).to_be_checked();expect(read).to_be_checked()

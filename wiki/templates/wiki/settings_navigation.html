@@ -1,13 +1,13 @@
 {% load i18n %}{% with page=request.resolver_match.url_name %}
-{% if user.is_superuser %}{% if page == 'settings' or page == 'members' or page == 'member' or page == 'groups' or page == 'group' or page == 'invitations' or page == 'permissions' or page == 'mountpoints' or page == 'storage' or page == 'ai-settings' or page == 'provider-accounts' %}
+{% if user.is_workspace_admin %}{% if page == 'settings' or page == 'members' or page == 'member' or page == 'groups' or page == 'group' or page == 'invitations' or page == 'permissions' or page == 'mountpoints' or page == 'storage' or page == 'ai-settings' or page == 'provider-accounts' %}
 <nav class="settings-navigation" aria-label="{% translate 'Administration' %}">
 <a href="{% url 'settings' %}" {% if page == 'settings' %}aria-current="page"{% endif %}>{% translate 'General' %}</a>
 <a href="{% url 'members' %}" {% if page == 'members' or page == 'member' %}aria-current="page"{% endif %}>{% translate 'Members' %}</a>
 <a href="{% url 'groups' %}" {% if page == 'groups' or page == 'group' %}aria-current="page"{% endif %}>{% translate 'Groups' %}</a>
 <a href="{% url 'invitations' %}" {% if page == 'invitations' %}aria-current="page"{% endif %}>{% translate 'Invitations' %}</a>
-<a href="{% url 'mountpoints' %}" {% if page == 'mountpoints' or page == 'storage' %}aria-current="page"{% endif %}>{% translate 'Mountpoints' %}</a>
+{% if user.is_superuser %}<a href="{% url 'mountpoints' %}" {% if page == 'mountpoints' or page == 'storage' %}aria-current="page"{% endif %}>{% translate 'Mountpoints' %}</a>{% endif %}
 <a href="{% url 'permissions' %}" {% if page == 'permissions' %}aria-current="page"{% endif %}>{% translate 'Permissions' %}</a>
-<a href="{% url 'ai-settings' %}" {% if page == 'ai-settings' %}aria-current="page"{% endif %}>{% translate 'AI settings' %}</a>
-<a href="{% url 'provider-accounts' %}" {% if page == 'provider-accounts' %}aria-current="page"{% endif %}>{% translate 'Provider accounts' %}</a>
+{% if user.is_superuser %}<a href="{% url 'ai-settings' %}" {% if page == 'ai-settings' %}aria-current="page"{% endif %}>{% translate 'AI settings' %}</a>{% endif %}
+{% if user.is_superuser %}<a href="{% url 'provider-accounts' %}" {% if page == 'provider-accounts' %}aria-current="page"{% endif %}>{% translate 'Provider accounts' %}</a>{% endif %}
 </nav>
 {% endif %}{% endif %}{% endwith %}
