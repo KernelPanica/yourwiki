@@ -173,3 +173,34 @@ test('document catalog paginates published files, hides drafts and reflects capa
   db.prepare('UPDATE resources SET inherit_permissions=0,user_policies=? WHERE id=?').run(JSON.stringify({ reader: { read:false,write:false } }),created.documentId);
   assert.deepEqual((await app.inject({ url: '/api/documents', headers: headers('reader') })).json().items, []);
 });
+
+test('preview ranges support partial reads without export and recheck access on every request', async t => {
+  const { app, db, service, store, headers, created } = await setup(t);
+  const artifact = await store.put(bytes('%PDF-1.7\nfixture'), { maxBytes: 100 });
+  await service.publish(new JobQueue(db).claim(Date.now())!, {
+    schemaVersion: 1, documentId: created.documentId, revision: 1, sourceDigest: created.blob.digest,
+    converterVersion: 'preview-v1', kind: 'pdf', primary: 'content',
+    artifacts: [{ ...artifact, name: 'content', mimeType: 'application/pdf' }],
+  });
+  db.prepare('UPDATE resources SET export_disabled=1 WHERE id=?').run(created.documentId);
+  const published = service.getPublished('reader', created.documentId)!;
+  const url = `/api/documents/${created.documentId}/previews/${published.manifestDigest}/assets/content`;
+  const read = (range: string) => app.inject({ url, headers: { ...headers('reader'), range } });
+  const partial = await read('bytes=0-7');
+  assert.equal(partial.statusCode, 206);
+  assert.equal(partial.body, '%PDF-1.7');
+  assert.equal(partial.headers['content-range'], 'bytes 0-7/16');
+  assert.equal(partial.headers['content-length'], '8');
+  assert.equal(partial.headers['accept-ranges'], 'bytes');
+  assert.equal(partial.headers['cache-control'], 'no-store');
+  assert.equal((await read('bytes=-7')).body, 'fixture');
+  assert.equal((await read('bytes=9-')).body, 'fixture');
+  for (const range of ['bytes=99-', 'bytes=8-2', 'bytes=0-1,3-4', 'bytes=-0']) {
+    const rejected = await read(range);
+    assert.equal(rejected.statusCode, 416);
+    assert.equal(rejected.headers['content-range'], 'bytes */16');
+  }
+  db.prepare('UPDATE resources SET inherit_permissions=0,user_policies=? WHERE id=?').run(JSON.stringify({ reader: { read: false } }), created.documentId);
+  assert.equal((await read('bytes=0-7')).statusCode, 404);
+  assert.equal((await app.inject({ url, headers: { range: 'bytes=0-7' } })).statusCode, 401);
+});

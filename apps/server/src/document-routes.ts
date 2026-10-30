@@ -115,8 +115,12 @@ export function registerDocuments(app: FastifyInstance, db: Database, store: Blo
     if (!asset) return notFound(request, reply);
     reply.header('content-security-policy', previewCsp);
     reply.header('cross-origin-resource-policy', 'same-origin');
-    reply.type(asset.mimeType).header('content-length', asset.size);
-    return reply.send(await store.read(asset.digest));
+    const range = byteRange(request.headers.range, asset.size);
+    reply.header('accept-ranges', 'bytes');
+    if (range === null) return reply.code(416).header('content-range', `bytes */${asset.size}`).send(errorEnvelope('INVALID_RANGE', request.id));
+    reply.type(asset.mimeType).header('content-length', range ? range.end - range.start + 1 : asset.size);
+    if (range) reply.code(206).header('content-range', `bytes ${range.start}-${range.end}/${asset.size}`);
+    return reply.send(await store.read(asset.digest, range));
   });
   app.get<{ Params: { id: string } }>('/api/documents/:id/content', { schema: { params: idSchema } }, async (request, reply) => {
     const actor = identity(request, reply); if (!actor) return;
