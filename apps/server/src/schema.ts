@@ -122,5 +122,15 @@ CREATE TABLE upload_chunks (
   PRIMARY KEY(upload_id,offset)
 );
 `;
-export const migrations = [core + epochTriggers, authInvalidation, authSettings, jobs, documents, workerSlots, uploads] as const;
+const pdfLayers = `
+CREATE TABLE pdf_layer_versions (
+  document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE RESTRICT,
+  revision INTEGER NOT NULL CHECK(revision>0), base_revision INTEGER NOT NULL,
+  digest TEXT NOT NULL, size INTEGER NOT NULL CHECK(size>=0),
+  author_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT, created_at INTEGER NOT NULL,
+  PRIMARY KEY(document_id,revision),
+  FOREIGN KEY(document_id,base_revision) REFERENCES document_versions(document_id,revision) ON DELETE RESTRICT
+);
+`;
+export const migrations = [core + epochTriggers, authInvalidation, authSettings, jobs, documents, workerSlots, uploads, pdfLayers] as const;
 export const applicationId = 0x5957494b; // YWIK; legacy Django uses no marker.
