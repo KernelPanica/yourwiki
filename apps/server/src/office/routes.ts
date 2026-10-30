@@ -1,0 +1,85 @@
+import type {FastifyInstance,FastifyRequest,FastifyReply} from 'fastify';
+import {transaction} from '../database.ts';
+import type {Database} from '../database.ts';
+import type {BlobStore,BlobRef} from '../storage/blobs.ts';
+import {OfficeSessions,OfficeError} from './sessions.ts';
+import {OfficeDiscovery,officeUrl} from './discovery.ts';
+import {DocumentService} from '../documents.ts';
+import {AccessService} from '../access.ts';
+import {authenticateSession,validCsrf} from '../auth/sessions.ts';
+import {sessionCookie} from '../auth/routes.ts';
+import {errorEnvelope} from '../errors.ts';
+import {byteRange} from '../http/byte-range.ts';
+export type OfficeOptions={publicUrl:string;internalUrl?:string;wopiUrl?:string;fetch?:typeof fetch};
+export function registerOffice(app:FastifyInstance,db:Database,store:BlobStore,publicUrl:string,options:OfficeOptions){
+ const office=new OfficeSessions(db),docs=new DocumentService(db,store),access=new AccessService(db),discovery=new OfficeDiscovery(options);
+ const origin=new URL(publicUrl).origin,wopiBase=officeUrl(options.wopiUrl??publicUrl).href.replace(/\/$/,'');
+ // Editing is enabled only after bounded PutFile/recovery is installed; never advertise a non-saving editor.
+ const editingReady=false;
+ const params={type:'object',required:['id'],properties:{id:{type:'string',minLength:1,maxLength:128}}};
+ function browser(request:FastifyRequest,mutation=false){
+  const actor=authenticateSession(db,sessionCookie(request));if(!actor)throw new OfficeError('SESSION_REQUIRED');
+  if(mutation&&(request.headers.origin!==origin||typeof request.headers['x-csrf-token']!=='string'||!validCsrf(actor,request.headers['x-csrf-token'])))throw new OfficeError('CSRF_REJECTED');return actor;
+ }
+ function fail(error:unknown,request:FastifyRequest,reply:FastifyReply){
+  if(!(error instanceof OfficeError))throw error;
+  const status:Record<string,number>={SESSION_REQUIRED:401,INVALID_OFFICE_TOKEN:401,OFFICE_EXPIRED:401,ACCESS_DENIED:403,CSRF_REJECTED:403,NOT_FOUND:404,CONFLICT:409,INVALID_OFFICE_LOCK:400,INVALID_OFFICE_DISCOVERY:503,OFFICE_UNAVAILABLE:503,OFFICE_NOT_READY:503,OFFICE_LIMIT:429,UNSUPPORTED_OFFICE_FORMAT:422,UNSUPPORTED_OFFICE_OPERATION:501};
+  const envelope=errorEnvelope(error.code,request.id);if(['CONFLICT','OFFICE_EXPIRED'].includes(error.code))envelope.recoveryActions=['copy_changes','download_changes','reload'];
+  if(error.code==='CONFLICT'&&request.url.startsWith('/wopi/'))reply.header('x-wopi-lock','');
+  return reply.code(status[error.code]??500).send(envelope);
+ }
+ async function handle(request:FastifyRequest,reply:FastifyReply,operation:()=>unknown|Promise<unknown>){try{return await operation();}catch(error){return fail(error,request,reply);}}
+ app.post<{Params:{id:string};Body:{readonly?:boolean;language?:string}}>('/api/documents/:id/office',{schema:{params,body:{type:'object',additionalProperties:false,properties:{readonly:{type:'boolean',default:false},language:{type:'string',enum:['ru','en','es'],default:'en'}}}}},(request,reply)=>handle(request,reply,async()=>{
+  let actor=browser(request,true);const document=docs.getPublished(actor.userId,request.params.id);if(!document)throw new OfficeError('NOT_FOUND');
+  const writable=request.body.readonly!==true&&access.allows(actor.userId,document.id,'write');
+  if(writable&&!editingReady)throw new OfficeError('OFFICE_NOT_READY');
+  const action=await discovery.action(document.format,writable);actor=browser(request,true);
+  const current=docs.getPublished(actor.userId,document.id);if(!current)throw new OfficeError('NOT_FOUND');if(current.format!==document.format)throw new OfficeError('CONFLICT');
+  const opened=office.open(sessionCookie(request),document.id,writable),url=new URL(action);
+  url.searchParams.set('WOPISrc',`${wopiBase}/wopi/files/${opened.sessionId}`);url.searchParams.set('lang',request.body.language??'en');
+  return {sessionId:opened.sessionId,accessToken:opened.token,expiresAt:opened.expiresAt,write:opened.write,export:access.allows(actor.userId,document.id,'export'),actionUrl:url.href};
+ }));
+ app.post<{Params:{id:string}}>('/api/office/:id/status',{schema:{params}},(request,reply)=>handle(request,reply,()=>{browser(request,true);return office.status(sessionCookie(request),request.params.id);}));
+ app.post<{Params:{id:string};Body:{accessToken:string}}>('/api/office/:id/release',{schema:{params,body:{type:'object',required:['accessToken'],additionalProperties:false,properties:{accessToken:{type:'string',pattern:'^[A-Za-z0-9_-]{43}$'}}}}},(request,reply)=>handle(request,reply,()=>{browser(request,true);office.release(sessionCookie(request),request.params.id,request.body.accessToken);return reply.code(204).send();}));
+ function authorize(request:FastifyRequest){const id=(request.params as {id:string}).id,token=(request.query as Record<string,unknown>).access_token;return office.authorize(id,typeof token==='string'?token:'');}
+ function original(actor:ReturnType<OfficeSessions['authorize']>){
+  if(actor.session.superseded)throw new OfficeError('CONFLICT');
+  const row=db.prepare('SELECT d.title,d.format,r.owner_id,v.size,v.digest,v.created_at FROM documents d JOIN resources r ON r.id=d.id JOIN document_versions v ON v.document_id=d.id AND v.revision=? WHERE d.id=?').get(actor.session.base_revision,actor.session.document_id) as {title:string;format:string;owner_id:string;size:number;digest:string;created_at:number}|undefined;
+  if(!row||row.digest!==actor.session.base_digest)throw new OfficeError('CONFLICT');return row;
+ }
+ async function sendBytes(request:FastifyRequest,reply:FastifyReply,blob:BlobRef,recheck:()=>void){
+  const range=byteRange(request.headers.range,blob.size);reply.header('accept-ranges','bytes').header('content-security-policy',"sandbox; default-src 'none'");
+  if(range===null)return reply.code(416).header('content-range',`bytes */${blob.size}`).send(errorEnvelope('INVALID_RANGE',request.id));
+  const stream=await store.read(blob.digest,range??undefined);try{recheck();}catch(error){stream.destroy();throw error;}
+  reply.type('application/octet-stream').header('content-length',range?range.end-range.start+1:blob.size);
+  if(range)reply.code(206).header('content-range',`bytes ${range.start}-${range.end}/${blob.size}`);
+  return reply.send(stream);
+ }
+ app.get<{Params:{id:string}}>('/wopi/files/:id',{schema:{params}},(request,reply)=>handle(request,reply,()=>{
+  const actor=authorize(request),row=original(actor),user=db.prepare('SELECT display_name FROM users WHERE id=?').get(actor.userId) as {display_name:string};const write=editingReady&&actor.write;
+  return {BaseFileName:row.title.toLowerCase().endsWith('.'+row.format)?row.title:row.title+'.'+row.format,OwnerId:row.owner_id,Size:row.size,Version:`${actor.session.base_revision}:${row.digest}`,LastModifiedTime:new Date(row.created_at).toISOString(),UserId:actor.userId,UserFriendlyName:user.display_name,
+   UserCanWrite:write,ReadOnly:!write,SupportsUpdate:editingReady,SupportsLocks:true,SupportsGetLock:true,SupportsExtendedLockLength:true,UserCanNotWriteRelative:true,SupportsRename:false,PostMessageOrigin:origin,
+   DisableExport:!actor.export,HideExportOption:!actor.export,DisablePrint:!actor.export,HidePrintOption:!actor.export,DisableCopy:!actor.export};
+ }));
+ app.get<{Params:{id:string}}>('/wopi/files/:id/contents',{schema:{params}},(request,reply)=>handle(request,reply,async()=>{
+  const actor=authorize(request),row=original(actor);return sendBytes(request,reply,row,()=>{const current=authorize(request);if(current.session.base_digest!==row.digest||current.session.base_revision!==actor.session.base_revision)throw new OfficeError('CONFLICT');original(current);});
+ }));
+ app.register(async wopi=>{
+  wopi.addContentTypeParser('application/octet-stream',(_request,payload,done)=>done(null,payload));
+  wopi.addHook('onRequest',async(request,reply)=>{try{authorize(request);}catch(error){return fail(error,request,reply);}});
+ wopi.post<{Params:{id:string}}>('/wopi/files/:id',{schema:{params}},(request,reply)=>handle(request,reply,()=>{
+  if(request.headers['transfer-encoding']||Number(request.headers['content-length']??0)>0){reply.header('connection','close');throw new OfficeError('INVALID_OFFICE_LOCK');}
+  const token=(request.query as Record<string,unknown>).access_token;const result=office.lock(request.params.id,typeof token==='string'?token:'',String(request.headers['x-wopi-override']??''),String(request.headers['x-wopi-lock']??''),typeof request.headers['x-wopi-oldlock']==='string'?request.headers['x-wopi-oldlock']:undefined);
+  if(result.lock!==undefined)reply.header('x-wopi-lock',result.lock);return reply.code(result.status).send();
+ }));
+ });
+ app.get<{Params:{id:string}}>('/api/office/:id/recovery',{schema:{params}},(request,reply)=>handle(request,reply,async()=>{
+  const initial=transaction(db,()=>{
+   const actor=browser(request),status=office.status(sessionCookie(request),request.params.id);if(!status.recovery)throw new OfficeError('ACCESS_DENIED');
+   const blob=db.prepare('SELECT p.digest,p.size,p.author_id,s.document_id,d.format FROM office_sessions s JOIN documents d ON d.id=s.document_id JOIN save_operations p ON p.id=s.pending_operation_id AND p.office_session_id=s.id AND p.document_id=s.document_id WHERE s.id=?').get(request.params.id) as (BlobRef&{author_id:string;document_id:string;format:string})|undefined;
+   if(!blob)throw new OfficeError('NOT_FOUND');return {blob,userId:actor.userId};
+  });
+  const blob=initial.blob,check=()=>{const actor=browser(request);if(actor.userId!==initial.userId||(!access.allows(actor.userId,blob.document_id,'read'))||!access.allows(actor.userId,blob.document_id,'export')||(blob.author_id!==actor.userId&&actor.adminRole!=='giga'))throw new OfficeError('ACCESS_DENIED');};
+  reply.header('content-disposition',`attachment; filename="office-recovery.${/^[a-z0-9]{1,8}$/.test(blob.format)?blob.format:'bin'}"`);return sendBytes(request,reply,blob,check);
+ }));
+}

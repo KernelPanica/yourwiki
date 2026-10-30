@@ -1,3 +1,4 @@
+import {registerOffice,type OfficeOptions} from './office/routes.ts';
 import { randomUUID } from 'node:crypto';
 import Fastify from 'fastify';
 import { errorEnvelope } from './errors.ts';
@@ -10,6 +11,7 @@ import type { BlobStore } from './storage/blobs.ts';
 import { registerAuth } from './auth/routes.ts';
 
 export interface AppOptions {
+  office?: OfficeOptions;
   database?: Database;
   publicUrl?: string;
   webRoot?: string;
@@ -57,6 +59,7 @@ export function buildApp(options: AppOptions = {}) {
   if (options.database) registerChanges(app, options.database, options.publicUrl ?? 'http://localhost:3100', options.changesPollMs);
   if (options.database && options.storage) registerDocuments(app, options.database, options.storage, options.publicUrl ?? 'http://localhost:3100', options.maxFileBytes);
   if (options.database && options.storage) registerUploads(app, options.database, options.storage, options.publicUrl ?? 'http://localhost:3100', { maxFileBytes: options.maxFileBytes, maxPendingBytes: options.maxPendingUploadBytes, chunkBytes: options.uploadChunkBytes });
+  if(options.database&&options.storage&&options.office)registerOffice(app,options.database,options.storage,options.publicUrl??'http://localhost:3100',options.office);
   if (options.webRoot) registerWeb(app, options.webRoot);
   app.get('/health/', async () => ({ status: 'ok', service: 'yourwiki' }));
   app.get('/ready/', async (request, reply) => {

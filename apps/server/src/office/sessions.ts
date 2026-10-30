@@ -32,6 +32,7 @@ export class OfficeSessions {
    if(!row||row.superseded){
     const id=randomUUID();this.db.prepare('INSERT INTO office_sessions(id,document_id,base_revision,base_digest,expires_at,created_at) VALUES(?,?,?,?,?,?)').run(id,documentId,original.local_revision,original.digest,now+lease,now);row=this.row(id)!;
    }
+   this.db.prepare('DELETE FROM office_tokens WHERE expires_at<=? OR NOT EXISTS(SELECT 1 FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=office_tokens.browser_session_hash AND s.user_id=office_tokens.user_id AND s.expires_at>? AND s.auth_version=u.auth_version AND u.active=1)').run(now,now);
    const tokens=this.db.prepare('SELECT COUNT(*) AS total,COALESCE(SUM(CASE WHEN browser_session_hash=? THEN 1 ELSE 0 END),0) AS own FROM office_tokens WHERE expires_at>?').get(actor.tokenHash,now) as {total:number;own:number};
    if(tokens.total>=4096||tokens.own>=64)throw new OfficeError('OFFICE_LIMIT');
    const token=randomBytes(32).toString('base64url'),expiresAt=Math.min(now+tokenLifetime,actor.expiresAt),write=writable===true&&this.access.allows(actor.userId,documentId,'write');
@@ -64,6 +65,16 @@ export class OfficeSessions {
    return {sessionId:row.id,documentId:row.document_id,expired,changed:row.superseded===1,errorCode:row.error_code,
     write:!expired&&!row.superseded&&this.access.allows(actor.userId,row.document_id,'write'),export:canExport,
     recovery:canExport&&!!pending&&(pending.author_id===actor.userId||actor.adminRole==='giga')};
+  });
+ }
+ release(browserToken:string,sessionId:string,token:string){
+  return transaction(this.db,()=>{
+   const now=this.clock(),actor=authenticateSession(this.db,browserToken,now);if(!actor)throw new OfficeError('SESSION_REQUIRED');
+   if(typeof token!=='string'||!(/^[A-Za-z0-9_-]{43}$/).test(token))throw new OfficeError('INVALID_OFFICE_TOKEN');
+   const removed=this.db.prepare('DELETE FROM office_tokens WHERE token_hash=? AND office_session_id=? AND browser_session_hash=? AND user_id=?').run(tokenHash(token),sessionId,actor.tokenHash,actor.userId);
+   if(!removed.changes)throw new OfficeError('NOT_FOUND');
+   const remaining=this.db.prepare('SELECT 1 FROM office_tokens t JOIN sessions s ON s.token_hash=t.browser_session_hash JOIN users u ON u.id=t.user_id WHERE t.office_session_id=? AND t.expires_at>? AND s.expires_at>? AND s.user_id=t.user_id AND u.auth_version=s.auth_version AND u.active=1 LIMIT 1').get(sessionId,now,now);
+   if(!remaining)this.db.prepare("UPDATE office_sessions SET expires_at=?,lock_value='',lock_expires_at=0 WHERE id=? AND pending_operation_id IS NULL").run(now,sessionId);
   });
  }
  lock(sessionId:string,token:string,operation:string,value='',old?:string):{status:number;lock?:string}{
