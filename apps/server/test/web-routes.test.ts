@@ -30,3 +30,6 @@ test('PDF worker resources use immutable version paths and never arbitrary files
  assert.match(result.headers['cache-control'] as string,/immutable/);
  assert.equal((await app.inject({url:'/assets/pdf-a1b2c3d4e5f60123/cmaps/unknown.bcmap'})).statusCode,404);
 });
+test('configured office origin is scoped to frames and form submission without expanding script permissions',async t=>{
+ const root=await mkdtemp(join(tmpdir(),'yourwiki-office-shell-'));await writeFile(join(root,'index.html'),'<html>Office</html>');await writeFile(join(root,'manifest.json'),JSON.stringify({assets:{}}));const app=buildApp({webRoot:root,office:{publicUrl:'https://office.example.test/collabora'}});t.after(async()=>{await app.close();await rm(root,{recursive:true,force:true});});const page=await app.inject({url:'/'}),csp=page.headers['content-security-policy'] as string;assert.match(csp,/frame-src 'self' https:\/\/office.example.test;/);assert.match(csp,/form-action 'self' https:\/\/office.example.test;/);assert.match(csp,/script-src 'self';/);assert.doesNotMatch(csp,/unsafe-eval|wasm-unsafe-eval|\*/);
+});

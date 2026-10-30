@@ -226,3 +226,6 @@ test('legacy ExtendedData headers can confirm an unchanged local save without an
  const f=await fixture(t),w=await writer(f),url=`/api/office/${w.opened.sessionId}/save-intents`,intent=(await f.app.inject({method:'POST',url,headers:f.headers(),payload:{accessToken:w.opened.token}})).json();
  const saved=await f.app.inject({method:'POST',url:w.url,headers:{...w.headers,'x-lool-wopi-extendeddata':intent.tag},payload:'office original'});assert.equal(saved.statusCode,200);const proof=(await f.app.inject({url:url+'/'+intent.tag,headers:f.headers()})).json();assert.equal(proof.state,'saved');assert.equal(proof.revision,1);
 });
+test('published metadata advertises the configured office integration without enabling unaccepted writes',async t=>{
+ const f=await fixture(t),url=`/api/documents/${f.doc.documentId}`;const view=(await f.app.inject({url:url+'/view',headers:f.headers()})).json();assert.equal(view.document.capabilities.office,true);assert.equal((await f.app.inject({method:'POST',url:url+'/office',headers:f.headers(),payload:{language:'ru'}})).json().code,'OFFICE_NOT_READY');
+});

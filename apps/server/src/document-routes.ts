@@ -1,3 +1,4 @@
+import {officeFormats} from './office/formats.ts';
 import {byteRange} from './http/byte-range.ts';
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import type { Readable } from 'node:stream';
@@ -16,7 +17,7 @@ const previewCsp = "sandbox allow-same-origin; default-src 'none'; script-src 'n
 const idSchema = { type: 'object', required: ['id'], properties: { id: { type: 'string', minLength: 1, maxLength: 128 } } };
 
 
-export function registerDocuments(app: FastifyInstance, db: Database, store: BlobStore, publicUrl: string, maxBytes = 4 * 1024 ** 3): void {
+export function registerDocuments(app: FastifyInstance, db: Database, store: BlobStore, publicUrl: string, maxBytes = 4 * 1024 ** 3, officeConfigured = false): void {
   if (!Number.isSafeInteger(maxBytes) || maxBytes < 1) throw new Error('Invalid file size limit');
   const service = new DocumentService(db, store, { maxBytes });
   const access = new AccessService(db);
@@ -44,7 +45,7 @@ export function registerDocuments(app: FastifyInstance, db: Database, store: Blo
 
   function visible(userId: string, id: string) {
     const document = service.getPublished(userId, id);
-    return document ? { ...document, capabilities: { write: access.allows(userId, id, 'write'), export: access.allows(userId, id, 'export') } } : null;
+    return document ? { ...document, capabilities: { office: officeConfigured && officeFormats.has(document.format), write: access.allows(userId, id, 'write'), export: access.allows(userId, id, 'export') } } : null;
   }
   app.get<{ Querystring: { after?: string; limit?: number } }>('/api/documents', { schema: { querystring: {
     type: 'object', additionalProperties: false, properties: { after: { type: 'string', maxLength: 128 }, limit: { type: 'integer', minimum: 1, maximum: 200, default: 50 } },

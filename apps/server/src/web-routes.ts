@@ -1,3 +1,4 @@
+import {officeUrl} from './office/discovery.ts';
 import type { FastifyInstance,FastifyReply,FastifyRequest } from 'fastify';
 import { readFile } from 'node:fs/promises';
 import { createReadStream } from 'node:fs';
@@ -9,7 +10,8 @@ function encoding(value:string|undefined):'br'|'gzip'|null {
   const br=weights.get('br')??0,gzip=weights.get('gzip')??0;
   return br>0&&br>=gzip?'br':gzip>0?'gzip':null;
 }
-export function registerWeb(app:FastifyInstance,webRoot:string) {
+export function registerWeb(app:FastifyInstance,webRoot:string,officePublicUrl?:string) {
+  const officeOrigin=officePublicUrl?' '+officeUrl(officePublicUrl).origin:'';
   app.register(async web=>{
     const root=resolve(webRoot);
     const manifest=JSON.parse(await readFile(join(root,'manifest.json'),'utf8')) as {assets:Record<string,Asset>};
@@ -24,7 +26,7 @@ export function registerWeb(app:FastifyInstance,webRoot:string) {
       reply.header('content-length',compressed==='br'?asset.brSize:compressed==='gzip'?asset.gzipSize:asset.size);
       return reply.send(createReadStream(join(root,'assets',request.params['*']+(compressed==='br'?'.br':compressed==='gzip'?'.gz':''))));
     });
-    const html=async(_request:FastifyRequest,reply:FastifyReply)=>reply.type('text/html').header('content-security-policy',"default-src 'self'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self' data:; connect-src 'self'; frame-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'self'").send(index);
+    const html=async(_request:FastifyRequest,reply:FastifyReply)=>reply.type('text/html').header('content-security-policy',`default-src 'self'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self' data:; connect-src 'self'; frame-src 'self'${officeOrigin}; object-src 'none'; base-uri 'none'; form-action 'self'${officeOrigin}; frame-ancestors 'self'`).send(index);
     web.get('/',html);web.get('/documents/:id',html);web.get('/account',html);
   });
 }

@@ -49,3 +49,6 @@ test('capability expiry stops heartbeats and cannot be prolonged by an otherwise
 test('a prepared bootstrap that expires before the frame is attached is never submitted to an engine',async t=>{
  resumeSession();let now=opened.expiresAt-1;const connection=new OfficeConnection({documentId:'doc',csrf:'csrf',language:'ru',format:'docx',now:()=>now,request:async()=>opened});t.after(()=>connection.dispose());await connection.open();now=opened.expiresAt;assert.throws(()=>connection.attach({postMessage:()=>{throw new Error('must not submit');}}),/OFFICE_EXPIRED/);assert.equal(connection.snapshot().phase,'paused');assert.equal(connection.bridge,undefined);
 });
+test('export rechecks current permissions and never sends an engine command after a failed check',async t=>{
+ let mode='allowed';const f=setup(t,async url=>{if(url.endsWith('/office'))return opened;if(mode==='offline')throw new Error('offline');return {...status,export:mode==='allowed'};});await f.connection.open();f.connection.attach(f.frame);loaded(f);assert.equal(await f.connection.exportCurrent(),true);mode='offline';assert.equal(await f.connection.exportCurrent(),false);mode='denied';assert.equal(await f.connection.exportCurrent(),false);mode='allowed';assert.equal(await f.connection.exportCurrent(),false);assert.equal(f.sent.filter(x=>x.MessageId==='Action_Export').length,1);
+});

@@ -4,15 +4,16 @@ import { api,ApiError,assetUrl,isAborted } from './api.ts';
 import type { Account,DocumentInfo,DocumentView } from './api.ts';
 import { blockSession,resumeSession,sessionSnapshot } from './session-fence.ts';
 import {startChangeFeed,publishChanges,subscribeChanges} from './live-updates.ts';
-import { allowNavigation,hasUnsavedChanges } from './navigation-guard.ts';
+import { requestNavigation,hasUnsavedChanges } from './navigation-guard.ts';
 import { labels,languageFor } from './i18n.ts';
 import type { Labels } from './i18n.ts';
+const OfficeWorkspace=lazy(()=>import('./OfficeWorkspace.tsx'));
 const PdfWorkspace=lazy(()=>import('./PdfWorkspace.tsx'));
 const Presentation=lazy(()=>import('./Presentation.tsx'));
 const authChannel=typeof BroadcastChannel==='function'?new BroadcastChannel('yourwiki-auth'):null;
 const t=labels[languageFor(navigator.language)];
 document.documentElement.lang=languageFor(navigator.language);
-function navigate(path:string) {if(location.pathname!==path){history.pushState(null,'',path);window.dispatchEvent(new PopStateEvent('popstate'));}}
+function navigate(path:string) {if(location.pathname!==path)window.dispatchEvent(new CustomEvent('yourwiki:navigate',{detail:path}));}
 function Link({href,children,...props}:{href:string;children:ReactNode;className?:string;'aria-current'?:'page'}) {
   return <a href={href} {...props} onClick={event=>{if(!event.defaultPrevented&&event.button===0&&!event.ctrlKey&&!event.metaKey&&!event.shiftKey&&!event.altKey){event.preventDefault();navigate(href);}}}>{children}</a>;
 }
@@ -65,7 +66,7 @@ function Library({onSessionLost,active}:{onSessionLost:()=>void;active:boolean})
 }
 function DocumentPage({id,onSessionLost,csrf}:{id:string;onSessionLost:()=>void;csrf:string}) {
   const [view,setView]=useState<DocumentView|null>(null),[error,setError]=useState<unknown>(null),[attempt,setAttempt]=useState(0);
-  const currentView=useRef<DocumentView|null>(null);
+  const currentView=useRef<DocumentView|null>(null),officeMounted=useRef(false);
   useEffect(()=>{
     let request:AbortController|undefined,closed=false;setView(null);currentView.current=null;setError(null);
     function load(){
@@ -78,10 +79,14 @@ function DocumentPage({id,onSessionLost,csrf}:{id:string;onSessionLost:()=>void;
     load();const remove=subscribeChanges(event=>{if(currentView.current?.manifest.kind==='pdf')return;if(event.type==='all'||event.documentIds.includes(id))load();});
     return()=>{closed=true;request?.abort();remove();};
   },[id,attempt]);
-  return <main id="content" className="document-page"><div className="document-toolbar"><Link href="/" className="back">← {t.back}</Link><div className="document-name"><h1>{view?.document.title??t.preview}</h1>{view&&<span className="muted">{view.document.format.toUpperCase()} · {t.read}</span>}</div>{view?.document.capabilities.export&&view.manifest.kind!=='pdf'&&<a className="button" href={`/api/documents/${encodeURIComponent(id)}/content`} download>{t.download}</a>}</div>
-    {error?<ErrorBox error={error} retry={()=>setAttempt(x=>x+1)}/>:!view?<p className="loading" role="status">{t.loading}</p>:<PreviewBoundary key={id+view.document.manifestDigest}><Suspense fallback={<p className="loading" role="status">{t.loading}</p>}>
+  const preview=view?<PreviewBoundary key={id+view.document.manifestDigest}><Suspense fallback={<p className="loading" role="status">{t.loading}</p>}>
       {view.manifest.kind==='pdf'?<PdfWorkspace view={view} csrf={csrf} onRefresh={()=>setAttempt(x=>x+1)}/>:view.manifest.kind==='presentation'?<Presentation view={view} t={t}/>:['document','table'].includes(view.manifest.kind)?<iframe key={view.document.manifestDigest} className="document-frame" title={view.document.title} src={assetUrl(view,view.manifest.primary)} sandbox="allow-same-origin"/>:<p className="empty">{t.unsupported}</p>}
-    </Suspense></PreviewBoundary>}
+    </Suspense></PreviewBoundary>:null;
+  if(view?.document.capabilities.office===true&&view.document.capabilities.write&&['document','table','presentation'].includes(view.manifest.kind))officeMounted.current=true;
+  const office=officeMounted.current;
+  return <main id="content" className="document-page"><div className="document-toolbar"><Link href="/" className="back">← {t.back}</Link><div className="document-name"><h1>{view?.document.title??t.preview}</h1>{view&&<span className="muted">{view.document.format.toUpperCase()} · {t.read}</span>}</div>{view?.document.capabilities.export&&view.manifest.kind!=='pdf'&&<a className="button" href={`/api/documents/${encodeURIComponent(id)}/content`} download>{t.download}</a>}</div>
+    {error?<ErrorBox error={error} retry={!view?()=>setAttempt(x=>x+1):undefined}/>:null}
+    {!view?!error&&<p className="loading" role="status">{t.loading}</p>:office?<Suspense fallback={preview}><OfficeWorkspace view={view} csrf={csrf} onSessionLost={onSessionLost}>{preview}</OfficeWorkspace></Suspense>:preview}
   </main>;
 }
 function AccountPage({account}:{account:Account}) {return <main id="content" className="account-page"><p className="eyebrow">Yourwiki</p><h1>{t.account}</h1><div className="profile-card"><span className="avatar" aria-hidden="true">{account.user.displayName.slice(0,1).toUpperCase()}</span><div><h2>{account.user.displayName}</h2><p className="muted">@{account.user.username}</p></div></div><dl><dt>{t.groups}</dt><dd>{account.user.groups.map(group=>group.name).join(', ')||'—'}</dd><dt>{t.role}</dt><dd>{account.user.adminRole==='giga'?t.giga:account.user.adminRole==='simple'?t.simple:t.member}</dd></dl></main>;}
@@ -92,7 +97,16 @@ export default function App() {
   const [libraryVisited,setLibraryVisited]=useState(location.pathname==='/');
   useEffect(()=>{const update=()=>{if(location.pathname==='/')setLibraryVisited(true);};window.addEventListener('popstate',update);return()=>window.removeEventListener('popstate',update);},[]);
   const [account,setAccount]=useState<Account|null|undefined>(undefined),[path,setPath]=useState(location.pathname),[error,setError]=useState<unknown>(null);
-  useEffect(()=>{const generation=sessionSnapshot().generation,controller=new AbortController();void api<Account>('/api/account',{signal:controller.signal}).then(value=>{if(!controller.signal.aborted){resumeSession();setAuthPaused(false);setAccount(value);}}).catch(error=>{if(!controller.signal.aborted&&generation===sessionSnapshot().generation&&!isAborted(error)){if(!(error instanceof ApiError&&error.code==='SESSION_REQUIRED'))setError(error);setAccount(null);}});let previousPath=location.pathname;const pop=()=>{if(!allowNavigation()){history.pushState(null,'',previousPath);return;}previousPath=location.pathname;setPath(previousPath);};window.addEventListener('popstate',pop);return()=>{controller.abort();window.removeEventListener('popstate',pop);};},[authEpoch]);
+  useEffect(()=>{const generation=sessionSnapshot().generation,controller=new AbortController();void api<Account>('/api/account',{signal:controller.signal}).then(value=>{if(!controller.signal.aborted){resumeSession();setAuthPaused(false);setAccount(value);}}).catch(error=>{if(!controller.signal.aborted&&generation===sessionSnapshot().generation&&!isAborted(error)){if(!(error instanceof ApiError&&error.code==='SESSION_REQUIRED'))setError(error);setAccount(null);}});return()=>controller.abort();},[authEpoch]);
+  useEffect(()=>{
+    let previousPath=location.pathname,moving=false,live=true;let requested:string|null=null;
+    const move=(next:string)=>{
+      if(next===previousPath&&!moving)return;requested=next;if(moving)return;moving=true;
+      void requestNavigation(()=>{if(!live||requested===null)return;if(location.pathname!==requested)history.pushState(null,'',requested);previousPath=requested;setPath(requested);if(requested==='/')setLibraryVisited(true);}).then(allowed=>{if(!allowed&&live&&location.pathname!==previousPath)history.pushState(null,'',previousPath);}).finally(()=>{moving=false;requested=null;});
+    };
+    const pop=()=>move(location.pathname),link=(event:Event)=>{const next=(event as CustomEvent<unknown>).detail;if(typeof next==='string'&&/^\/(?:$|account$|documents\/[^?#]+$)/.test(next))move(next);};
+    window.addEventListener('popstate',pop);window.addEventListener('yourwiki:navigate',link);return()=>{live=false;window.removeEventListener('popstate',pop);window.removeEventListener('yourwiki:navigate',link);};
+  },[]);
   useEffect(()=>{
     if(!account||authPaused)return;
     const controller=new AbortController();
@@ -103,8 +117,8 @@ export default function App() {
     return()=>{controller.abort();stop();};
   },[account,authPaused]);
   function sessionLost(){blockSession();setAuthPaused(true);setError(new ApiError('SESSION_REQUIRED'));if(!hasUnsavedChanges())setAccount(null);}
-  function recoverSession(){if(!allowNavigation())return;setAccount(undefined);setAuthEpoch(value=>value+1);}
-  async function signOut(){if(!allowNavigation())return;try{await api('/api/auth/logout',{method:'POST',headers:{'x-csrf-token':account!.csrf}});blockSession();setAccount(null);setError(null);authChannel?.postMessage('changed');}catch(error){if(error instanceof ApiError&&error.code==='SESSION_REQUIRED'){blockSession();setAccount(null);setError(error);}else setError(error);}}
+  function recoverSession(){void requestNavigation(()=>{setAccount(undefined);setAuthEpoch(value=>value+1);});}
+  async function signOut(){await requestNavigation(async()=>{try{await api('/api/auth/logout',{method:'POST',headers:{'x-csrf-token':account!.csrf}});blockSession();setAccount(null);setError(null);authChannel?.postMessage('changed');}catch(error){if(error instanceof ApiError&&error.code==='SESSION_REQUIRED'){blockSession();setAccount(null);setError(error);}else setError(error);}});}
   useEffect(()=>{if(!path.startsWith('/documents/'))document.title='Yourwiki';},[path]);
   if(account===undefined)return <main id="content" className="loading" role="status">{t.loading}</main>;
   if(!account)return <Login onLogin={value=>{resumeSession();setAuthPaused(false);setError(null);setAccount(value);authChannel?.postMessage('changed');}} notice={error}/>;

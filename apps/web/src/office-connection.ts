@@ -56,16 +56,17 @@ export class OfficeConnection {
   this.save=new OfficeSaveCoordinator({bridge:this.bridge,sessionId:opened.sessionId,accessToken:opened.accessToken,csrf:this.options.csrf,request:this.request,onSessionLost:this.options.onSessionLost});this.scheduleStatus();return this.bridge;
  }
  receive(event:{origin:string;source:unknown;data:unknown}){return this.current()&&this.state.phase==='open'?(this.bridge?.receive(event)??false):false;}
- async check(){
-  if(!this.current()||this.checking||this.state.phase!=='open'||!this.state.bootstrap||!this.bridge)return;
-  this.stopStatus();if(this.expire())return;this.checking=true;const id=this.state.bootstrap.sessionId;
+ async check():Promise<boolean>{
+  if(!this.current()||this.checking||this.state.phase!=='open'||!this.state.bootstrap||!this.bridge)return false;
+  this.stopStatus();if(this.expire())return false;this.checking=true;const id=this.state.bootstrap.sessionId;
   try{
    const value=await this.request(`/api/office/${encodeURIComponent(id)}/status`,{method:'POST',signal:this.lifetime.signal,headers:{'x-csrf-token':this.options.csrf}});
-   if(!this.current()||this.state.phase!=='open')return;
+   if(!this.current()||this.state.phase!=='open')return false;
    if(!record(value)||value.sessionId!==id||value.documentId!==this.options.documentId||typeof value.recovery!=='boolean'||!this.bridge.status(value))throw new ApiError('INVALID_OFFICE_STATUS');
-   this.update({errorCode:this.bridge.snapshot().errorCode});
-  }catch(error){if(this.state.phase==='open')this.failed(error);}finally{this.checking=false;this.scheduleStatus();}
+   this.update({errorCode:this.bridge.snapshot().errorCode});return true;
+  }catch(error){if(this.state.phase==='open')this.failed(error);return false;}finally{this.checking=false;this.scheduleStatus();}
  }
+ async exportCurrent(){if(!await this.check()||!this.current()||this.state.phase!=='open')return false;return this.bridge?.exportCurrent()??false;}
  close(){
   if(this.closing)return this.closing;if(this.state.phase==='closed')return Promise.resolve(true);if(!this.current())return Promise.resolve(false);
   // A pending bootstrap may still create a capability. Do not claim it is safe to unmount.

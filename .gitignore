@@ -36,6 +36,7 @@ coverage.xml
 htmlcov/
 /test-results/
 /playwright-report/
+/output/playwright/
 /blob-report/
 /playwright/.cache/
 /playwright/.auth/
