@@ -6,7 +6,7 @@ import {AccessService} from '../access.ts';
 import {transaction,type Database} from '../database.ts';
 import {BlobStore,BlobTooLargeError,type BlobRef} from '../storage/blobs.ts';
 export class OfficeWriteError extends OfficeError {currentLock?:string;writeId?:string;constructor(code:string,currentLock?:string,writeId?:string){super(code);this.currentLock=currentLock;this.writeId=writeId;}}
-type Input={sessionId:string;token:string;lock:string;declaredSize:number|null;signal?:AbortSignal};
+type Input={clientTag?:string;sessionId:string;token:string;lock:string;declaredSize:number|null;signal?:AbortSignal};
 type PreparedInput={id:string;leaseToken:string;sessionId:string;token:string;signal?:AbortSignal};
 type PreparedContext={signal:AbortSignal;blob:BlobRef;store:BlobStore;userId:string;documentId:string;baseRevision:number;baseDigest:string;assertCurrent:()=>void;commit:<R>(save:()=>R)=>R};
 type Row={id:string;document_id:string;office_session_id:string;author_id:string;base_revision:number;base_digest:string;state:string;digest:string|null;size:number|null;lease_token:string;lease_until:number;lock_value:string;reserved_bytes:number;error_code:string|null};
@@ -93,7 +93,8 @@ export class OfficeIngress {
    const reserved=input.declaredSize??this.maxFile;
    if(reserved>this.maxPending-budget.bytes||budget.active>=15||budget.n>=1000)throw new OfficeWriteError('OFFICE_WRITE_QUOTA');
    if(this.db.prepare("SELECT 1 FROM office_ingress WHERE document_id=? AND state='receiving'").get(actor.session.document_id))throw new OfficeWriteError('OFFICE_WRITE_BUSY');
-   const id=randomUUID(),leaseToken=randomUUID();this.db.prepare("INSERT INTO office_ingress(id,document_id,office_session_id,author_id,base_revision,base_digest,lock_value,declared_size,reserved_bytes,state,lease_token,lease_until,created_at) VALUES(?,?,?,?,?,?,?,?,?,'receiving',?,?,?)").run(id,actor.session.document_id,input.sessionId,actor.userId,actor.session.base_revision,actor.session.base_digest,input.lock,input.declaredSize,reserved,leaseToken,now+30000,now);
+   const clientTag=typeof input.clientTag==='string'&&/^yourwiki-save-[A-Za-z0-9_-]{32}$/.test(input.clientTag)&&this.db.prepare('SELECT 1 FROM office_save_intents WHERE tag=? AND office_session_id=? AND expires_at>?').get(input.clientTag,input.sessionId,now)?input.clientTag:null;
+   const id=randomUUID(),leaseToken=randomUUID();this.db.prepare("INSERT INTO office_ingress(id,document_id,office_session_id,author_id,base_revision,base_digest,lock_value,declared_size,reserved_bytes,state,lease_token,lease_until,created_at,client_tag) VALUES(?,?,?,?,?,?,?,?,?,'receiving',?,?,?,?)").run(id,actor.session.document_id,input.sessionId,actor.userId,actor.session.base_revision,actor.session.base_digest,input.lock,input.declaredSize,reserved,leaseToken,now+30000,now,clientTag);
    return {id,leaseToken};
   });
   const controller=new AbortController(),signal=input.signal?AbortSignal.any([input.signal,controller.signal]):controller.signal;

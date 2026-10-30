@@ -207,5 +207,18 @@ CREATE INDEX office_prepared_cleanup ON office_prepared(state,lease_until,last_a
 const officePreparedBindings = `
 CREATE INDEX office_sessions_prepared ON office_sessions(prepared_id) WHERE prepared_id IS NOT NULL;
 `;
-export const migrations = [core + epochTriggers, authInvalidation, authSettings, jobs, documents, workerSlots, uploads, pdfLayers, saveJournal, officeSessions, officeIngress, officeCleanup, officeRecovery, officePrepared, officePreparedBindings] as const;
+const officeSaveIntents = `
+CREATE TABLE office_save_intents (
+ tag TEXT PRIMARY KEY, office_session_id TEXT NOT NULL REFERENCES office_sessions(id) ON DELETE CASCADE,
+ browser_session_hash TEXT NOT NULL REFERENCES sessions(token_hash) ON DELETE CASCADE,
+ author_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+ created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL, confirmed INTEGER NOT NULL DEFAULT 0 CHECK(confirmed IN (0,1))
+);
+CREATE INDEX office_save_intents_pending ON office_save_intents(browser_session_hash,confirmed,expires_at);
+CREATE INDEX office_save_intents_expiry ON office_save_intents(expires_at);
+ALTER TABLE office_ingress ADD COLUMN client_tag TEXT;
+ALTER TABLE office_ingress ADD COLUMN committed_revision INTEGER CHECK(committed_revision>=1);
+CREATE INDEX office_ingress_client_tag ON office_ingress(office_session_id,client_tag) WHERE client_tag IS NOT NULL;
+`;
+export const migrations = [core + epochTriggers, authInvalidation, authSettings, jobs, documents, workerSlots, uploads, pdfLayers, saveJournal, officeSessions, officeIngress, officeCleanup, officeRecovery, officePrepared, officePreparedBindings, officeSaveIntents] as const;
 export const applicationId = 0x5957494b; // YWIK; legacy Django uses no marker.

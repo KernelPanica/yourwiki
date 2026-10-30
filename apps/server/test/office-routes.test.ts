@@ -213,3 +213,16 @@ test('WOPI metadata and ranges refer to prepared native Markdown while an unchan
  const saved=await f.app.inject({method:'POST',url:w.url,headers:w.headers,payload:'Prepared\n\n'});assert.equal(saved.statusCode,200);assert.equal(saved.headers['x-wopi-itemversion'],`1:${blob.digest}`);assert.equal((f.db.prepare('SELECT local_revision FROM documents').get() as any).local_revision,1);assert.equal(await f.store.verify(blob),true);
  const changed=await f.app.inject({method:'POST',url:w.url,headers:w.headers,payload:'Edited\n'});assert.equal(changed.statusCode,200);assert.equal((f.db.prepare('SELECT prepared_id FROM office_sessions WHERE id=?').get(w.opened.sessionId) as any).prepared_id,null);
 });
+
+test('browser save intents correlate ExtendedData with a durable HTTP PutFile receipt',async t=>{
+ const f=await fixture(t),w=await writer(f),url=`/api/office/${w.opened.sessionId}/save-intents`;
+ assert.equal((await f.app.inject({method:'POST',url,headers:{cookie:f.headers().cookie},payload:{accessToken:w.opened.token}})).statusCode,403);
+ const issued=await f.app.inject({method:'POST',url,headers:f.headers(),payload:{accessToken:w.opened.token}});assert.equal(issued.statusCode,200);const tag=issued.json().tag;
+ assert.equal((await f.app.inject({url:url+'/'+tag,headers:f.headers()})).json().state,'pending');
+ const saved=await f.app.inject({method:'POST',url:w.url,headers:{...w.headers,'x-cool-wopi-extendeddata':tag},payload:'correlated'});assert.equal(saved.statusCode,200);
+ const proof=await f.app.inject({url:url+'/'+tag,headers:f.headers()});assert.equal(proof.statusCode,200);assert.equal(proof.json().state,'saved');assert.equal(proof.json().revision,2);assert.equal(proof.json().providerDelivery,'not_attempted');assert.equal((await f.app.inject({url:url+'/'+tag,headers:f.headers(f.two)})).statusCode,404);
+});
+test('legacy ExtendedData headers can confirm an unchanged local save without another version',async t=>{
+ const f=await fixture(t),w=await writer(f),url=`/api/office/${w.opened.sessionId}/save-intents`,intent=(await f.app.inject({method:'POST',url,headers:f.headers(),payload:{accessToken:w.opened.token}})).json();
+ const saved=await f.app.inject({method:'POST',url:w.url,headers:{...w.headers,'x-lool-wopi-extendeddata':intent.tag},payload:'office original'});assert.equal(saved.statusCode,200);const proof=(await f.app.inject({url:url+'/'+intent.tag,headers:f.headers()})).json();assert.equal(proof.state,'saved');assert.equal(proof.revision,1);
+});

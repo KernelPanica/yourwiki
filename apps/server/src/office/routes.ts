@@ -3,6 +3,7 @@ import {transaction} from '../database.ts';
 import type {Database} from '../database.ts';
 import type {BlobStore,BlobRef} from '../storage/blobs.ts';
 import {OfficeIngress,OfficeWriteError} from './ingress.ts';
+import {OfficeSaveIntents} from './save-intents.ts';
 import {OfficePrepared} from './prepared.ts';
 import {OfficeSaves} from './saves.ts';
 import type {Readable} from 'node:stream';
@@ -16,7 +17,7 @@ import {errorEnvelope} from '../errors.ts';
 import {byteRange} from '../http/byte-range.ts';
 export type OfficeOptions={cleanupIntervalMs?:number;publicUrl:string;internalUrl?:string;wopiUrl?:string;fetch?:typeof fetch};
 export function registerOffice(app:FastifyInstance,db:Database,store:BlobStore,publicUrl:string,options:OfficeOptions,limits:{maxFileBytes?:number;maxPendingBytes?:number}={}){
- const prepared=new OfficePrepared(db,store,limits),ingress=new OfficeIngress(db,store,limits),saves=new OfficeSaves(db,store,ingress,limits),office=new OfficeSessions(db),docs=new DocumentService(db,store),access=new AccessService(db),discovery=new OfficeDiscovery(options);
+ const intents=new OfficeSaveIntents(db),prepared=new OfficePrepared(db,store,limits),ingress=new OfficeIngress(db,store,limits),saves=new OfficeSaves(db,store,ingress,limits),office=new OfficeSessions(db),docs=new DocumentService(db,store),access=new AccessService(db),discovery=new OfficeDiscovery(options);
  const cleanupInterval=options.cleanupIntervalMs??60000;
  if(!Number.isSafeInteger(cleanupInterval)||cleanupInterval<10||cleanupInterval>300000)throw new Error('Invalid office cleanup interval');
  let stopping=false,interval:ReturnType<typeof setInterval>|undefined,cleaning:Promise<void>|undefined;
@@ -34,8 +35,8 @@ export function registerOffice(app:FastifyInstance,db:Database,store:BlobStore,p
  function fail(error:unknown,request:FastifyRequest,reply:FastifyReply){
   if(!(error instanceof OfficeError))throw error;
   if(request.method==='POST'&&request.url.startsWith('/wopi/')&&!request.raw.complete)reply.header('connection','close');
-  const status:Record<string,number>={OFFICE_PREPARING:503,OFFICE_PREPARED_MISSING:503,OFFICE_PREPARED_QUOTA:429,OFFICE_PREPARED_LEASE_LOST:503,OFFICE_PREPARATION_TIMEOUT:504,OFFICE_CLOSED:503,INVALID_REQUEST:400,UNSUPPORTED_MEDIA_TYPE:415,PAYLOAD_TOO_LARGE:413,INVALID_OFFICE_FILE:422,OFFICE_FILE_BUDGET:422,OFFICE_SIZE_MISMATCH:400,OFFICE_LOCK_MISMATCH:409,OFFICE_WRITE_BUSY:409,OFFICE_WRITE_LEASE_LOST:409,OFFICE_WRITE_DISCARDED:409,OFFICE_WRITE_QUOTA:429,PENDING_LIMIT:429,OFFICE_VALIDATOR_BUSY:503,OFFICE_VALIDATOR_UNAVAILABLE:503,OFFICE_VALIDATOR_FAILED:503,OFFICE_VALIDATOR_LEASE_LOST:503,OFFICE_VALIDATION_TIMEOUT:504,OFFICE_WRITE_TIMEOUT:408,OFFICE_RECOVERY_MISSING:404,SESSION_REQUIRED:401,INVALID_OFFICE_TOKEN:401,OFFICE_EXPIRED:401,ACCESS_DENIED:403,CSRF_REJECTED:403,NOT_FOUND:404,CONFLICT:409,INVALID_OFFICE_LOCK:400,INVALID_OFFICE_DISCOVERY:503,OFFICE_UNAVAILABLE:503,OFFICE_NOT_READY:503,OFFICE_LIMIT:429,UNSUPPORTED_OFFICE_FORMAT:422,UNSUPPORTED_OFFICE_OPERATION:501};
-  const envelope:ReturnType<typeof errorEnvelope>&{COOLStatusCode?:number;LOOLStatusCode?:number}=errorEnvelope(error.code,request.id);if(['CONFLICT','OFFICE_EXPIRED','OFFICE_PREPARED_MISSING'].includes(error.code))envelope.recoveryActions=['copy_changes','download_changes','reload'];
+  const status:Record<string,number>={OFFICE_SAVE_INTENT_LIMIT:429,OFFICE_SAVE_INTENT_EXPIRED:410,OFFICE_PREPARING:503,OFFICE_PREPARED_MISSING:503,OFFICE_PREPARED_QUOTA:429,OFFICE_PREPARED_LEASE_LOST:503,OFFICE_PREPARATION_TIMEOUT:504,OFFICE_CLOSED:503,INVALID_REQUEST:400,UNSUPPORTED_MEDIA_TYPE:415,PAYLOAD_TOO_LARGE:413,INVALID_OFFICE_FILE:422,OFFICE_FILE_BUDGET:422,OFFICE_SIZE_MISMATCH:400,OFFICE_LOCK_MISMATCH:409,OFFICE_WRITE_BUSY:409,OFFICE_WRITE_LEASE_LOST:409,OFFICE_WRITE_DISCARDED:409,OFFICE_WRITE_QUOTA:429,PENDING_LIMIT:429,OFFICE_VALIDATOR_BUSY:503,OFFICE_VALIDATOR_UNAVAILABLE:503,OFFICE_VALIDATOR_FAILED:503,OFFICE_VALIDATOR_LEASE_LOST:503,OFFICE_VALIDATION_TIMEOUT:504,OFFICE_WRITE_TIMEOUT:408,OFFICE_RECOVERY_MISSING:404,SESSION_REQUIRED:401,INVALID_OFFICE_TOKEN:401,OFFICE_EXPIRED:401,ACCESS_DENIED:403,CSRF_REJECTED:403,NOT_FOUND:404,CONFLICT:409,INVALID_OFFICE_LOCK:400,INVALID_OFFICE_DISCOVERY:503,OFFICE_UNAVAILABLE:503,OFFICE_NOT_READY:503,OFFICE_LIMIT:429,UNSUPPORTED_OFFICE_FORMAT:422,UNSUPPORTED_OFFICE_OPERATION:501};
+  const envelope:ReturnType<typeof errorEnvelope>&{COOLStatusCode?:number;LOOLStatusCode?:number}=errorEnvelope(error.code,request.id);if(['CONFLICT','OFFICE_EXPIRED','OFFICE_PREPARED_MISSING','OFFICE_SAVE_INTENT_EXPIRED'].includes(error.code))envelope.recoveryActions=['copy_changes','download_changes','reload'];
   if(error instanceof OfficeWriteError&&error.writeId){envelope.operationId=error.writeId;envelope.recoveryActions=['download_changes','reload'];}
   if(request.url.startsWith('/wopi/')&&(status[error.code]===409)){
    let lock=error instanceof OfficeWriteError?error.currentLock:undefined;
@@ -65,6 +66,8 @@ export function registerOffice(app:FastifyInstance,db:Database,store:BlobStore,p
   return {sessionId:opened.sessionId,accessToken:opened.token,expiresAt:opened.expiresAt,write:allowedWrite,export:access.allows(actor.userId,document.id,'export'),actionUrl:url.href};
  }));
  app.post<{Params:{id:string}}>('/api/office/:id/status',{schema:{params}},(request,reply)=>handle(request,reply,()=>{browser(request,true);return office.status(sessionCookie(request),request.params.id);}));
+ app.post<{Params:{id:string};Body:{accessToken:string}}>('/api/office/:id/save-intents',{schema:{params,body:{type:'object',additionalProperties:false,required:['accessToken'],properties:{accessToken:{type:'string',pattern:'^[A-Za-z0-9_-]{43}$'}}}}},(request,reply)=>handle(request,reply,()=>{browser(request,true);return intents.issue(sessionCookie(request),request.params.id,request.body.accessToken);}));
+ app.get<{Params:{id:string;tag:string}}>('/api/office/:id/save-intents/:tag',{schema:{params:{type:'object',required:['id','tag'],properties:{id:{type:'string',minLength:1,maxLength:128},tag:{type:'string',pattern:'^yourwiki-save-[A-Za-z0-9_-]{32}$'}}}}},(request,reply)=>handle(request,reply,()=>{browser(request);return intents.status(sessionCookie(request),request.params.id,request.params.tag);}));
  app.post<{Params:{id:string};Body:{accessToken:string}}>('/api/office/:id/release',{schema:{params,body:{type:'object',required:['accessToken'],additionalProperties:false,properties:{accessToken:{type:'string',pattern:'^[A-Za-z0-9_-]{43}$'}}}}},(request,reply)=>handle(request,reply,()=>{browser(request,true);office.release(sessionCookie(request),request.params.id,request.body.accessToken);return reply.code(204).send();}));
  function authorize(request:FastifyRequest){const id=(request.params as {id:string}).id,token=(request.query as Record<string,unknown>).access_token;return office.authorize(id,typeof token==='string'?token:'');}
  function original(actor:ReturnType<OfficeSessions['authorize']>){
@@ -107,7 +110,7 @@ export function registerOffice(app:FastifyInstance,db:Database,store:BlobStore,p
   request.raw.once('aborted',abort);reply.raw.once('close',closed);if(request.raw.aborted)abort();
   try{
    const token=(request.query as Record<string,unknown>).access_token;
-   const saved=await saves.save({sessionId:request.params.id,token:typeof token==='string'?token:'',lock:String(request.headers['x-wopi-lock']??''),declaredSize:request.headers['content-length']===undefined?null:Number(request.headers['content-length']),lastModifiedTime:(request.headers['x-cool-wopi-timestamp']??request.headers['x-lool-wopi-timestamp']??null) as string|null,signal:controller.signal},(request.body??request.raw) as Readable);
+   const saved=await saves.save({sessionId:request.params.id,token:typeof token==='string'?token:'',lock:String(request.headers['x-wopi-lock']??''),declaredSize:request.headers['content-length']===undefined?null:Number(request.headers['content-length']),clientTag:(()=>{const data=request.headers['x-cool-wopi-extendeddata']??request.headers['x-lool-wopi-extendeddata'];return typeof data==='string'&&/^yourwiki-save-[A-Za-z0-9_-]{32}$/.test(data)?data:undefined;})(),lastModifiedTime:(request.headers['x-cool-wopi-timestamp']??request.headers['x-lool-wopi-timestamp']??null) as string|null,signal:controller.signal},(request.body??request.raw) as Readable);
    const receipt=saved.receipt!;const version=db.prepare('SELECT created_at FROM document_versions WHERE document_id=? AND revision=? AND digest=?').get(receipt.documentId,receipt.revision,saved.blob.digest) as {created_at:number};
    return reply.header('x-wopi-itemversion',`${receipt.revision}:${saved.blob.digest}`).code(200).send({LastModifiedTime:new Date(version.created_at).toISOString()});
   }finally{request.raw.removeListener('aborted',abort);reply.raw.removeListener('close',closed);}
