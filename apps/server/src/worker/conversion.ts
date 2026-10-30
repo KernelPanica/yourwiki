@@ -11,7 +11,7 @@ export { ConversionError } from './errors.ts';
 import { convertOffice, officeFormats } from './office.ts';
 import type { OfficeOptions } from './office.ts';
 
-export interface ConversionOptions { textLimit?: number; outputLimit?: number; timeoutMs?: number; office?: OfficeOptions }
+export interface ConversionOptions { nativeMarkdown?: boolean; textLimit?: number; outputLimit?: number; timeoutMs?: number; office?: OfficeOptions }
 export type ConversionResult = { kind: PreviewManifest['kind']; primary: string; artifacts: PreviewArtifact[] };
 
 export async function convert(store: BlobStore, source: BlobRef, format: string, signal: AbortSignal, options: ConversionOptions = {}): Promise<ConversionResult> {
@@ -25,7 +25,7 @@ export async function convert(store: BlobStore, source: BlobRef, format: string,
   if (!['md', 'markdown', 'txt', 'text'].includes(format)) throw new ConversionError('PREVIEW_UNSUPPORTED');
   const textLimit = options.textLimit ?? 16 * 1024 ** 2;
   if (source.size > textLimit) throw new ConversionError('PREVIEW_TOO_COMPLEX');
-  const child = spawn(process.execPath, ['--max-old-space-size=256', fileURLToPath(new URL('./text-process.ts', import.meta.url)), format, String(textLimit)], {
+  const child = spawn(process.execPath, ['--max-old-space-size=256', fileURLToPath(new URL('./text-process.ts', import.meta.url)), format, String(textLimit), options.nativeMarkdown===false?'plain-v1':'native-v1'], {
     shell: false, stdio: ['pipe', 'pipe', 'pipe'], env: { NODE_ENV: 'production' },
   });
   let timedOut = false, stderr = '';
@@ -43,7 +43,7 @@ export async function convert(store: BlobStore, source: BlobRef, format: string,
     if (exitResult.status === 'rejected') throw new ConversionError('CONVERTER_UNAVAILABLE', false);
     if (outputResult.status === 'rejected' && outputResult.reason instanceof BlobTooLargeError) throw new ConversionError('PREVIEW_TOO_COMPLEX');
     if (exitResult.value !== 0) {
-      const known = ['INVALID_TEXT_ENCODING', 'PREVIEW_TOO_COMPLEX', 'INVALID_CONVERTER_REQUEST'];
+      const known = ['INVALID_TEXT_ENCODING', 'PREVIEW_TOO_COMPLEX', 'INVALID_CONVERTER_REQUEST', 'INVALID_NATIVE_DOCUMENT'];
       throw new ConversionError(known.includes(stderr) ? stderr : 'CONVERSION_FAILED', known.includes(stderr));
     }
     if (inputResult.status === 'rejected' || outputResult.status === 'rejected') throw new ConversionError('CONVERSION_IO_FAILED', false);

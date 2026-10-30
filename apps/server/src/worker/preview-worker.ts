@@ -55,7 +55,7 @@ export class PreviewWorker {
     try {
       const { documentId, revision, converterVersion } = claim.payload;
       if (typeof documentId !== 'string' || !Number.isSafeInteger(revision) || (revision as number) < 1) throw new ConversionError('INVALID_PREVIEW_JOB');
-      if (converterVersion !== 'preview-v1') throw new ConversionError('CONVERTER_UNAVAILABLE');
+      if (converterVersion !== 'preview-v1'&&converterVersion !== 'preview-v2') throw new ConversionError('CONVERTER_UNAVAILABLE');
       const row = this.db.prepare(`SELECT v.digest,v.size,d.format,d.local_revision,d.preview_job_id,r.trashed
         FROM documents d JOIN document_versions v ON v.document_id=d.id AND v.revision=? JOIN resources r ON r.id=d.id WHERE d.id=?`).get(revision, documentId) as
         (BlobRef & { format: string; local_revision: number; preview_job_id: string; trashed: number }) | undefined;
@@ -63,7 +63,7 @@ export class PreviewWorker {
         if (!this.queue.complete(claim)) throw new DocumentError('LEASE_LOST');
         return 'superseded';
       }
-      const result = await convert(this.store, row, row.format, controller.signal, this.options);
+      const result = await convert(this.store, row, row.format, controller.signal, {...this.options,nativeMarkdown:converterVersion==='preview-v2'});
       controller.signal.throwIfAborted();
       return await this.documents.publish(claim, { schemaVersion: 1, documentId, revision: revision as number, sourceDigest: row.digest, converterVersion, ...result });
     } catch (error) {

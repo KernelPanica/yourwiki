@@ -1,7 +1,8 @@
 // Runs only as an isolated subprocess, never imported by the HTTP runtime.
 import MarkdownIt from 'markdown-it';
+import {legacyMarkdown} from '../office/legacy-markdown.ts';
 
-const [format, limitValue] = process.argv.slice(2);
+const [format, limitValue, compatibility] = process.argv.slice(2);
 const limit = Number(limitValue);
 const escape = (text: string) => text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 try {
@@ -20,7 +21,7 @@ try {
     // External images must not leak private viewing activity. Attachment images
     // will be resolved through authenticated document references in a later step.
     md.renderer.rules.image = (tokens, index) => escape(tokens[index].content);
-    html = md.render(text);
+    html = md.render(compatibility==='plain-v1'?text:legacyMarkdown(text,limit));
   } else html = '<pre>' + escape(text) + '</pre>';
   process.stdout.write('<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body>' + html + '</body></html>');
 } catch (error) {

@@ -30,7 +30,7 @@ async function setup(t: any, maxFileBytes = 100) {
     const artifact = await store.put(bytes('<p>hello</p>'), { maxBytes: 100 });
     await service.publish(new JobQueue(db).claim(Date.now())!, {
       schemaVersion: 1, documentId: created.documentId, revision: 1, sourceDigest: created.blob.digest,
-      converterVersion: 'preview-v1', kind: 'document', primary: 'content',
+      converterVersion: 'preview-v2', kind: 'document', primary: 'content',
       artifacts: [{ ...artifact, name: 'content', mimeType: 'text/html' }],
     });
   };
@@ -180,7 +180,7 @@ test('preview ranges support partial reads without export and recheck access on 
   const artifact = await store.put(bytes('%PDF-1.7\nfixture'), { maxBytes: 100 });
   await service.publish(new JobQueue(db).claim(Date.now())!, {
     schemaVersion: 1, documentId: created.documentId, revision: 1, sourceDigest: created.blob.digest,
-    converterVersion: 'preview-v1', kind: 'pdf', primary: 'content',
+    converterVersion: 'preview-v2', kind: 'pdf', primary: 'content',
     artifacts: [{ ...artifact, name: 'content', mimeType: 'application/pdf' }],
   });
   db.prepare('UPDATE resources SET export_disabled=1 WHERE id=?').run(created.documentId);

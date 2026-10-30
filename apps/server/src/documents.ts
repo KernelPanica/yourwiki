@@ -28,7 +28,7 @@ export class DocumentService {
   constructor(db: Database, store: BlobStore, options: { clock?: () => number; maxBytes?: number; converterVersion?: string } = {}) {
     this.db = db; this.store = store; this.clock = options.clock ?? Date.now;
     this.maxBytes = options.maxBytes ?? 4 * 1024 ** 3;
-    this.converterVersion = options.converterVersion ?? 'preview-v1';
+    this.converterVersion = options.converterVersion ?? 'preview-v2';
     if (!this.converterVersion || this.converterVersion.length > 128) throw new Error('Invalid converter version');
     this.queue = new JobQueue(db); this.access = new AccessService(db);
   }

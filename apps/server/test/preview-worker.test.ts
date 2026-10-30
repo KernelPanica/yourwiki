@@ -174,3 +174,16 @@ officeIntegration('native DOCX worker publishes an authenticated office HTML pre
   const preview = await app.inject({ url: `${url}/previews/${published.manifestDigest}/assets/content`, headers });
   assert.equal(preview.statusCode, 200); assert.match(preview.body, /Merged document title/);
 });
+
+
+test('legacy native Markdown snapshots preview their document instead of embedded JSON',async t=>{
+ const {worker,create,html}=await setup(t);
+ const source=JSON.stringify({format:'yourwiki',version:1,kind:'document',data:{type:'doc',content:[{type:'heading',attrs:{level:1},content:[{type:'text',text:'Migrated guide'}]},{type:'paragraph',content:[{type:'text',text:'Preserved',marks:[{type:'bold'}]}]}]}});
+ const created=await create('md',source);assert.equal(await worker.runOnce(),'published');const content=await html(created.documentId);assert.match(content,/<h1>Migrated guide<\/h1>/);assert.match(content,/<strong>Preserved<\/strong>/);assert.equal(content.includes('"format"'),false);
+});
+
+test('legacy preview jobs retain their converter identity and explicit rebuild upgrades the same revision',async t=>{
+ const f=await setup(t),old=new DocumentService(f.db,f.store,{converterVersion:'preview-v1'}),source=JSON.stringify({format:'yourwiki',version:1,kind:'document',data:{type:'doc',content:[{type:'paragraph',content:[{type:'text',text:'Upgraded'}]}]}});
+ const created=await old.create({userId:'owner',groupId:'team',parentId:null,title:'Old',format:'md'},bytes(source));assert.equal(await f.worker.runOnce(),'published');assert.match(await f.html(created.documentId),/&quot;format&quot;/);
+ f.service.requestPreview('owner',created.documentId);assert.equal(await f.worker.runOnce(),'published');assert.match(await f.html(created.documentId),/<p>Upgraded<\/p>/);assert.equal(f.service.getPublished('owner',created.documentId)!.converterVersion,'preview-v2');assert.equal(f.service.getPublished('owner',created.documentId)!.revision,1);
+});
