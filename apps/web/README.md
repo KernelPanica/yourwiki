@@ -67,6 +67,8 @@ node apps/server/test/support/pdf-browser-server.ts
 # In another terminal, with Python Playwright and pypdf installed:
 python apps/web/test/browser/pdf-workspace.py
 python apps/web/test/browser/pdf-serialization-race.py
+python apps/web/test/browser/pdf-controls.py
+python apps/web/test/browser/pdf-permissions.py
 ```
 
 Set `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` if Chromium is not installed through
@@ -76,8 +78,15 @@ with Ctrl-C; it removes its temporary blob store. The form PDF fixture contains 
 user data. The race test holds an actual PDF.js worker SaveDocument message while
 another ink stroke is added, then parses the resulting saved PDF.
 
-PDF parity is still pending: complete locale strings, pan/remaining workspace
-controls, all permission-loss interactions, source/provider notifications and the
+PDF controls and notices now follow the browser language (Russian, English or Spanish).
+Pan supports mouse dragging on both axes while touch scrolling remains native; selected
+zoom survives resizing. After a permission refresh, edit controls and form fields are
+disabled when write access is lost; export actions are hidden when export is revoked.
+The UI permission regression intercepts metadata responses; server ACL enforcement is
+covered separately by the HTTP/service tests.
+
+PDF parity is still pending: remaining workspace controls, all permission-loss
+interactions, source/provider notifications and the
 full PDF corpus. The current CSP remains unchanged; permission for WebAssembly
 compilation was not added after automatic approval review rejected that change.
 Standard form/text/ink fixtures pass without it; WASM-dependent decoders require

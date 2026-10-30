@@ -9,3 +9,5 @@ Approved scope: preserve the existing PDF.js workspace, annotations/forms, indep
 - [ ] Browser verification: forms and annotations survive reload, base never overwritten, two clients conflict safely, dirty navigation does not save automatically, export policy, mobile controls and range loading.
 
 Ruling: range support is shared by receipt-authorized preview assets rather than a second arbitrary blob endpoint. Existing receipt and ACL checks remain the authorization boundary. Byte delivery for viewing cannot itself prevent a user from copying content already delivered to their browser; UI/export actions remain separately permission controlled.
+
+Controls follow-up completed: RU/EN/ES PDF strings; pan and zoom controls; original/saved/current downloads; refreshed write/export UI gates and retained drafts. Browser evidence is in docs/audits/2026-10-30-pdf-react-qa.md. The remaining main checkboxes stay open until the full corpus, CSP and all provider/permission workflows pass acceptance.

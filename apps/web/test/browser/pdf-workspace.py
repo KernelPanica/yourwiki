@@ -1,4 +1,4 @@
-import asyncio,json,os
+import asyncio,json,os,uuid
 from io import BytesIO
 from pypdf import PdfReader
 from playwright.async_api import async_playwright
@@ -10,16 +10,18 @@ async def main():
   await page.add_init_script("document.addEventListener('securitypolicyviolation',e=>console.error('CSP '+e.violatedDirective+' '+e.blockedURI))")
   page.on('console',lambda msg:violations.append(msg.text) if msg.type=='error' and msg.text.startswith('CSP ') else None)
   await page.goto(os.environ.get('YOURWIKI_BROWSER_BASE_URL','http://127.0.0.1:39077'));await page.locator('input[name="username"]').fill('qa');await page.locator('input[name="password"]').fill('yourwiki-qa');await page.get_by_role('button',name='Войти',exact=True).click();await page.get_by_role('link',name='PDF PDF forms').click()
-  field=page.locator('.pdf-container input').first;await field.wait_for();await field.fill('Saved project');await field.blur();await page.get_by_role('status').filter(has_text='PDF сохранён').wait_for();url=page.url
+  field=page.locator('.pdf-container input').first;await field.wait_for();await field.fill('');await field.fill('Saved project');await field.blur();await page.get_by_role('status').filter(has_text='PDF сохранён').wait_for();url=page.url
   await page.reload();await field.wait_for();assert await field.input_value()=='Saved project'
   await page.locator('.pdf-toolbar select').nth(1).select_option('3')
-  await page.locator('.annotationEditorLayer').first.click(position={'x':320,'y':380})
-  annotation=page.locator('.freeTextEditor [contenteditable="true"]').first;await annotation.wait_for();await annotation.fill('Browser annotation')
+  await page.wait_for_function("() => document.querySelector('.annotationEditorLayer')?.classList.contains('freetextEditing')")
+  position=await page.locator('.annotationEditorLayer').first.evaluate('''layer=>{const r=layer.getBoundingClientRect();for(const y of [220,300,380,460])for(const x of [850,1000,700,500]){const hit=document.elementFromPoint(r.left+x,r.top+y);if(x<r.width-30&&r.top+y<innerHeight-30&&hit===layer)return {x,y};}throw new Error('No blank annotation area');}''')
+  await page.locator('.annotationEditorLayer').first.click(position=position)
+  annotation=page.locator('.freeTextEditor [contenteditable="true"]').first;await annotation.wait_for();annotation_text='Browser annotation '+uuid.uuid4().hex;await annotation.fill(annotation_text)
   await page.get_by_role('button',name='Сохранить',exact=True).click();await page.get_by_role('status').filter(has_text='PDF сохранён').wait_for()
   state=await (await page.request.get(url.replace('/documents/','/api/documents/')+'/pdf')).json()
   saved=await page.request.get(url.replace('/documents/','/api/documents/')+'/pdf/layers/'+str(state['layerRevision']))
   reader=PdfReader(BytesIO(await saved.body()));assert reader.get_fields()['project']['/V']=='Saved project'
-  assert any('Browser annotation' in str(item.get_object().get('/Contents','')) for item in reader.pages[0]['/Annots'])
+  assert any(annotation_text in str(item.get_object().get('/Contents','')) for item in reader.pages[0]['/Annots'])
   await page.reload();await field.wait_for()
   other=await context.new_page();await other.goto(url);field2=other.locator('.pdf-container input').first;await field2.wait_for()
   await field.fill('Client one');await field.blur();await field2.fill('Client two');await field2.blur();await asyncio.sleep(3)

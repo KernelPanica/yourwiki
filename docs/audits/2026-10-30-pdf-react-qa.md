@@ -30,3 +30,15 @@ Ruling: this uses the pinned PDF.js serialized-storage hash and UI manager drawi
 Worker, CMaps/fonts, WASM and image resources have content-versioned whitelisted paths; prior asset versions are retained for already-open tabs. PDF JavaScript and its 175678-byte stylesheet are lazy; the main stylesheet remains 7046 bytes. Main JS 229149 bytes raw / 70995 gzip / 66189 Brotli. These are artifact sizes, not timing acceptance.
 
 Automatic approval review rejected adding `wasm-unsafe-eval` to the application CSP. No CSP change was made; a separate user question is pending. WASM-dependent fonts/codecs, the wider PDF corpus and real Redmi hardware performance have not been accepted. Full locale strings, pan/remaining controls and all permission-loss/source-notification workflows remain pending. PDF parity is not declared complete.
+
+## Controls, language and permission follow-up
+
+- PDF strings, including conflict/recovery/exit warnings, now have RU/EN/ES dictionaries. Browser checks ran en-US, ru-RU and es-ES.
+- Mouse pan moves both axes (test scrollLeft 100→160, scrollTop 150→230); touch scrolling remains native and scrollbar clicks are not captured. Changing tools exits pan mode.
+- Explicit zoom remains selected after resizing; page-width/page-fit continue to fit on resize. Added zoom increment/decrement and original/saved PDF download actions.
+- All three locales retain a 393×852 document viewport without outer page overflow. PDF stylesheet remains lazy before opening a PDF.
+- UI permission regression initially failed because undo remained enabled. After the fix, edit controls and existing/new form layers lock after write loss, export actions hide after export loss, and the unsaved form value remains in memory. The test observed no PUT after refreshed permissions. This is a UI test with intercepted metadata, not a replacement for actual server ACL tests.
+- Existing form/text round trips, two-client conflict, recovery, discard without saving, delayed worker ink and subsequent ink-only autosave were rerun successfully.
+- Independent reviewer reported no new substantial findings; 13 web tests and TypeScript passed, production build passed. No server code changed in this follow-up; the prior 114-test server baseline remains unchanged. CSP remains unchanged while the separate WebAssembly question is pending.
+
+Final control check also verified native keyboard scrolling of the focusable PDF region. The repeated workspace browser test was made independent of existing annotations: wait for actual free-text mode, choose blank hit-tested space, and assert a unique newly saved annotation string. This eliminated a reproduced stale-coordinate test failure; the strengthened round-trip/conflict/discard scenario passed again.
