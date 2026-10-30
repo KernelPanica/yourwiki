@@ -18,3 +18,15 @@ test('web shell serves only manifest assets with immutable code/font cache and s
  assert.equal((await app.inject({url:'/assets/manifest.json'})).statusCode,404);
  assert.equal((await app.inject({url:'/api/unknown'})).statusCode,404);
 });
+test('PDF worker resources use immutable version paths and never arbitrary filesystem paths',async t=>{
+ const root=await mkdtemp(join(tmpdir(),'yourwiki-pdf-assets-'));
+ const name='pdf-a1b2c3d4e5f60123/cmaps/Example.bcmap',source=Buffer.from('public cmap'),gzip=gzipSync(source),br=brotliCompressSync(source);
+ await mkdir(join(root,'assets','pdf-a1b2c3d4e5f60123','cmaps'),{recursive:true});
+ await writeFile(join(root,'index.html'),'<html>PDF</html>');
+ await writeFile(join(root,'manifest.json'),JSON.stringify({assets:{[name]:{type:'application/octet-stream',size:source.length,gzipSize:gzip.length,brSize:br.length}}}));
+ for(const [suffix,content] of [['',source],['.gz',gzip],['.br',br]] as const)await writeFile(join(root,'assets',name+suffix),content);
+ const app=buildApp({webRoot:root});t.after(async()=>{await app.close();await rm(root,{recursive:true,force:true});});
+ const result=await app.inject({url:'/assets/'+name});assert.equal(result.statusCode,200);assert.equal(result.body,'public cmap');
+ assert.match(result.headers['cache-control'] as string,/immutable/);
+ assert.equal((await app.inject({url:'/assets/pdf-a1b2c3d4e5f60123/cmaps/unknown.bcmap'})).statusCode,404);
+});

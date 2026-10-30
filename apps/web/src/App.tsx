@@ -2,8 +2,10 @@ import { Component,lazy,Suspense,useEffect,useRef,useState } from 'react';
 import type { ErrorInfo,FormEvent,ReactNode } from 'react';
 import { api,ApiError,assetUrl,isAborted } from './api.ts';
 import type { Account,DocumentInfo,DocumentView } from './api.ts';
+import { allowNavigation } from './navigation-guard.ts';
 import { labels,languageFor } from './i18n.ts';
 import type { Labels } from './i18n.ts';
+const PdfWorkspace=lazy(()=>import('./PdfWorkspace.tsx'));
 const Presentation=lazy(()=>import('./Presentation.tsx'));
 const authChannel=typeof BroadcastChannel==='function'?new BroadcastChannel('yourwiki-auth'):null;
 const t=labels[languageFor(navigator.language)];
@@ -52,14 +54,14 @@ function Library({onSessionLost,active}:{onSessionLost:()=>void;active:boolean})
     {cursor&&<button type="button" disabled={pending} onClick={()=>void load(cursor)}>{t.more}</button>}
   </main>;
 }
-function DocumentPage({id,onSessionLost}:{id:string;onSessionLost:()=>void}) {
+function DocumentPage({id,onSessionLost,csrf}:{id:string;onSessionLost:()=>void;csrf:string}) {
   const [view,setView]=useState<DocumentView|null>(null),[error,setError]=useState<unknown>(null),[attempt,setAttempt]=useState(0);
   useEffect(()=>{const controller=new AbortController();setView(null);setError(null);
     void api<DocumentView>(`/api/documents/${encodeURIComponent(id)}/view`,{signal:controller.signal}).then(value=>{if(controller.signal.aborted)return;setView(value);document.title=value.document.title+' · Yourwiki';}).catch(error=>{if(controller.signal.aborted||isAborted(error))return;if(error instanceof ApiError&&error.code==='SESSION_REQUIRED')onSessionLost();else setError(error);});return()=>controller.abort();
   },[id,attempt]);
   return <main id="content" className="document-page"><div className="document-toolbar"><Link href="/" className="back">← {t.back}</Link><div className="document-name"><h1>{view?.document.title??t.preview}</h1>{view&&<span className="muted">{view.document.format.toUpperCase()} · {t.read}</span>}</div>{view?.document.capabilities.export&&<a className="button" href={`/api/documents/${encodeURIComponent(id)}/content`} download>{t.download}</a>}</div>
     {error?<ErrorBox error={error} retry={()=>setAttempt(x=>x+1)}/>:!view?<p className="loading" role="status">{t.loading}</p>:<PreviewBoundary key={id+view.document.manifestDigest}><Suspense fallback={<p className="loading" role="status">{t.loading}</p>}>
-      {view.manifest.kind==='presentation'?<Presentation view={view} t={t}/>:['document','table'].includes(view.manifest.kind)?<iframe key={view.document.manifestDigest} className="document-frame" title={view.document.title} src={assetUrl(view,view.manifest.primary)} sandbox="allow-same-origin"/>:<p className="empty">{t.unsupported}</p>}
+      {view.manifest.kind==='pdf'?<PdfWorkspace view={view} csrf={csrf} onRefresh={()=>setAttempt(x=>x+1)}/>:view.manifest.kind==='presentation'?<Presentation view={view} t={t}/>:['document','table'].includes(view.manifest.kind)?<iframe key={view.document.manifestDigest} className="document-frame" title={view.document.title} src={assetUrl(view,view.manifest.primary)} sandbox="allow-same-origin"/>:<p className="empty">{t.unsupported}</p>}
     </Suspense></PreviewBoundary>}
   </main>;
 }
@@ -70,12 +72,12 @@ export default function App() {
   const [libraryVisited,setLibraryVisited]=useState(location.pathname==='/');
   useEffect(()=>{const update=()=>{if(location.pathname==='/')setLibraryVisited(true);};window.addEventListener('popstate',update);return()=>window.removeEventListener('popstate',update);},[]);
   const [account,setAccount]=useState<Account|null|undefined>(undefined),[path,setPath]=useState(location.pathname),[error,setError]=useState<unknown>(null);
-  useEffect(()=>{const controller=new AbortController();void api<Account>('/api/account',{signal:controller.signal}).then(value=>{if(!controller.signal.aborted)setAccount(value);}).catch(error=>{if(!controller.signal.aborted&&!isAborted(error)){if(!(error instanceof ApiError&&error.code==='SESSION_REQUIRED'))setError(error);setAccount(null);}});const pop=()=>setPath(location.pathname);window.addEventListener('popstate',pop);return()=>{controller.abort();window.removeEventListener('popstate',pop);};},[authEpoch]);
+  useEffect(()=>{const controller=new AbortController();void api<Account>('/api/account',{signal:controller.signal}).then(value=>{if(!controller.signal.aborted)setAccount(value);}).catch(error=>{if(!controller.signal.aborted&&!isAborted(error)){if(!(error instanceof ApiError&&error.code==='SESSION_REQUIRED'))setError(error);setAccount(null);}});let previousPath=location.pathname;const pop=()=>{if(!allowNavigation()){history.pushState(null,'',previousPath);return;}previousPath=location.pathname;setPath(previousPath);};window.addEventListener('popstate',pop);return()=>{controller.abort();window.removeEventListener('popstate',pop);};},[authEpoch]);
   function sessionLost(){setAccount(null);setError(new ApiError('SESSION_REQUIRED'));}
-  async function signOut(){try{await api('/api/auth/logout',{method:'POST',headers:{'x-csrf-token':account!.csrf}});setAccount(null);setError(null);authChannel?.postMessage('changed');}catch(error){if(error instanceof ApiError&&error.code==='SESSION_REQUIRED')sessionLost();else setError(error);}}
+  async function signOut(){if(!allowNavigation())return;try{await api('/api/auth/logout',{method:'POST',headers:{'x-csrf-token':account!.csrf}});setAccount(null);setError(null);authChannel?.postMessage('changed');}catch(error){if(error instanceof ApiError&&error.code==='SESSION_REQUIRED')sessionLost();else setError(error);}}
   useEffect(()=>{if(!path.startsWith('/documents/'))document.title='Yourwiki';},[path]);
   if(account===undefined)return <main id="content" className="loading" role="status">{t.loading}</main>;
   if(!account)return <Login onLogin={value=>{setError(null);setAccount(value);authChannel?.postMessage('changed');}} notice={error}/>;
   let id='';try{if(path.startsWith('/documents/'))id=decodeURIComponent(path.slice('/documents/'.length));}catch{/* invalid URL handled below */}
-  return <><a className="skip" href="#content">{t.skip}</a><header className="site-header"><Link href="/" className="brand">Yourwiki<span>·</span></Link><nav aria-label="Yourwiki"><Link href="/" aria-current={path==='/'?'page':undefined}>{t.files}</Link><Link href="/account" aria-current={path==='/account'?'page':undefined}>{t.account}</Link></nav><button type="button" className="sign-out" onClick={()=>void signOut()}>{t.signOut}</button></header>{error?<ErrorBox error={error}/>:null}{libraryVisited&&<div className="library-route" hidden={path!=='/'}><Library onSessionLost={sessionLost} active={path==='/'}/></div>}{id?<DocumentPage key={id} id={id} onSessionLost={sessionLost}/>:path==='/account'?<AccountPage account={account}/>:null}</>;
+  return <><a className="skip" href="#content">{t.skip}</a><header className="site-header"><Link href="/" className="brand">Yourwiki<span>·</span></Link><nav aria-label="Yourwiki"><Link href="/" aria-current={path==='/'?'page':undefined}>{t.files}</Link><Link href="/account" aria-current={path==='/account'?'page':undefined}>{t.account}</Link></nav><button type="button" className="sign-out" onClick={()=>void signOut()}>{t.signOut}</button></header>{error?<ErrorBox error={error}/>:null}{libraryVisited&&<div className="library-route" hidden={path!=='/'}><Library onSessionLost={sessionLost} active={path==='/'}/></div>}{id?<DocumentPage key={id} id={id} onSessionLost={sessionLost} csrf={account.csrf}/>:path==='/account'?<AccountPage account={account}/>:null}</>;
 }

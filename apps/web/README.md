@@ -48,3 +48,37 @@ The initial main script is approximately66KB Brotli plus small shared chunks;
 presentation code is split out. This is a build measurement, not a claim of
 500ms page readiness. Full cold/warm timings on Redmi Note12T over internet,
 low-memory profiling and mixed Collabora load remain required.
+
+### PDF.js workspace (opt-in runtime)
+
+PDF.js 6.3.289 loads on demand, including a separate stylesheet. Worker, CMaps,
+standard fonts, images and WASM resources are served locally under content-versioned
+public paths; the main page CSS remains 7046 bytes before compression. The workspace
+supports forms, text/highlight/ink tools, annotation parameters, undo/redo, autosave,
+separate saved layers, conflict-copy download and guarded departure without saving.
+Unknown save outcomes pause automatic retries. A newer unprepared original keeps the
+older prepared PDF available for viewing, with editing paused.
+
+Browser regression fixtures are synthetic and loopback-only:
+
+```sh
+npm run build --prefix apps/web
+node apps/server/test/support/pdf-browser-server.ts
+# In another terminal, with Python Playwright and pypdf installed:
+python apps/web/test/browser/pdf-workspace.py
+python apps/web/test/browser/pdf-serialization-race.py
+```
+
+Set `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` if Chromium is not installed through
+Playwright. Optional `YOURWIKI_BROWSER_PORT` (server) and `YOURWIKI_BROWSER_BASE_URL`
+(browser scripts) change the default loopback test address. Stop the fixture server
+with Ctrl-C; it removes its temporary blob store. The form PDF fixture contains no
+user data. The race test holds an actual PDF.js worker SaveDocument message while
+another ink stroke is added, then parses the resulting saved PDF.
+
+PDF parity is still pending: complete locale strings, pan/remaining workspace
+controls, all permission-loss interactions, source/provider notifications and the
+full PDF corpus. The current CSP remains unchanged; permission for WebAssembly
+compilation was not added after automatic approval review rejected that change.
+Standard form/text/ink fixtures pass without it; WASM-dependent decoders require
+separate acceptance. No production runtime switch or 500ms claim is implied.

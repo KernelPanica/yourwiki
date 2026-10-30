@@ -3,17 +3,17 @@ export interface DocumentInfo { id: string; title: string; format: string; revis
 export interface Artifact { name:string;digest:string;size:number;mimeType:string }
 export interface DocumentView { document: DocumentInfo; manifest: {kind:string;primary:string;artifacts:Artifact[]}; presentation: unknown }
 export class ApiError extends Error {
-  code: string; requestId: string;
-  constructor(code: string, requestId='') { super(code); this.code=code; this.requestId=requestId; }
+  code: string; requestId: string; operationId: string|null;
+  constructor(code: string, requestId='', operationId:string|null=null) { super(code); this.code=code; this.requestId=requestId; this.operationId=operationId; }
 }
 export async function api<T>(url:string, init:RequestInit={}):Promise<T> {
   const response = await fetch(url,{...init, credentials:'same-origin',cache:'no-store',headers:{...init.headers}});
   init.signal?.throwIfAborted();
   if (!response.ok) {
-    let value: {code?:string;requestId?:string} = {};
+    let value: {code?:string;requestId?:string;operationId?:string} = {};
     try { value=await response.json(); } catch { /* proxy/non-JSON error */ }
     init.signal?.throwIfAborted();
-    throw new ApiError(value.code ?? (response.status===401?'SESSION_REQUIRED':'REQUEST_FAILED'), value.requestId);
+    throw new ApiError(value.code ?? (response.status===401?'SESSION_REQUIRED':'REQUEST_FAILED'), value.requestId, value.operationId);
   }
   const value=response.status===204 ? undefined as T : await response.json();
   init.signal?.throwIfAborted();
