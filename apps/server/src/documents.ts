@@ -1,3 +1,4 @@
+import {officeWriteAllowed} from './office/fence.ts';
 import { randomUUID } from 'node:crypto';
 import { AccessService } from './access.ts';
 import { transaction } from './database.ts';
@@ -19,7 +20,7 @@ export class DocumentError extends Error {
 type Doc = { id: string; title: string; format: string; local_revision: number; published_revision: number | null; provider_revision: number | null };
 type Actor = { active: number; admin_role: string };
 type CreateInput = { userId: string; parentId: string | null; groupId?: string; title: string; format: string; signal?: AbortSignal };
-type SaveInput = { userId: string; documentId: string; baseRevision: number; signal?: AbortSignal };
+type SaveInput = { officeSessionId?: string; userId: string; documentId: string; baseRevision: number; signal?: AbortSignal };
 
 export class DocumentService {
   private db: Database; private store: BlobStore; private queue: JobQueue; private access: AccessService;
@@ -59,6 +60,7 @@ export class DocumentService {
     if (!doc || !this.access.allows(input.userId, input.documentId, 'read') || !this.draftVisible(input.userId, doc.id, doc.published_revision)) throw new DocumentError('NOT_FOUND');
     if (!this.access.allows(input.userId, input.documentId, 'write')) throw new DocumentError('ACCESS_DENIED');
     if (doc.local_revision !== input.baseRevision) throw new DocumentError('CONFLICT');
+    if (!officeWriteAllowed(this.db,doc.id,input.officeSessionId,this.clock())) throw new DocumentError('OFFICE_ACTIVE');
     return doc;
   }
   private stageVersion(id: string, revision: number, userId: string, blob: BlobRef): string {

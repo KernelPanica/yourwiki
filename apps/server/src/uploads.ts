@@ -50,7 +50,8 @@ export class ResumableUploads {
   }
   create(userId: string, value: UploadMetadata) {
     // Snapshot caller data before any transaction can retain mutable references.
-    const metadata = JSON.parse(JSON.stringify(value)) as UploadMetadata;
+    const copied = JSON.parse(JSON.stringify(value)) as UploadMetadata;
+    const metadata:UploadMetadata = copied.mode==='save'?{mode:'save',size:copied.size,documentId:copied.documentId,baseRevision:copied.baseRevision}:copied.mode==='create'?{mode:'create',size:copied.size,title:copied.title,format:copied.format,parentId:copied.parentId,groupId:copied.groupId}:copied;
     if (!Number.isSafeInteger(metadata.size) || metadata.size < 0) throw new UploadError('INVALID_REQUEST');
     if (metadata.size > this.maxFile) throw new BlobTooLargeError();
     if (Math.ceil(metadata.size / this.chunkBytes) > 4096) throw new UploadError('TOO_MANY_CHUNKS');

@@ -98,3 +98,15 @@ test('an existing version-eight workspace gains the save journal without rewriti
  assert.equal((migrated.prepare("SELECT COUNT(*) AS n FROM memberships WHERE user_id='old-user'").get() as any).n,1);
  assert.deepEqual(migrated.prepare('SELECT * FROM save_operations').all(),[]);
 });
+
+
+test('version-nine journal rows survive office-session migration with an empty internal binding',t=>{
+ const path=fixture(t),original=new Sqlite(path);original.exec('CREATE TABLE schema_migrations(version INTEGER PRIMARY KEY,checksum TEXT NOT NULL)');
+ for(const [index,sql] of migrations.slice(0,9).entries()){original.exec(sql);original.prepare('INSERT INTO schema_migrations VALUES(?,?)').run(index+1,createHash('sha256').update(sql).digest('hex'));}
+ original.pragma(`application_id = ${applicationId}`);
+ original.exec("INSERT INTO users(id,username,display_name,password_hash) VALUES('owner','owner','Owner','!'); INSERT INTO groups VALUES('g','Group'); INSERT INTO resources(id,kind,owner_id,group_id) VALUES('doc','document','owner','g'); INSERT INTO documents(id,title,format,local_revision,created_at) VALUES('doc','Old journal','md',1,1)");
+ original.prepare('INSERT INTO save_operations(id,document_id,author_id,base_revision,base_digest,digest,size,state,created_at,updated_at) VALUES(?,?,?,?,?,?,1,?,1,1)').run('old-operation','doc','owner',1,'a'.repeat(64),'b'.repeat(64),'staged');
+ const checksums=original.prepare('SELECT * FROM schema_migrations ORDER BY version').all();original.close();
+ const migrated=openDatabase(path);t.after(()=>migrated.close());assert.deepEqual(migrated.prepare('SELECT * FROM schema_migrations WHERE version<=9 ORDER BY version').all(),checksums);
+ const row=migrated.prepare("SELECT state,digest,office_session_id FROM save_operations WHERE id='old-operation'").get();assert.deepEqual(row,{state:'staged',digest:'b'.repeat(64),office_session_id:null});
+});

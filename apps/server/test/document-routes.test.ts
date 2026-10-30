@@ -7,6 +7,7 @@ import { request as httpRequest } from 'node:http';
 import { setTimeout as delay } from 'node:timers/promises';
 import { Readable } from 'node:stream';
 import { openDatabase } from '../src/database.ts';
+import {OfficeSessions} from '../src/office/sessions.ts';
 import { buildApp } from '../src/app.ts';
 import { BlobStore } from '../src/storage/blobs.ts';
 import { DocumentService } from '../src/documents.ts';
@@ -203,4 +204,15 @@ test('preview ranges support partial reads without export and recheck access on 
   db.prepare('UPDATE resources SET inherit_permissions=0,user_policies=? WHERE id=?').run(JSON.stringify({ reader: { read: false } }), created.documentId);
   assert.equal((await read('bytes=0-7')).statusCode, 404);
   assert.equal((await app.inject({ url, headers: { range: 'bytes=0-7' } })).statusCode, 401);
+});
+
+
+test('active office sessions fence source and resumable HTTP saves, including forged internal binding',async t=>{
+ const f=await setup(t);await f.publish();const auth=f.headers();
+ const browserToken=auth.cookie.split('=')[1]!;const opened=new OfficeSessions(f.db).open(browserToken,f.created.documentId);
+ const source=await f.app.inject({method:'PUT',url:`/api/documents/${f.created.documentId}/content?baseRevision=1&officeSessionId=${opened.sessionId}`,headers:{...auth,'content-type':'application/octet-stream'},payload:'new'});
+ assert.equal(source.statusCode,409);assert.equal(source.json().code,'OFFICE_ACTIVE');assert.deepEqual(source.json().recoveryActions,['open_office','copy_changes','download_changes']);
+ const resume=await f.app.inject({method:'POST',url:'/api/uploads',headers:auth,payload:{mode:'save',size:3,documentId:f.created.documentId,baseRevision:1,officeSessionId:opened.sessionId}});
+ assert.equal(resume.statusCode,409);assert.equal(resume.json().code,'OFFICE_ACTIVE');
+ assert.equal((f.db.prepare('SELECT local_revision FROM documents WHERE id=?').get(f.created.documentId) as any).local_revision,1);
 });

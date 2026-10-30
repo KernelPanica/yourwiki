@@ -144,5 +144,23 @@ CREATE TABLE save_operations (
 );
 CREATE INDEX save_operations_pending ON save_operations(state,author_id);
 `;
-export const migrations = [core + epochTriggers, authInvalidation, authSettings, jobs, documents, workerSlots, uploads, pdfLayers, saveJournal] as const;
+const officeSessions = `
+CREATE TABLE office_sessions (
+ id TEXT PRIMARY KEY, document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE RESTRICT,
+ base_revision INTEGER NOT NULL, base_digest TEXT NOT NULL,
+ expires_at INTEGER NOT NULL, superseded INTEGER NOT NULL DEFAULT 0 CHECK(superseded IN (0,1)),
+ lock_value TEXT NOT NULL DEFAULT '', lock_expires_at INTEGER NOT NULL DEFAULT 0,
+ pending_operation_id TEXT REFERENCES save_operations(id) ON DELETE RESTRICT,
+ error_code TEXT, created_at INTEGER NOT NULL
+);
+CREATE UNIQUE INDEX office_current ON office_sessions(document_id) WHERE superseded=0;
+CREATE TABLE office_tokens (
+ token_hash TEXT PRIMARY KEY, office_session_id TEXT NOT NULL REFERENCES office_sessions(id) ON DELETE CASCADE,
+ user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+ browser_session_hash TEXT NOT NULL, writable INTEGER NOT NULL CHECK(writable IN (0,1)), expires_at INTEGER NOT NULL
+);
+CREATE INDEX office_tokens_expiry ON office_tokens(expires_at);
+ALTER TABLE save_operations ADD COLUMN office_session_id TEXT REFERENCES office_sessions(id) ON DELETE RESTRICT;
+`;
+export const migrations = [core + epochTriggers, authInvalidation, authSettings, jobs, documents, workerSlots, uploads, pdfLayers, saveJournal, officeSessions] as const;
 export const applicationId = 0x5957494b; // YWIK; legacy Django uses no marker.

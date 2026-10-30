@@ -44,10 +44,11 @@ export function registerDocuments(app: FastifyInstance, db: Database, store: Blo
   const fail = (error: unknown, request: FastifyRequest, reply: FastifyReply) => {
     if (error instanceof BlobTooLargeError) return reply.code(413).send(errorEnvelope('PAYLOAD_TOO_LARGE', request.id));
     if (!(error instanceof DocumentError)) throw error;
-    const status = ({ NOT_FOUND: 404, ACCESS_DENIED: 403, CONFLICT: 409, INVALID_REQUEST: 400 } as Record<string, number>)[error.code] ?? 500;
+    const status = ({ NOT_FOUND: 404, ACCESS_DENIED: 403, CONFLICT: 409, OFFICE_ACTIVE: 409, INVALID_REQUEST: 400 } as Record<string, number>)[error.code] ?? 500;
     const body = errorEnvelope(status === 500 ? 'INTERNAL_ERROR' : error.code, request.id);
     body.operationId = error.recoveryId;
     if (error.code === 'CONFLICT') body.recoveryActions = ['copy_changes', 'download_changes', 'reload'];
+    if (error.code === 'OFFICE_ACTIVE') body.recoveryActions = ['open_office', 'copy_changes', 'download_changes'];
     return reply.code(status).send(body);
   };
 

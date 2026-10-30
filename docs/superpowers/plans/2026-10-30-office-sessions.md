@@ -1,0 +1,20 @@
+# Collabora session and WOPI integration
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement task-by-task.
+
+**Goal:** Port shared office editing with local bytes, current ACL, locks, durable recovery, and preserved external-change/exit warnings. Production remains legacy until complete acceptance.
+
+**Architecture:** Per-document durable office identity captures original revision and digest. Per-user opaque hashed capabilities bind to the issuing authenticated browser session; logout/password change/ACL revocation invalidate subsequent operations. Shared locks expire after30min; session drift retires the WOPI identity without discarding pending recovery. Local saves use SaveJournal with an internal office session binding; other editor paths are fenced while an active/pending office identity exists. Discovery/HTTP/PutFile/UI follow after core invariants pass.
+
+- [x] Core: append migration10; OfficeSessions open/authorize/status/locks, shared identity, 30min lease and8h maximum token lifetime. Preserve all legacy office format eligibility. Read-only tokens never gain write scope. Tests RED→GREEN for shared participants, current ACL/auth/logout, expiry/restart, locks/relock, external revisions and pending recovery retention.
+- [x] Central save fence: regular document saves cannot bypass active/pending office identity. Internal journal operations persist their office identity; only current matching unsuperseded session may commit. Tests for old source/resumable saves blocked and office-origin commit retained.
+- [ ] Discovery/HTTP: bounded cached discovery; exact configured public origin/path, WOPI authenticated metadata/range/file/locks, CSRF-protected browser bootstrap/status/recovery. No arbitrary remote fetch or token logging. Verify official WOPI semantics and retain configured deployment proxy restrictions.
+- [ ] PutFile: bounded ingress reservation/streaming, format checks, lock recheck after IO, journal durable recovery before commit, no lost-ACK duplicate write, exact base checks and shared baseline receipt atomicity.
+- [ ] React: preview shown while Collabora loads; readiness handshake, fullscreen, toolbar/recovery/Google conversion warnings, session/ACL/conflict/exit behavior and presence; no save-on-leave. Real Collabora acceptance and complete provider round-trip remain required.
+
+Protocol references: https://learn.microsoft.com/en-us/microsoft-365/cloud-storage-partner-program/rest/concepts and rest/files/{lock,unlockandrelock,getlock}. Locks compare opaque values and atomic relock distinguishes X-WOPI-OldLock presence. WOPI IDs and user tokens are independent. GET_LOCK reports an empty lock when unlocked. No claim of Microsoft365 integration/support from implementing the subset used by Collabora.
+
+Ruling: bind new WOPI capabilities to the issuing browser session, improving on legacy user-only tokens so logout stops subsequent office operations. Pending recovery survives token/session expiry and does not authorize an old token. Recovery access will require a new authenticated browser request with current read/export and author/admin checks.
+
+
+Core verification: 12 office/session tests, including real HTTP source/resumable denial in the HTTP suite, total full server150 passed/0 skipped with native office conversions. Migration9→10 preserves earlier pending journal rows and checksums. Server typecheck and whitespace checks pass. Standalone parity check against wiki/office_formats.py confirms all39 legacy eligible formats exactly. Core fixtures deliberately use synthetic bytes; this is not an actual Collabora engine/PutFile acceptance. HTTP/discovery/ingress/PutFile/frontend tasks remain open. Token release/cleanup and browser lifecycle handling must be completed with HTTP/frontend so the64-per-parent live-capability budget does not accumulate across ordinary closed editors. No production switch or CSP modification.
