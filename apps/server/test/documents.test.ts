@@ -130,3 +130,15 @@ test('unpublished documents cannot be modified by another group writer', async t
   await assert.rejects(service.save({ userId: 'reader', documentId: created.documentId, baseRevision: 1 }, bytes('replacement')), /NOT_FOUND/);
   assert.throws(() => service.requestPreview('reader', created.documentId), /NOT_FOUND/);
 });
+
+
+test('version timestamps distinguish rapid saves and survive a backward server clock', async t => {
+  const {service,db,tick}=await fixture(t);
+  const first=await service.create(metadata,bytes('first'));
+  await service.save({userId:'owner',documentId:first.documentId,baseRevision:1},bytes('second'));
+  tick(900);
+  await service.save({userId:'owner',documentId:first.documentId,baseRevision:2},bytes('third'));
+  tick(5000);
+  await service.save({userId:'owner',documentId:first.documentId,baseRevision:3},bytes('fourth'));
+  assert.deepEqual(db.prepare('SELECT created_at FROM document_versions WHERE document_id=? ORDER BY revision').all(first.documentId).map(row=>(row as {created_at:number}).created_at),[1000,1001,1002,5000]);
+});

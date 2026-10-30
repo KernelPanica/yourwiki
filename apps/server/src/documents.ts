@@ -64,7 +64,10 @@ export class DocumentService {
     return doc;
   }
   private stageVersion(id: string, revision: number, userId: string, blob: BlobRef): string {
-    const now = this.clock();
+    // Collabora uses LastModifiedTime as a save precondition. Keep it unique
+    // even when saves share one millisecond or the system clock moves back.
+    const previous = this.db.prepare('SELECT created_at FROM document_versions WHERE document_id=? ORDER BY revision DESC LIMIT 1').get(id) as {created_at:number} | undefined;
+    const now = previous ? Math.max(this.clock(), previous.created_at + 1) : this.clock();
     this.db.prepare('INSERT INTO document_versions(document_id,revision,digest,size,author_id,created_at) VALUES(?,?,?,?,?,?)')
       .run(id, revision, blob.digest, blob.size, userId, now);
     this.db.prepare('UPDATE documents SET local_revision=? WHERE id=?').run(revision, id);
