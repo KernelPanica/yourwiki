@@ -95,36 +95,52 @@ export class DocumentService {
     throw new DocumentError(reason, recoveryId);
   }
 
-  async create(input: CreateInput, source: AsyncIterable<Uint8Array>) {
+  checkCreate(input: CreateInput): void {
     const title = input.title.trim();
     if (!title || title.length > 200 || /[\x00-\x1f]/.test(title) || !/^[a-z0-9][a-z0-9.-]{0,31}$/.test(input.format)) throw new DocumentError('INVALID_REQUEST');
     this.destination(input);
+  }
+  checkSave(input: SaveInput): void {
+    if (!Number.isSafeInteger(input.baseRevision) || input.baseRevision < 0) throw new DocumentError('INVALID_REQUEST');
+    this.writable(input);
+  }
+  private prepared(blob: BlobRef): void {
+    if (!/^[a-f0-9]{64}$/.test(blob.digest) || !Number.isSafeInteger(blob.size) || blob.size < 0 || blob.size > this.maxBytes) throw new DocumentError('INVALID_REQUEST');
+  }
+  /** Internal commit API: caller must have durably stored/verified this BlobRef. */
+  commitPreparedCreate(input: CreateInput, blob: BlobRef, id = randomUUID()) {
+    return transaction(this.db, () => {
+      this.prepared(blob); this.checkCreate(input); input.signal?.throwIfAborted();
+      const group = this.destination(input);
+      this.db.prepare("INSERT INTO resources(id,kind,parent_id,owner_id,group_id) VALUES(?,'document',?,?,?)").run(id, input.parentId, input.userId, group);
+      this.db.prepare('INSERT INTO documents(id,title,format,created_at) VALUES(?,?,?,?)').run(id, input.title.trim(), input.format, this.clock());
+      const jobId = this.stageVersion(id, 1, input.userId, blob);
+      return { documentId: id, revision: 1, jobId, blob };
+    });
+  }
+  /** Internal commit API: caller must have durably stored/verified this BlobRef. */
+  commitPreparedSave(input: SaveInput, blob: BlobRef) {
+    return transaction(this.db, () => {
+      this.prepared(blob); this.checkSave(input); input.signal?.throwIfAborted();
+      const doc = this.writable(input), revision = doc.local_revision + 1;
+      const jobId = this.stageVersion(doc.id, revision, input.userId, blob);
+      return { documentId: doc.id, revision, jobId, blob };
+    });
+  }
+
+  async create(input: CreateInput, source: AsyncIterable<Uint8Array>) {
+    this.checkCreate(input);
     const id = randomUUID();
     const blob = await this.store.put(source, { maxBytes: this.maxBytes, signal: input.signal });
-    try {
-      return transaction(this.db, () => {
-        input.signal?.throwIfAborted();
-        const group = this.destination(input);
-        this.db.prepare("INSERT INTO resources(id,kind,parent_id,owner_id,group_id) VALUES(?,'document',?,?,?)").run(id, input.parentId, input.userId, group);
-        this.db.prepare('INSERT INTO documents(id,title,format,created_at) VALUES(?,?,?,?)').run(id, title, input.format, this.clock());
-        const jobId = this.stageVersion(id, 1, input.userId, blob);
-        return { documentId: id, revision: 1, jobId, blob };
-      });
-    } catch (error) { return this.retain(id, input.userId, blob, error); }
+    try { return this.commitPreparedCreate(input, blob, id); }
+    catch (error) { return this.retain(id, input.userId, blob, error); }
   }
 
   async save(input: SaveInput, source: AsyncIterable<Uint8Array>) {
-    if (!Number.isSafeInteger(input.baseRevision) || input.baseRevision < 0) throw new DocumentError('INVALID_REQUEST');
-    this.writable(input);
+    this.checkSave(input);
     const blob = await this.store.put(source, { maxBytes: this.maxBytes, signal: input.signal });
-    try {
-      return transaction(this.db, () => {
-        input.signal?.throwIfAborted();
-        const doc = this.writable(input), revision = doc.local_revision + 1;
-        const jobId = this.stageVersion(doc.id, revision, input.userId, blob);
-        return { documentId: doc.id, revision, jobId, blob };
-      });
-    } catch (error) { return this.retain(input.documentId, input.userId, blob, error); }
+    try { return this.commitPreparedSave(input, blob); }
+    catch (error) { return this.retain(input.documentId, input.userId, blob, error); }
   }
 
   getPublished(userId: string, documentId: string) {

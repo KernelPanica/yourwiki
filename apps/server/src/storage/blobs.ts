@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { createReadStream } from 'node:fs';
-import { link, mkdir, open, realpath, stat, unlink } from 'node:fs/promises';
+import { link, mkdir, open, realpath, stat, unlink, rm } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import type { Readable } from 'node:stream';
 
@@ -51,6 +51,25 @@ export class BlobStore {
     await syncDirectory(resolved);
     await syncDirectory(dirname(resolved));
     return new BlobStore(resolved);
+  }
+
+  private uploadPath(id: string): string {
+    if (!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(id)) throw new Error('Invalid temporary upload ID');
+    return join(this.root, 'uploads', id);
+  }
+
+  async uploadStore(id: string): Promise<BlobStore> {
+    const path = this.uploadPath(id);
+    await mkdir(dirname(path), { recursive: true, mode: 0o700 });
+    // Persist the namespace entry before any chunk receipt can be committed.
+    await syncDirectory(this.root);
+    return BlobStore.open(path);
+  }
+
+  async removeUpload(id: string): Promise<void> {
+    const path = this.uploadPath(id);
+    await rm(path, { recursive: true, force: true });
+    await syncDirectory(dirname(path)).catch(error => { if (error.code !== 'ENOENT') throw error; });
   }
 
   private path(digest: string): string {

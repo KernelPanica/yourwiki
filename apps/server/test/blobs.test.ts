@@ -100,3 +100,11 @@ test('a stalled iterator close cannot retain staging after a size rejection', as
     assert.deepEqual(await readdir(join(root, 'staging')), []);
   } finally { clearTimeout(deadline!); }
 });
+
+test('temporary namespaces cannot escape storage or delete permanent originals', async t => {
+  const { store } = await fixture(t);
+  const original = await store.put(chunks('original'), { maxBytes: 100 });
+  await assert.rejects(store.uploadStore('../blobs'), /temporary upload ID/);
+  await assert.rejects(store.removeUpload('../blobs'), /temporary upload ID/);
+  assert.equal(await store.verify(original), true);
+});

@@ -108,5 +108,19 @@ CREATE TABLE worker_slots (
   name TEXT PRIMARY KEY, token TEXT NOT NULL, lease_until INTEGER NOT NULL
 );
 `;
-export const migrations = [core + epochTriggers, authInvalidation, authSettings, jobs, documents, workerSlots] as const;
+const uploads = `
+CREATE TABLE uploads (
+  id TEXT PRIMARY KEY, owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+  metadata TEXT NOT NULL, size INTEGER NOT NULL CHECK(size>=0), chunk_bytes INTEGER NOT NULL CHECK(chunk_bytes>0), offset INTEGER NOT NULL DEFAULT 0,
+  state TEXT NOT NULL DEFAULT 'active' CHECK(state IN ('active','completed','cancelled','expired')),
+  result TEXT, cleanup_at INTEGER, lease_token TEXT, lease_until INTEGER, expires_at INTEGER NOT NULL, created_at INTEGER NOT NULL
+);
+CREATE INDEX uploads_reservations ON uploads(state,expires_at,owner_id);
+CREATE TABLE upload_chunks (
+  upload_id TEXT NOT NULL REFERENCES uploads(id) ON DELETE CASCADE,
+  offset INTEGER NOT NULL, digest TEXT NOT NULL, size INTEGER NOT NULL CHECK(size>0), storage_id TEXT NOT NULL,
+  PRIMARY KEY(upload_id,offset)
+);
+`;
+export const migrations = [core + epochTriggers, authInvalidation, authSettings, jobs, documents, workerSlots, uploads] as const;
 export const applicationId = 0x5957494b; // YWIK; legacy Django uses no marker.

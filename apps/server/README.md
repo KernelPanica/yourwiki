@@ -149,3 +149,38 @@ PDF.js viewer and its annotations/forms workflow. Office conversion, native
 Yourwiki document formats, Canvas/drawio, embedded resources/fonts and large
 file acceptance remain pending. The worker does not establish 4 GiB office
 viewing/editing or the page performance target.
+
+## Resumable uploads
+
+Authenticated routes (mutations require the same Origin/CSRF protection):
+
+- `POST /api/uploads`: JSON `{mode:"create", title, format, groupId, size}`
+  (or `parentId`) or `{mode:"save", documentId, baseRevision, size}`. Returns
+  `id`, `offset`, `chunkBytes`, `expiresAt` and state.
+- `GET /api/uploads/:id`: owner-only durable progress and completion receipt.
+- `PATCH /api/uploads/:id?offset=N`: raw `application/octet-stream`. Send exactly
+  `min(chunkBytes, size-offset)` bytes. Successful offset is durable; after a
+  disconnect query status and resend the unconfirmed part. Replaying the same
+  bytes at a committed boundary succeeds; different bytes return 409.
+- `POST /api/uploads/:id/finish`: streams assembly and commits the document,
+  preview job and completion receipt atomically. After lost ACK, retry returns
+  the same receipt. Concurrent append/finish returns 423; query status/retry.
+- `DELETE /api/uploads/:id`: cancels an unfinished upload and cleans its parts.
+
+Default file limit is 4 GiB, chunks 8 MiB, pending reservation quota 8 GiB,
+expiry 24 hours; up to 3 active uploads per user, 45 uncleaned reservations and
+4096 parts per upload. Chunk size is persisted per upload, so a configuration
+change does not alter an in-progress protocol. Parts use private separate
+namespaces, checksum verification and fsynced directory entries. No whole-file
+buffer is used. Chunk acceptance and assembly have renewable leases and hard
+operation deadlines (5 minutes/chunk, 1 hour/assembly).
+
+`maxPendingUploadBytes` and `uploadChunkBytes` configure the opt-in app factory.
+Reservations remain charged until temporary storage is cleaned; cleanup runs
+on startup and each minute, and resumes after failure. Account/ACL/base revision
+are rechecked on accepted chunks and final commit. Stale saves retain their
+upload parts for recovery until expiry/cancellation; recovery download UI is
+still pending. Disk capacity must also cover the permanent assembled copy,
+existing files/history, and filesystem overhead; a total workspace quota and
+free-space monitoring remain to be connected before production. These tests
+do not establish 4 GiB office rendering/editing or end-to-end page latency.
