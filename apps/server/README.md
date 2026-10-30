@@ -226,3 +226,20 @@ published. The primary JSON artifact contains `{schemaVersion:1, slides:[
 {index,image,thumbnail}]}` and references named artifacts. The React main-slide/
 left-thumbnail GUI is still pending. Engine filter reference:
 [LibreOffice conversion filters](https://help.libreoffice.org/latest/en-US/text/shared/guide/convertfilters.html).
+
+## React client (explicit opt-in)
+
+Build `apps/web`, then pass `webRoot: '/absolute/yourwiki/apps/web/dist'` to
+`buildApp` alongside database/storage/publicUrl. No automatic production switch.
+The root, `/documents/:id` and `/account` serve a static public shell with CSP;
+only manifest-listed hashed code/font assets are public/cacheable. Private
+metadata/preview bytes continue to require the session and current ACL.
+
+`GET /api/documents?after=...&limit=50` returns published accessible metadata and
+write/export capabilities. Scanning is bounded at200 candidates; `nextCursor`
+may be present even when a filtered page is empty. `GET /api/documents/:id/view`
+combines metadata, preview manifest and (for presentations) the small index in
+one authorized local response. Neither endpoint calls cloud providers.
+
+React implements the first read path, not editor/provider/PDF.js parity. The
+old runtime remains authoritative until the remaining acceptance gates pass.

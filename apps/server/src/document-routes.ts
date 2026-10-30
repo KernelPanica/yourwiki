@@ -49,9 +49,29 @@ export function registerDocuments(app: FastifyInstance, db: Database, store: Blo
     return reply.code(status).send(body);
   };
 
+  function visible(userId: string, id: string) {
+    const document = service.getPublished(userId, id);
+    return document ? { ...document, capabilities: { write: access.allows(userId, id, 'write'), export: access.allows(userId, id, 'export') } } : null;
+  }
+  app.get<{ Querystring: { after?: string; limit?: number } }>('/api/documents', { schema: { querystring: {
+    type: 'object', additionalProperties: false, properties: { after: { type: 'string', maxLength: 128 }, limit: { type: 'integer', minimum: 1, maximum: 200, default: 50 } },
+  } } }, async (request, reply) => {
+    const actor = identity(request, reply); if (!actor) return;
+    const candidates = db.prepare('SELECT id FROM documents WHERE published_revision IS NOT NULL AND id>? ORDER BY id LIMIT 201').all(request.query.after ?? '') as { id: string }[];
+    const items = [];
+    let scanned = 0, last: string | null = null;
+    for (const row of candidates.slice(0,200)) {
+      last = row.id; scanned++;
+      const document = visible(actor.userId, row.id);
+      if (document) items.push(document);
+      if (items.length >= (request.query.limit ?? 50)) break;
+    }
+    return { items, nextCursor: scanned < candidates.length ? last : null };
+  });
+
   app.get<{ Params: { id: string } }>('/api/documents/:id', { schema: { params: idSchema } }, async (request, reply) => {
     const actor = identity(request, reply); if (!actor) return;
-    return service.getPublished(actor.userId, request.params.id) ?? notFound(request, reply);
+    return visible(actor.userId, request.params.id) ?? notFound(request, reply);
   });
   app.get<{ Params: { id: string } }>('/api/documents/:id/processing', { schema: { params: idSchema } }, async (request, reply) => {
     const actor = identity(request, reply); if (!actor) return;
@@ -69,6 +89,20 @@ export function registerDocuments(app: FastifyInstance, db: Database, store: Blo
     if (info.size > 1024 * 1024) throw new Error('Invalid stored manifest size');
     return JSON.parse((await buffer(await store.read(digest))).toString()) as PreviewManifest;
   }
+  app.get<{ Params: { id: string } }>('/api/documents/:id/view', { schema: { params: idSchema } }, async (request, reply) => {
+    const actor = identity(request, reply); if (!actor) return;
+    const document = visible(actor.userId, request.params.id);
+    if (!document) return notFound(request, reply);
+    const value = await manifest(request, reply, document.id, document.manifestDigest);
+    if (!value) return;
+    let presentation = null;
+    if (value.kind === 'presentation') {
+      const primary = value.artifacts.find(item => item.name === value.primary);
+      if (!primary || primary.mimeType !== 'application/json' || primary.size > 1024 * 1024) throw new Error('Invalid presentation index');
+      presentation = JSON.parse((await buffer(await store.read(primary.digest))).toString());
+    }
+    return { document, manifest: value, presentation };
+  });
   app.get<{ Params: { id: string; digest: string } }>('/api/documents/:id/previews/:digest', async (request, reply) => {
     const value = await manifest(request, reply, request.params.id, request.params.digest);
     if (!value) return;

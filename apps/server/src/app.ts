@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import Fastify from 'fastify';
 import { errorEnvelope } from './errors.ts';
 import type { Database } from './database.ts';
+import { registerWeb } from './web-routes.ts';
 import { registerUploads } from './upload-routes.ts';
 import { registerDocuments } from './document-routes.ts';
 import type { BlobStore } from './storage/blobs.ts';
@@ -10,6 +11,7 @@ import { registerAuth } from './auth/routes.ts';
 export interface AppOptions {
   database?: Database;
   publicUrl?: string;
+  webRoot?: string;
   storage?: BlobStore;
   maxFileBytes?: number;
   maxPendingUploadBytes?: number;
@@ -52,6 +54,7 @@ export function buildApp(options: AppOptions = {}) {
   if (options.database) registerAuth(app, options.database, options.publicUrl ?? 'http://localhost:3100');
   if (options.database && options.storage) registerDocuments(app, options.database, options.storage, options.publicUrl ?? 'http://localhost:3100', options.maxFileBytes);
   if (options.database && options.storage) registerUploads(app, options.database, options.storage, options.publicUrl ?? 'http://localhost:3100', { maxFileBytes: options.maxFileBytes, maxPendingBytes: options.maxPendingUploadBytes, chunkBytes: options.uploadChunkBytes });
+  if (options.webRoot) registerWeb(app, options.webRoot);
   app.get('/health/', async () => ({ status: 'ok', service: 'yourwiki' }));
   app.get('/ready/', async (request, reply) => {
     let ready = false;

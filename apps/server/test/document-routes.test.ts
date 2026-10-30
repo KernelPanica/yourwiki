@@ -47,6 +47,8 @@ test('document HTTP hides drafts and exposes published manifest and sandboxed as
   await publish();
   const metadata = (await app.inject({ url, headers: headers('reader') })).json();
   assert.equal(metadata.revision, 1);
+  const view = await app.inject({ url: url + '/view', headers: headers('reader') });
+  assert.equal(view.statusCode, 200); assert.equal(view.json().manifest.primary, 'content');
   const manifestUrl = `${url}/previews/${metadata.manifestDigest}`;
   const manifest = await app.inject({ url: manifestUrl, headers: headers('reader') });
   assert.equal(manifest.statusCode, 200);
@@ -152,4 +154,22 @@ test('disconnecting a real HTTP upload removes staging without committing a revi
   request.destroy();
   await waitForStaging(true);
   assert.equal((db.prepare('SELECT COUNT(*) AS n FROM document_versions').get() as any).n, 1);
+});
+
+test('document catalog paginates published files, hides drafts and reflects capabilities', async t => {
+  const { app, db, headers, created, publish } = await setup(t);
+  assert.equal((await app.inject({ url: '/api/documents' })).statusCode, 401);
+  assert.deepEqual((await app.inject({ url: '/api/documents', headers: headers('reader') })).json().items, []);
+  await publish();
+  const result = await app.inject({ url: '/api/documents?limit=1', headers: headers('reader') });
+  assert.equal(result.statusCode, 200);
+  assert.equal(result.json().items[0].id, created.documentId);
+  assert.equal(result.json().items[0].capabilities.write, false);
+  assert.equal(result.json().items[0].capabilities.export, true);
+  const end = await app.inject({ url: '/api/documents?after='+created.documentId, headers: headers('reader') });
+  assert.deepEqual(end.json().items, []);
+  db.prepare('UPDATE resources SET export_disabled=1 WHERE id=?').run(created.documentId);
+  assert.equal((await app.inject({ url: '/api/documents', headers: headers('reader') })).json().items[0].capabilities.export, false);
+  db.prepare('UPDATE resources SET inherit_permissions=0,user_policies=? WHERE id=?').run(JSON.stringify({ reader: { read:false,write:false } }),created.documentId);
+  assert.deepEqual((await app.inject({ url: '/api/documents', headers: headers('reader') })).json().items, []);
 });

@@ -90,3 +90,6 @@ Thumbs.db
 tempCodeRunnerFile.py
 /docs/_build/
 .ipynb_checkpoints/
+
+# Replacement React client build output
+/apps/web/dist/
