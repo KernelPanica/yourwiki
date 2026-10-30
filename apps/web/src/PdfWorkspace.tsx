@@ -4,8 +4,10 @@ import type { PDFDocumentProxy } from 'pdfjs-dist';
 import type { PDFViewer } from 'pdfjs-dist/web/pdf_viewer.mjs';
 import { api, ApiError, assetUrl } from './api.ts';
 import type { DocumentView } from './api.ts';
+import { sessionSnapshot,sessionIsCurrent,onSessionBlocked } from './session-fence.ts';
 import { registerNavigationGuard } from './navigation-guard.ts';
 import { serializePdf } from './pdf-serialization.ts';
+import { PdfRangeSource } from './pdf-range-source.ts';
 import { PdfPan } from './pdf-pan.ts';
 import { pdfLabels } from './pdf-i18n.ts';
 import { languageFor } from './i18n.ts';
@@ -21,7 +23,7 @@ function loadStyles(){
 }
 (globalThis as typeof globalThis & {pdfjsLib: typeof pdfjs}).pdfjsLib = pdfjs;
 pdfjs.GlobalWorkerOptions.workerSrc = __PDF_ASSET_BASE__ + 'pdf.worker.mjs';
-type PdfState = { baseRevision: number; layerRevision: number; state: 'saved'|'conflict'; layer: {baseRevision:number}|null };
+type PdfState = { baseRevision: number; layerRevision: number; state: 'saved'|'conflict'; layer: {baseRevision:number;size:number}|null };
 type Actions = { changed:()=>void; pointerChanged:(target:Element)=>void; save:()=>Promise<void>; download:()=>Promise<void>; tool:(mode:number)=>void; pan:(active:boolean)=>void; zoomStep:(delta:number)=>void; page:(delta:number)=>void; zoom:(scale:string)=>void; jump:(page:number)=>void; undo:()=>void; redo:()=>void; parameter:(type:number,value:number|string)=>void };
 const t=pdfLabels[languageFor(navigator.language)];
 const empty:Actions = {changed:()=>{},pointerChanged:()=>{},save:async()=>{},download:async()=>{},tool:()=>{},pan:()=>{},zoomStep:()=>{},page:()=>{},zoom:()=>{},jump:()=>{},undo:()=>{},redo:()=>{},parameter:()=>{}};
@@ -35,6 +37,8 @@ export default function PdfWorkspace({view,csrf,onRefresh}:{view:DocumentView;cs
   const [staleRevision,setStaleRevision]=useState(0);
   const [stale,setStale]=useState(false),[replace,setReplace]=useState(false);
   useEffect(()=>{
+    const session=sessionSnapshot(),sessionGeneration=session.generation;
+    let rangeSource:PdfRangeSource|undefined;
     const abort=new AbortController(),base=`/api/documents/${encodeURIComponent(view.document.id)}/pdf`;
     let pdf:PDFDocumentProxy|undefined,viewer:PDFViewer|undefined,task:ReturnType<typeof pdfjs.getDocument>|undefined,saveState:PdfSaveState|undefined;
     let timer:ReturnType<typeof setTimeout>|undefined,poll:ReturnType<typeof setInterval>|undefined,observer:ResizeObserver|undefined;
@@ -44,32 +48,32 @@ export default function PdfWorkspace({view,csrf,onRefresh}:{view:DocumentView;cs
     const report=(message:string)=>{if(!abort.signal.aborted)setError(message);};
     const changed=()=>{if(!editable||!saveState||abort.signal.aborted)return;saveState.changed();setDirty(true);setStatus(t.dirty);clearTimeout(timer);if(!saveState.paused)timer=setTimeout(()=>void save(),1500);};
     async function save(){
-      if(!pdf||!saveState||!editable||abort.signal.aborted)return;
+      if(!pdf||!saveState||!editable||abort.signal.aborted||!sessionIsCurrent(sessionGeneration))return;
       (document.activeElement as HTMLElement|null)?.blur();manager?.endCurrentEditing();
       const snapshot=saveState.begin();if(!snapshot)return;
       clearTimeout(timer);setStatus(t.saving);
       try{
-        const bytes=await serializePdf(pdf,changed);abort.signal.throwIfAborted();
+        const bytes=await serializePdf(pdf,changed);abort.signal.throwIfAborted();if(!sessionIsCurrent(sessionGeneration))throw new ApiError('SESSION_REQUIRED');
         const receipt=await api<{baseRevision:number;layerRevision:number}>(`${base}/layer?baseRevision=${snapshot.baseRevision}&layerRevision=${snapshot.layerRevision}&replaceStaleLayer=${replace}`,{method:'PUT',signal:abort.signal,headers:{'content-type':'application/octet-stream','x-csrf-token':csrf},body:new Blob([new Uint8Array(bytes)],{type:'application/octet-stream'})});
         saveState.complete(snapshot,receipt);setSavedLayer(receipt.layerRevision);setDirty(saveState.dirty);setStatus(saveState.dirty?t.dirty:t.saved);setError('');
         if(saveState.dirty)timer=setTimeout(()=>void save(),1500);
       }catch(error){
-        if(abort.signal.aborted)return;saveState.fail();setPaused(true);setDirty(true);if(error instanceof ApiError)setRecoveryId(error.operationId);
+        if(abort.signal.aborted)return;saveState.fail();if(!sessionIsCurrent(sessionGeneration)){setDirty(true);return;}setPaused(true);setDirty(true);if(error instanceof ApiError)setRecoveryId(error.operationId);
         report(error instanceof ApiError&&error.code==='CONFLICT'?t.conflict:t.uncertain);
       }
     }
     async function download(){
-      if(!pdf||!exportable)return;
+      if(!pdf||!exportable||!sessionIsCurrent(sessionGeneration))return;
       try{
         const current=await api<DocumentView>(`/api/documents/${encodeURIComponent(view.document.id)}/view`,{signal:abort.signal});
         if(!current.document.capabilities.export)throw new Error('EXPORT_DENIED');
         (document.activeElement as HTMLElement|null)?.blur();manager?.endCurrentEditing();
-        const bytes=view.document.capabilities.write?await pdf.saveDocument():await pdf.getData();abort.signal.throwIfAborted();
+        const bytes=view.document.capabilities.write?await pdf.saveDocument():await pdf.getData();abort.signal.throwIfAborted();if(!sessionIsCurrent(sessionGeneration))return;
         const url=URL.createObjectURL(new Blob([new Uint8Array(bytes)],{type:'application/pdf'})),link=document.createElement('a');link.href=url;link.download=/\.pdf$/i.test(view.document.title)?view.document.title:view.document.title+'.pdf';link.click();setTimeout(()=>URL.revokeObjectURL(url),60000);
       }catch{report(t.downloadError);}
     }
     const leave=(event:BeforeUnloadEvent)=>{if(saveState?.dirty||saveState?.saving){event.preventDefault();event.returnValue='';}};
-    const removeGuard=registerNavigationGuard(()=>!(saveState?.dirty||saveState?.saving)||window.confirm(t.leave));
+    const removeGuard=registerNavigationGuard(()=>!(saveState?.dirty||saveState?.saving)||window.confirm(t.leave),()=>!!(saveState?.dirty||saveState?.saving));
     window.addEventListener('beforeunload',leave);
     function lockEditing(){
       manager?.endCurrentEditing();
@@ -78,8 +82,15 @@ export default function PdfWorkspace({view,csrf,onRefresh}:{view:DocumentView;cs
       container.current?.querySelectorAll<HTMLInputElement|HTMLTextAreaElement|HTMLSelectElement|HTMLButtonElement>('input,textarea,select,button').forEach(node=>{node.disabled=true;});
       container.current?.querySelectorAll<HTMLElement>('.annotationEditorLayer').forEach(node=>{node.inert=true;});
     }
+    const removeSessionListener=onSessionBlocked(()=>{
+      if(abort.signal.aborted)return;
+      rangeSource?.abort();manager?.endCurrentEditing();editable=false;exportable=false;
+      if(saveState)saveState.paused=true;
+      clearTimeout(timer);setCanWrite(false);setCanExport(false);setPaused(true);report(t.accessLost);
+      lockEditing();if(container.current)container.current.inert=true;
+    });
     async function heartbeat(){
-      if(abort.signal.aborted||document.hidden||checking||!saveState||saveState.saving)return;
+      if(abort.signal.aborted||!sessionIsCurrent(sessionGeneration)||document.hidden||checking||!saveState||saveState.saving)return;
       checking=true;
       try{
         const [remote,metadata]=await Promise.all([api<PdfState>(base,{signal:abort.signal}),api<DocumentView>(`/api/documents/${encodeURIComponent(view.document.id)}/view`,{signal:abort.signal})]);
@@ -114,7 +125,16 @@ export default function PdfWorkspace({view,csrf,onRefresh}:{view:DocumentView;cs
         bus.on('pagechanging',(event:{pageNumber:number})=>{if(!abort.signal.aborted)setPage(event.pageNumber);});
         bus.on('pagesinit',()=>{if(viewer&&!abort.signal.aborted)viewer.currentScaleValue='page-width';});
         const url=initial.layer&&initial.layer.baseRevision===view.document.revision?`${base}/layers/${initial.layerRevision}`:assetUrl(view,view.manifest.primary);
-        task=pdfjs.getDocument({url,cMapUrl:__PDF_ASSET_BASE__+'cmaps/',cMapPacked:true,standardFontDataUrl:__PDF_ASSET_BASE__+'standard_fonts/',wasmUrl:__PDF_ASSET_BASE__+'wasm/',enableXfa:false});
+        const length=initial.layer&&initial.layer.baseRevision===view.document.revision?initial.layer.size:view.manifest.artifacts.find(item=>item.name===view.manifest.primary)!.size;
+        class SessionRange extends pdfjs.PDFDataRangeTransport {
+          constructor(){super(length,null,true);}
+          override requestDataRange(begin:number,end:number){void rangeSource?.request(begin,end);}
+          override abort(){rangeSource?.abort();}
+        }
+        const range=new SessionRange();
+        rangeSource=new PdfRangeSource(url,length,session,(begin,data)=>range.onDataRange(begin,data),()=>{report(t.openError);if(!pdf){void task?.destroy().catch(()=>{});return;}editable=false;setCanWrite(false);setPaused(true);if(saveState)saveState.paused=true;lockEditing();});
+        if(!sessionIsCurrent(sessionGeneration))return;
+        task=pdfjs.getDocument({range,rangeChunkSize:65536,disableAutoFetch:true,disableStream:true,cMapUrl:__PDF_ASSET_BASE__+'cmaps/',cMapPacked:true,standardFontDataUrl:__PDF_ASSET_BASE__+'standard_fonts/',wasmUrl:__PDF_ASSET_BASE__+'wasm/',enableXfa:false});
         const loaded=await task.promise;pdf=loaded;if(abort.signal.aborted){await task.destroy();return;}
         (loaded.annotationStorage as unknown as {onSetModified:()=>void}).onSetModified=changed;viewer.setDocument(loaded);linkService.setDocument(loaded);setPages(loaded.numPages);setReady(true);setStatus(pendingPreview?t.pending:t.ready);
         observer=new ResizeObserver(()=>{if(viewer?.pdfDocument&&['page-width','page-fit'].includes(selectedScale))viewer.currentScaleValue=selectedScale;});observer.observe(container.current!);
@@ -122,7 +142,7 @@ export default function PdfWorkspace({view,csrf,onRefresh}:{view:DocumentView;cs
         poll=setInterval(()=>void heartbeat(),15000);
       }catch(error){if(!abort.signal.aborted)report(t.openError);}
     })();
-    return()=>{abort.abort();clearTimeout(timer);clearInterval(poll);observer?.disconnect();window.removeEventListener('beforeunload',leave);removeGuard();document.removeEventListener('visibilitychange',visible);actions.current=empty;viewer?.setDocument(null as unknown as PDFDocumentProxy);void task?.destroy().catch(()=>{});};
+    return()=>{rangeSource?.abort();abort.abort();clearTimeout(timer);clearInterval(poll);observer?.disconnect();window.removeEventListener('beforeunload',leave);removeGuard();removeSessionListener();document.removeEventListener('visibilitychange',visible);actions.current=empty;viewer?.setDocument(null as unknown as PDFDocumentProxy);void task?.destroy().catch(()=>{});};
   },[view,csrf,replace]);
   function reload(){if(dirty&&!window.confirm(t.discard))return;onRefresh();}
   return <section className="pdf-workspace" aria-label="PDF"><div className="pdf-toolbar">

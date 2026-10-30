@@ -12,9 +12,10 @@ import { buildApp } from '../../src/app.ts';
 import { hashPassword } from '../../src/auth/passwords.ts';
 const root=await mkdtemp(join(tmpdir(),'yourwiki-pdf-browser-')),db=openDatabase(':memory:');
 db.prepare("INSERT INTO users(id,username,display_name,password_hash,admin_role) VALUES('qa','qa','PDF tester',?,'giga')").run(await hashPassword('yourwiki-qa'));
-db.exec("INSERT INTO groups VALUES('qa','Test group'); INSERT INTO memberships VALUES('qa','qa')");
+db.prepare("INSERT INTO users(id,username,display_name,password_hash) VALUES('other','other','Other viewer',?)").run(await hashPassword('yourwiki-other'));
+db.exec("INSERT INTO groups VALUES('qa','Test group'); INSERT INTO memberships VALUES('qa','qa'),('other','qa')");
 const store=await BlobStore.open(root),docs=new DocumentService(db,store);
-await docs.create({userId:'qa',title:'PDF forms',format:'pdf',groupId:'qa',parentId:null},createReadStream(new URL('../fixtures/pdf/form.pdf',import.meta.url)));
+await docs.create({userId:'qa',title:'PDF forms',format:'pdf',groupId:'qa',parentId:null},createReadStream(process.env.YOURWIKI_BROWSER_PDF_FIXTURE??new URL('../fixtures/pdf/form.pdf',import.meta.url)));
 const worker=new PreviewWorker(db,store);while(await worker.runOnce()!=='idle'){}
 const port=Number(process.env.YOURWIKI_BROWSER_PORT??39077);
 if(!Number.isSafeInteger(port)||port<1024||port>65535)throw new Error('Invalid test port');
