@@ -7,6 +7,7 @@ import type { DocumentView } from './api.ts';
 import { sessionSnapshot,sessionIsCurrent,onSessionBlocked } from './session-fence.ts';
 import { registerNavigationGuard } from './navigation-guard.ts';
 import { serializePdf } from './pdf-serialization.ts';
+import {subscribeChanges} from './live-updates.ts';
 import { PdfRangeSource } from './pdf-range-source.ts';
 import { PdfPan } from './pdf-pan.ts';
 import { pdfLabels } from './pdf-i18n.ts';
@@ -43,7 +44,7 @@ export default function PdfWorkspace({view,csrf,onRefresh}:{view:DocumentView;cs
     let pdf:PDFDocumentProxy|undefined,viewer:PDFViewer|undefined,task:ReturnType<typeof pdfjs.getDocument>|undefined,saveState:PdfSaveState|undefined;
     let timer:ReturnType<typeof setTimeout>|undefined,poll:ReturnType<typeof setInterval>|undefined,observer:ResizeObserver|undefined;
     let activeMode:number=pdfjs.AnnotationEditorType.NONE,selectedScale='page-width';
-    let manager:{commitOrRemove:()=>void;endCurrentEditing:()=>void;undo:()=>void;redo:()=>void}|undefined,editable=view.document.capabilities.write,exportable=view.document.capabilities.export,checking=false;
+    let manager:{commitOrRemove:()=>void;endCurrentEditing:()=>void;undo:()=>void;redo:()=>void}|undefined,editable=view.document.capabilities.write,exportable=view.document.capabilities.export,checking=false,recheck=false;
     panController.current.reset();setPanning(false);setToolMode(pdfjs.AnnotationEditorType.NONE);setZoomValue('page-width');if(container.current)container.current.inert=false;setCanWrite(view.document.capabilities.write);setCanExport(view.document.capabilities.export);setSavedLayer(0);setReady(false);setRecoveryId(null);setPaused(false);setError('');setDirty(false);setStale(false);setStatus(t.loading);
     const report=(message:string)=>{if(!abort.signal.aborted)setError(message);};
     const changed=()=>{if(!editable||!saveState||abort.signal.aborted)return;saveState.changed();setDirty(true);setStatus(t.dirty);clearTimeout(timer);if(!saveState.paused)timer=setTimeout(()=>void save(),1500);};
@@ -60,7 +61,7 @@ export default function PdfWorkspace({view,csrf,onRefresh}:{view:DocumentView;cs
       }catch(error){
         if(abort.signal.aborted)return;saveState.fail();if(!sessionIsCurrent(sessionGeneration)){setDirty(true);return;}setPaused(true);setDirty(true);if(error instanceof ApiError)setRecoveryId(error.operationId);
         report(error instanceof ApiError&&error.code==='CONFLICT'?t.conflict:t.uncertain);
-      }
+      }finally{if(recheck)void heartbeat();}
     }
     async function download(){
       if(!pdf||!exportable||!sessionIsCurrent(sessionGeneration))return;
@@ -90,8 +91,9 @@ export default function PdfWorkspace({view,csrf,onRefresh}:{view:DocumentView;cs
       lockEditing();if(container.current)container.current.inert=true;
     });
     async function heartbeat(){
-      if(abort.signal.aborted||!sessionIsCurrent(sessionGeneration)||document.hidden||checking||!saveState||saveState.saving)return;
-      checking=true;
+      if(abort.signal.aborted||!sessionIsCurrent(sessionGeneration))return;
+      if(document.hidden||checking||!saveState||saveState.saving){recheck=true;return;}
+      checking=true;recheck=false;
       try{
         const [remote,metadata]=await Promise.all([api<PdfState>(base,{signal:abort.signal}),api<DocumentView>(`/api/documents/${encodeURIComponent(view.document.id)}/view`,{signal:abort.signal})]);
         const wasEditable=editable;
@@ -103,9 +105,10 @@ export default function PdfWorkspace({view,csrf,onRefresh}:{view:DocumentView;cs
         const result=saveState.remote(remote.baseRevision,remote.layerRevision);
         if(result==='reload'){onRefresh();return;}
         if(result!=='unchanged'){clearTimeout(timer);setPaused(true);report(result==='conflict'?t.remoteConflict:t.remoteClean);}
-      }catch(error){if(abort.signal.aborted)return;if(error instanceof ApiError&&['NOT_FOUND','ACCESS_DENIED','SESSION_REQUIRED'].includes(error.code)){editable=false;exportable=false;setCanWrite(false);setCanExport(false);if(container.current)container.current.inert=true;saveState.paused=true;clearTimeout(timer);setPaused(true);report(t.accessLost);}}
-      finally{checking=false;}
+      }catch(error){if(abort.signal.aborted)return;if(error instanceof ApiError&&['NOT_FOUND','ACCESS_DENIED','SESSION_REQUIRED'].includes(error.code)){rangeSource?.abort();editable=false;exportable=false;setCanWrite(false);setCanExport(false);if(container.current)container.current.inert=true;saveState.paused=true;clearTimeout(timer);setPaused(true);report(t.accessLost);}}
+      finally{checking=false;if(recheck&&!document.hidden)queueMicrotask(()=>void heartbeat());}
     }
+    const removeChanges=subscribeChanges(event=>{if(event.type==='all'||event.documentIds.includes(view.document.id))void heartbeat();});
     const visible=()=>{if(!document.hidden)void heartbeat();};document.addEventListener('visibilitychange',visible);
     void (async()=>{
       try{
@@ -139,10 +142,10 @@ export default function PdfWorkspace({view,csrf,onRefresh}:{view:DocumentView;cs
         (loaded.annotationStorage as unknown as {onSetModified:()=>void}).onSetModified=changed;viewer.setDocument(loaded);linkService.setDocument(loaded);setPages(loaded.numPages);setReady(true);setStatus(pendingPreview?t.pending:t.ready);
         observer=new ResizeObserver(()=>{if(viewer?.pdfDocument&&['page-width','page-fit'].includes(selectedScale))viewer.currentScaleValue=selectedScale;});observer.observe(container.current!);
         actions.current={changed,pointerChanged:target=>{if(activeMode!==pdfjs.AnnotationEditorType.NONE||target.closest('.editToolbar'))changed();},save,download,tool:mode=>{try{if(viewer&&editable&&!saveState?.paused){setPanning(false);panController.current.reset();viewer.annotationEditorMode={mode};activeMode=mode;setToolMode(mode);}}catch{report(t.toolError);}},pan:active=>{manager?.endCurrentEditing();if(active&&viewer&&editable)viewer.annotationEditorMode={mode:pdfjs.AnnotationEditorType.NONE};setPanning(active);panController.current.reset();},zoomStep:delta=>{if(viewer){const scale=Math.max(.25,Math.min(5,Math.round((viewer.currentScale+delta)*100)/100));selectedScale=String(scale);viewer.currentScaleValue=selectedScale;setZoomValue(selectedScale);}},page:delta=>{if(viewer)viewer.currentPageNumber=Math.max(1,Math.min(pdf!.numPages,viewer.currentPageNumber+delta));},zoom:scale=>{if(viewer){selectedScale=scale;viewer.currentScaleValue=scale;setZoomValue(scale);}},jump:page=>{if(viewer&&Number.isInteger(page))viewer.currentPageNumber=Math.max(1,Math.min(pdf!.numPages,page));},undo:()=>{if(editable){manager?.undo();changed();}},redo:()=>{if(editable){manager?.redo();changed();}},parameter:(type,value)=>{if(editable)bus.dispatch('switchannotationeditorparams',{source:viewer,type,value});}};
-        poll=setInterval(()=>void heartbeat(),15000);
+        poll=setInterval(()=>void heartbeat(),15000);if(recheck)void heartbeat();
       }catch(error){if(!abort.signal.aborted)report(t.openError);}
     })();
-    return()=>{rangeSource?.abort();abort.abort();clearTimeout(timer);clearInterval(poll);observer?.disconnect();window.removeEventListener('beforeunload',leave);removeGuard();removeSessionListener();document.removeEventListener('visibilitychange',visible);actions.current=empty;viewer?.setDocument(null as unknown as PDFDocumentProxy);void task?.destroy().catch(()=>{});};
+    return()=>{rangeSource?.abort();abort.abort();clearTimeout(timer);clearInterval(poll);observer?.disconnect();window.removeEventListener('beforeunload',leave);removeGuard();removeSessionListener();removeChanges();document.removeEventListener('visibilitychange',visible);actions.current=empty;viewer?.setDocument(null as unknown as PDFDocumentProxy);void task?.destroy().catch(()=>{});};
   },[view,csrf,replace]);
   function reload(){if(dirty&&!window.confirm(t.discard))return;onRefresh();}
   return <section className="pdf-workspace" aria-label="PDF"><div className="pdf-toolbar">

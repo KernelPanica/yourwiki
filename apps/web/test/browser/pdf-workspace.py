@@ -24,8 +24,15 @@ async def main():
   assert any(annotation_text in str(item.get_object().get('/Contents','')) for item in reader.pages[0]['/Annots'])
   await page.reload();await field.wait_for()
   other=await context.new_page();await other.goto(url);field2=other.locator('.pdf-container input').first;await field2.wait_for()
-  await field.fill('Client one');await field.blur();await field2.fill('Client two');await field2.blur();await asyncio.sleep(3)
-  alerts=await other.get_by_role('alert').all_text_contents();assert any('изменены другим' in text for text in alerts),alerts
+  concurrent=asyncio.Event();release=asyncio.Event();arrived=0
+  async def hold_save(route):
+   nonlocal arrived
+   arrived+=1
+   if arrived==2:concurrent.set()
+   await release.wait();await route.continue_()
+  await context.route('**/pdf/layer?*',hold_save)
+  await field.fill('Client one');await field.blur();await field2.fill('Client two');await field2.blur();await asyncio.wait_for(concurrent.wait(),10);release.set();await asyncio.sleep(3);await context.unroute('**/pdf/layer?*',hold_save)
+  alerts=await other.get_by_role('alert').all_text_contents();assert any('изменены другим' in text or 'Автосохранение остановлено' in text for text in alerts),alerts
   recovery=other.get_by_role('link',name='Скачать сохранённую конфликтующую копию');assert await recovery.count()==1
   response=await context.request.get(os.environ.get('YOURWIKI_BROWSER_BASE_URL','http://127.0.0.1:39077')+await recovery.get_attribute('href'));assert response.status==200
   await other.screenshot(path='/tmp/yourwiki-pdf-conflict.png')

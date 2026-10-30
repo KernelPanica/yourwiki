@@ -3,6 +3,7 @@ import type { ErrorInfo,FormEvent,ReactNode } from 'react';
 import { api,ApiError,assetUrl,isAborted } from './api.ts';
 import type { Account,DocumentInfo,DocumentView } from './api.ts';
 import { blockSession,resumeSession,sessionSnapshot } from './session-fence.ts';
+import {startChangeFeed,publishChanges,subscribeChanges} from './live-updates.ts';
 import { allowNavigation,hasUnsavedChanges } from './navigation-guard.ts';
 import { labels,languageFor } from './i18n.ts';
 import type { Labels } from './i18n.ts';
@@ -44,9 +45,16 @@ function Login({onLogin,notice}:{onLogin:(account:Account)=>void;notice?:unknown
 }
 function Library({onSessionLost,active}:{onSessionLost:()=>void;active:boolean}) {
   const [items,setItems]=useState<DocumentInfo[]>([]),[cursor,setCursor]=useState<string|null>(null),[pending,setPending]=useState(true),[error,setError]=useState<unknown>(null),[filter,setFilter]=useState('');
-  const lifetime=useRef<AbortController|null>(null);
-  useEffect(()=>{const controller=new AbortController();lifetime.current=controller;void load(undefined,controller.signal);return()=>controller.abort();},[]);
-  async function load(after?:string,signal?:AbortSignal){signal??=lifetime.current?.signal;setPending(true);setError(null);try{const page=await api<{items:DocumentInfo[];nextCursor:string|null}>('/api/documents'+(after?'?after='+encodeURIComponent(after):''),{signal});if(signal?.aborted)return;setItems(old=>after?[...old,...page.items.filter(item=>!old.some(previous=>previous.id===item.id))]:page.items);setCursor(page.nextCursor);}catch(error){if(signal?.aborted||isAborted(error))return;if(error instanceof ApiError&&error.code==='SESSION_REQUIRED'){if(!sessionSnapshot().blocked)onSessionLost();}else setError(error);}finally{if(!signal?.aborted)setPending(false);}}
+  const lifetime=useRef<AbortController|null>(null),request=useRef<AbortController|null>(null);
+  useEffect(()=>{const controller=new AbortController();lifetime.current=controller;void load();const remove=subscribeChanges(()=>void load());return()=>{controller.abort();request.current?.abort();remove();};},[]);
+  async function load(after?:string){
+    if(lifetime.current?.signal.aborted||sessionSnapshot().blocked)return;
+    request.current?.abort();const controller=new AbortController();request.current=controller;const signal=controller.signal;
+    setPending(true);setError(null);
+    try{const page=await api<{items:DocumentInfo[];nextCursor:string|null}>('/api/documents'+(after?'?after='+encodeURIComponent(after):''),{signal});if(signal.aborted||request.current!==controller)return;setItems(old=>after?[...old,...page.items.filter(item=>!old.some(previous=>previous.id===item.id))]:page.items);setCursor(page.nextCursor);}
+    catch(error){if(signal.aborted||isAborted(error))return;if(error instanceof ApiError&&error.code==='SESSION_REQUIRED'){if(!sessionSnapshot().blocked)onSessionLost();}else setError(error);}
+    finally{if(!signal.aborted&&request.current===controller)setPending(false);}
+  }
   const shown=items.filter(item=>item.title.toLocaleLowerCase().includes(filter.toLocaleLowerCase()));
   return <main id={active?"content":undefined} className="library"><div className="page-heading"><div><p className="eyebrow">Yourwiki</p><h1>{t.files}</h1></div><label className="search"><span className="sr-only">{t.search}</span><input type="search" placeholder={t.search} value={filter} onChange={e=>setFilter(e.target.value)}/></label></div>
     {error?<ErrorBox error={error} retry={()=>void load()}/>:null}
@@ -57,8 +65,18 @@ function Library({onSessionLost,active}:{onSessionLost:()=>void;active:boolean})
 }
 function DocumentPage({id,onSessionLost,csrf}:{id:string;onSessionLost:()=>void;csrf:string}) {
   const [view,setView]=useState<DocumentView|null>(null),[error,setError]=useState<unknown>(null),[attempt,setAttempt]=useState(0);
-  useEffect(()=>{const controller=new AbortController();setView(null);setError(null);
-    void api<DocumentView>(`/api/documents/${encodeURIComponent(id)}/view`,{signal:controller.signal}).then(value=>{if(controller.signal.aborted)return;setView(value);document.title=value.document.title+' · Yourwiki';}).catch(error=>{if(controller.signal.aborted||isAborted(error))return;if(error instanceof ApiError&&error.code==='SESSION_REQUIRED'){if(!sessionSnapshot().blocked)onSessionLost();}else setError(error);});return()=>controller.abort();
+  const currentView=useRef<DocumentView|null>(null);
+  useEffect(()=>{
+    let request:AbortController|undefined,closed=false;setView(null);currentView.current=null;setError(null);
+    function load(){
+      if(closed||sessionSnapshot().blocked)return;request?.abort();const controller=new AbortController();request=controller;
+      void api<DocumentView>(`/api/documents/${encodeURIComponent(id)}/view`,{signal:controller.signal}).then(value=>{
+        if(closed||controller.signal.aborted||request!==controller)return;
+        setError(null);if(JSON.stringify(value)!==JSON.stringify(currentView.current)){currentView.current=value;setView(value);}document.title=value.document.title+' · Yourwiki';
+      }).catch(error=>{if(closed||controller.signal.aborted||isAborted(error))return;if(error instanceof ApiError&&error.code==='SESSION_REQUIRED'){if(!sessionSnapshot().blocked)onSessionLost();}else setError(error);});
+    }
+    load();const remove=subscribeChanges(event=>{if(currentView.current?.manifest.kind==='pdf')return;if(event.type==='all'||event.documentIds.includes(id))load();});
+    return()=>{closed=true;request?.abort();remove();};
   },[id,attempt]);
   return <main id="content" className="document-page"><div className="document-toolbar"><Link href="/" className="back">← {t.back}</Link><div className="document-name"><h1>{view?.document.title??t.preview}</h1>{view&&<span className="muted">{view.document.format.toUpperCase()} · {t.read}</span>}</div>{view?.document.capabilities.export&&view.manifest.kind!=='pdf'&&<a className="button" href={`/api/documents/${encodeURIComponent(id)}/content`} download>{t.download}</a>}</div>
     {error?<ErrorBox error={error} retry={()=>setAttempt(x=>x+1)}/>:!view?<p className="loading" role="status">{t.loading}</p>:<PreviewBoundary key={id+view.document.manifestDigest}><Suspense fallback={<p className="loading" role="status">{t.loading}</p>}>
@@ -75,6 +93,15 @@ export default function App() {
   useEffect(()=>{const update=()=>{if(location.pathname==='/')setLibraryVisited(true);};window.addEventListener('popstate',update);return()=>window.removeEventListener('popstate',update);},[]);
   const [account,setAccount]=useState<Account|null|undefined>(undefined),[path,setPath]=useState(location.pathname),[error,setError]=useState<unknown>(null);
   useEffect(()=>{const generation=sessionSnapshot().generation,controller=new AbortController();void api<Account>('/api/account',{signal:controller.signal}).then(value=>{if(!controller.signal.aborted){resumeSession();setAuthPaused(false);setAccount(value);}}).catch(error=>{if(!controller.signal.aborted&&generation===sessionSnapshot().generation&&!isAborted(error)){if(!(error instanceof ApiError&&error.code==='SESSION_REQUIRED'))setError(error);setAccount(null);}});let previousPath=location.pathname;const pop=()=>{if(!allowNavigation()){history.pushState(null,'',previousPath);return;}previousPath=location.pathname;setPath(previousPath);};window.addEventListener('popstate',pop);return()=>{controller.abort();window.removeEventListener('popstate',pop);};},[authEpoch]);
+  useEffect(()=>{
+    if(!account||authPaused)return;
+    const controller=new AbortController();
+    const stop=startChangeFeed({changed:publishChanges,expired:sessionLost,verify:async()=>{
+      try{const current=await api<Account>('/api/account',{signal:controller.signal});return current.user.id===account.user.id&&current.csrf===account.csrf;}
+      catch(error){if(error instanceof ApiError&&error.code==='SESSION_REQUIRED')return false;throw error;}
+    }});
+    return()=>{controller.abort();stop();};
+  },[account,authPaused]);
   function sessionLost(){blockSession();setAuthPaused(true);setError(new ApiError('SESSION_REQUIRED'));if(!hasUnsavedChanges())setAccount(null);}
   function recoverSession(){if(!allowNavigation())return;setAccount(undefined);setAuthEpoch(value=>value+1);}
   async function signOut(){if(!allowNavigation())return;try{await api('/api/auth/logout',{method:'POST',headers:{'x-csrf-token':account!.csrf}});blockSession();setAccount(null);setError(null);authChannel?.postMessage('changed');}catch(error){if(error instanceof ApiError&&error.code==='SESSION_REQUIRED'){blockSession();setAccount(null);setError(error);}else setError(error);}}
