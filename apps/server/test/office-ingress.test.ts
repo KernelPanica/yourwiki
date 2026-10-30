@@ -124,3 +124,36 @@ test('taking an expired local lease aborts the old stalled body immediately',asy
  try{await f.ingress.receive(f.input,bytes('new'));const result=await Promise.race([old,new Promise((_,reject)=>{const timer=setTimeout(()=>reject(new Error('expired receiver still holds its body')),200);timer.unref();})]);assert.equal((result as any).code,'OFFICE_WRITE_LEASE_LOST');}
  finally{release();await old;}
 });
+
+test('prepared processing owns one renewed lease and commits only under the current lock',async t=>{
+ const f=await fixture(t),received=await f.ingress.receive(f.input,bytes('new'));
+ const value=await f.ingress.withPrepared({...f.input,id:received.id,leaseToken:received.leaseToken},async context=>{
+  assert.equal(context.blob.digest,received.blob!.digest);
+  return context.commit(()=> 'saved');
+ });
+ assert.equal(value,'saved');assert.equal(f.ingress.status('u',received.id).state,'committed');
+ await assert.rejects(f.ingress.withPrepared({...f.input,id:received.id,leaseToken:received.leaseToken},async()=>null),/OFFICE_WRITE_LEASE_LOST/);
+});
+test('discard aborts prepared validation and a late result cannot commit',async t=>{
+ const f=await fixture(t),received=await f.ingress.receive(f.input,bytes('new'));let enter!:()=>void;const ready=new Promise<void>(resolve=>{enter=resolve;});let committed=false;
+ const task=f.ingress.withPrepared({...f.input,id:received.id,leaseToken:received.leaseToken},async context=>{
+  enter();await new Promise<void>(resolve=>context.signal.addEventListener('abort',()=>resolve(),{once:true}));return context.commit(()=>{committed=true;});
+ }).then(()=>null,error=>error);
+ await ready;await f.ingress.discard('u',received.id);assert.match((await task as Error).message,/OFFICE_WRITE_DISCARDED/);assert.equal(committed,false);
+});
+test('lock replacement during prepared IO preserves bytes and rejects final commit',async t=>{
+ const f=await fixture(t),received=await f.ingress.receive(f.input,bytes('new'));let committed=false;
+ await assert.rejects(f.ingress.withPrepared({...f.input,id:received.id,leaseToken:received.leaseToken},async context=>{
+  f.office.lock(f.opened.sessionId,f.opened.token,'UNLOCK','lock');f.office.lock(f.opened.sessionId,f.opened.token,'LOCK','other');
+  return context.commit(()=>{committed=true;});
+ }),/OFFICE_LOCK_MISMATCH/);
+ assert.equal(committed,false);assert.equal(f.ingress.status('u',received.id).state,'prepared');assert.notEqual(await f.ingress.payloadStore('u',received.id),null);
+});
+test('a second processor cannot take a claimed prepared lease or commit after lease replacement',async t=>{
+ const f=await fixture(t),received=await f.ingress.receive(f.input,bytes('new'));
+ await assert.rejects(f.ingress.withPrepared({...f.input,id:received.id,leaseToken:received.leaseToken},async context=>{
+  await assert.rejects(f.ingress.withPrepared({...f.input,id:received.id,leaseToken:received.leaseToken},async()=>null),/OFFICE_WRITE_LEASE_LOST/);
+  f.db.prepare("UPDATE office_ingress SET lease_token='replacement' WHERE id=?").run(received.id);return context.commit(()=>null);
+ }),/OFFICE_WRITE_LEASE_LOST/);
+ assert.equal((f.db.prepare('SELECT lease_token FROM office_ingress WHERE id=?').get(received.id) as any).lease_token,'replacement');
+});

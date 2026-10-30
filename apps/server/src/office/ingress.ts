@@ -3,10 +3,10 @@ import {randomUUID} from 'node:crypto';
 import {OfficeSessions,OfficeError} from './sessions.ts';
 import {AccessService} from '../access.ts';
 import {transaction,type Database} from '../database.ts';
-import {BlobStore,BlobTooLargeError} from '../storage/blobs.ts';
+import {BlobStore,BlobTooLargeError,type BlobRef} from '../storage/blobs.ts';
 export class OfficeWriteError extends OfficeError {currentLock?:string;writeId?:string;constructor(code:string,currentLock?:string,writeId?:string){super(code);this.currentLock=currentLock;this.writeId=writeId;}}
 type Input={sessionId:string;token:string;lock:string;declaredSize:number|null;signal?:AbortSignal};
-type Row={id:string;document_id:string;office_session_id:string;author_id:string;base_revision:number;base_digest:string;state:string;digest:string|null;size:number|null;lease_token:string;lease_until:number;reserved_bytes:number;error_code:string|null};
+type Row={id:string;document_id:string;office_session_id:string;author_id:string;base_revision:number;base_digest:string;state:string;digest:string|null;size:number|null;lease_token:string;lease_until:number;lock_value:string;reserved_bytes:number;error_code:string|null};
 /** Internal bounded spool. Prepared bytes are durable but are not yet accepted as an original. */
 export class OfficeIngress {
  private active=new Map<string,AbortController>();private maintenance:OfficeIngressMaintenance;private db:Database;private store:BlobStore;private office:OfficeSessions;private clock:()=>number;private maxFile:number;private maxPending:number;
@@ -18,9 +18,44 @@ export class OfficeIngress {
  private result(row:Row){return {id:row.id,sessionId:row.office_session_id,documentId:row.document_id,userId:row.author_id,baseRevision:row.base_revision,baseDigest:row.base_digest,state:row.state,errorCode:row.error_code,blob:row.digest!==null?{digest:row.digest,size:row.size!}:null};}
  status(userId:string,id:string){const row=this.row(id);if(!row||row.author_id!==userId||!new AccessService(this.db).allows(userId,row.document_id,'read'))throw new OfficeError('NOT_FOUND');return this.result(row);}
  async payloadStore(userId:string,id:string){const status=this.status(userId,id);if(!status.blob||status.state==='discarded')throw new OfficeError('NOT_FOUND');const store=await this.store.existingUploadStore(id);if(!store)throw new OfficeError('OFFICE_RECOVERY_MISSING');return store;}
- cleanupExpired(){for(const [id,controller] of this.active){const row=this.row(id);if(row?.state==='receiving'&&row.lease_until<=this.clock())controller.abort(new OfficeWriteError('OFFICE_WRITE_LEASE_LOST'));}return this.maintenance.cleanupExpired();}
+ cleanupExpired(){for(const [id,controller] of this.active){const row=this.row(id);if(row&&['receiving','prepared'].includes(row.state)&&row.lease_until<=this.clock())controller.abort(new OfficeWriteError('OFFICE_WRITE_LEASE_LOST'));}return this.maintenance.cleanupExpired();}
  async discard(userId:string,id:string){this.status(userId,id);this.active.get(id)?.abort(new OfficeWriteError('OFFICE_WRITE_DISCARDED'));return this.maintenance.discard(userId,id);}
  private owns(id:string,token:string){return !!this.db.prepare("SELECT 1 FROM office_ingress WHERE id=? AND lease_token=? AND state='receiving' AND lease_until>?").get(id,token,this.clock());}
+ /** Internal continuation: only the holder of the receive receipt may process it. */
+ async withPrepared<T>(input:{id:string;leaseToken:string;sessionId:string;token:string;signal?:AbortSignal},operation:(context:{signal:AbortSignal;blob:BlobRef;store:BlobStore;userId:string;documentId:string;baseRevision:number;baseDigest:string;assertCurrent:()=>void;commit:<R>(save:()=>R)=>R})=>Promise<T>):Promise<T>{
+  input={...input};input.signal?.throwIfAborted();const token=randomUUID(),controller=new AbortController();
+  const signal=input.signal?AbortSignal.any([input.signal,controller.signal]):controller.signal;
+  const check=(leaseToken:string)=>{
+   signal.throwIfAborted();const row=this.row(input.id);
+   if(row?.state==='discarded')throw new OfficeWriteError('OFFICE_WRITE_DISCARDED',undefined,input.id);
+   if(!row||row.state!=='prepared'||row.lease_token!==leaseToken||row.lease_until<=this.clock()||row.office_session_id!==input.sessionId||!row.digest||row.size===null)throw new OfficeWriteError('OFFICE_WRITE_LEASE_LOST',undefined,input.id);
+   const actor=this.office.authorize(input.sessionId,input.token);
+   if(actor.userId!==row.author_id)throw new OfficeWriteError('NOT_FOUND');if(!actor.write)throw new OfficeWriteError('ACCESS_DENIED');
+   if(actor.session.superseded||actor.session.base_revision!==row.base_revision||actor.session.base_digest!==row.base_digest)throw new OfficeWriteError('CONFLICT',undefined,input.id);
+   const current=actor.session.lock_expires_at>this.clock()?actor.session.lock_value:'';
+   const version=this.db.prepare('SELECT size FROM document_versions WHERE document_id=? AND revision=?').get(row.document_id,row.base_revision) as {size:number}|undefined;
+   if(current?current!==row.lock_value:version?.size!==0)throw new OfficeWriteError('OFFICE_LOCK_MISMATCH',current,input.id);
+   return row;
+  };
+  const row=transaction(this.db,()=>{const row=check(input.leaseToken);this.db.prepare('UPDATE office_ingress SET lease_token=?,lease_until=? WHERE id=?').run(token,this.clock()+30000,input.id);return row;});
+  this.active.set(input.id,controller);let committed=false;
+  const heartbeat=setInterval(()=>{try{transaction(this.db,()=>{check(token);this.db.prepare('UPDATE office_ingress SET lease_until=? WHERE id=? AND lease_token=?').run(this.clock()+30000,input.id,token);});}catch(error){controller.abort(error);}},10000);
+  const deadline=setTimeout(()=>controller.abort(new OfficeWriteError('OFFICE_WRITE_TIMEOUT')),3600000);
+  const assertCurrent=()=>{check(token);};
+  try{
+   const store=await this.store.existingUploadStore(input.id);assertCurrent();if(!store)throw new OfficeWriteError('OFFICE_RECOVERY_MISSING',undefined,input.id);
+   const result=await operation({signal,blob:{digest:row.digest!,size:row.size!},store,userId:row.author_id,documentId:row.document_id,baseRevision:row.base_revision,baseDigest:row.base_digest,assertCurrent,
+    commit:<R>(save:()=>R):R=>transaction(this.db,()=>{
+     if(committed)throw new OfficeWriteError('OFFICE_ALREADY_COMMITTED');check(token);
+     const result=save();if(result&&typeof (result as any).then==='function')throw new OfficeWriteError('INVALID_REQUEST');
+     this.db.prepare("UPDATE office_ingress SET state='committed',error_code=NULL WHERE id=? AND lease_token=?").run(input.id,token);committed=true;return result;
+    })});
+   if(!committed)throw new OfficeWriteError('OFFICE_NOT_COMMITTED',undefined,input.id);return result;
+  }catch(error){
+   if(!committed)this.db.prepare("UPDATE office_ingress SET error_code=? WHERE id=? AND lease_token=? AND state='prepared'").run(error instanceof OfficeError?error.code:'OFFICE_SAVE_INTERRUPTED',input.id,token);
+   throw error;
+  }finally{if(this.active.get(input.id)===controller)this.active.delete(input.id);clearInterval(heartbeat);clearTimeout(deadline);}
+ }
  async receive(value:Input,source:AsyncIterable<Uint8Array>){
   const input={...value};if(input.declaredSize!==null&&(!Number.isSafeInteger(input.declaredSize)||input.declaredSize<0))throw new OfficeWriteError('INVALID_REQUEST');
   if(input.declaredSize!==null&&input.declaredSize>this.maxFile)throw new OfficeWriteError('PAYLOAD_TOO_LARGE');input.signal?.throwIfAborted();

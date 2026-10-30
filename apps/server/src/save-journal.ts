@@ -2,7 +2,7 @@ import {AccessService} from './access.ts';
 import {transaction,type Database} from './database.ts';
 import {DocumentService,DocumentError} from './documents.ts';
 import type {BlobStore,BlobRef} from './storage/blobs.ts';
-type Input={officeSessionId?:string;operationId:string;userId:string;documentId:string;baseRevision:number;baseDigest:string;blob:BlobRef};
+type Input={signal?:AbortSignal;officeSessionId?:string;operationId:string;userId:string;documentId:string;baseRevision:number;baseDigest:string;blob:BlobRef};
 type Receipt={documentId:string;revision:number;jobId:string;blob:BlobRef};
 type Row={cancelled_at:number|null;office_session_id:string|null;id:string;document_id:string;author_id:string;base_revision:number;base_digest:string;digest:string;size:number;state:'staged'|'saved'|'conflict'|'denied';receipt:string|null};
 /** Internal only: an untrusted caller must never select arbitrary private BlobRefs. */
@@ -39,14 +39,14 @@ export class SaveJournal {
   return version?.local_revision===row.base_revision&&version.digest===row.base_digest;
  }
  async stagePrepared(value:Input){
-  const input={...value,blob:{...value.blob}};
+  const input={...value,blob:{...value.blob}};input.signal?.throwIfAborted();
   if(![input.operationId,input.userId,input.documentId].every(value=>typeof value==='string'&&value.length>0&&value.length<=128)||!/^[a-zA-Z0-9_-]{8,128}$/.test(input.operationId)||!Number.isSafeInteger(input.baseRevision)||input.baseRevision<1||!(/^[a-f0-9]{64}$/).test(input.baseDigest)||!(/^[a-f0-9]{64}$/).test(input.blob.digest)||!Number.isSafeInteger(input.blob.size)||input.blob.size<0||input.blob.size>this.maxBytes)throw new DocumentError('INVALID_REQUEST');
   const previous=this.row(input.operationId);if(previous)return this.matching(previous,input);
   this.readable(input.userId,input.documentId);this.officeIntent(input);
   if(!this.access.allows(input.userId,input.documentId,'write'))throw new DocumentError('ACCESS_DENIED');
-  if(!await this.store.verify(input.blob))throw new DocumentError('INVALID_PAYLOAD');
+  if(!await this.store.verify(input.blob,input.signal))throw new DocumentError('INVALID_PAYLOAD');
   return transaction(this.db,()=>{
-   this.officeIntent(input);const previous=this.row(input.operationId);if(previous)return this.matching(previous,input);
+   input.signal?.throwIfAborted();this.officeIntent(input);const previous=this.row(input.operationId);if(previous)return this.matching(previous,input);
    const quota=this.db.prepare("SELECT COALESCE(SUM(size),0) AS total,COALESCE(SUM(CASE WHEN author_id=? THEN size ELSE 0 END),0) AS author,COUNT(*) AS count,COALESCE(SUM(CASE WHEN author_id=? THEN 1 ELSE 0 END),0) AS authorCount FROM save_operations WHERE state!='saved' AND cancelled_at IS NULL").get(input.userId,input.userId) as {total:number;author:number;count:number;authorCount:number};
    if(input.blob.size>this.globalBytes-quota.total||input.blob.size>this.authorBytes-quota.author||quota.count>=10000||quota.authorCount>=1000)throw new DocumentError('PENDING_LIMIT');
    const allowed=this.access.allows(input.userId,input.documentId,'write');
