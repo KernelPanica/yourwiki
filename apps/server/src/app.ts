@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import Fastify from 'fastify';
 import { errorEnvelope } from './errors.ts';
 import type { Database } from './database.ts';
+import { registerChanges } from './change-routes.ts';
 import { registerWeb } from './web-routes.ts';
 import { registerUploads } from './upload-routes.ts';
 import { registerDocuments } from './document-routes.ts';
@@ -12,6 +13,7 @@ export interface AppOptions {
   database?: Database;
   publicUrl?: string;
   webRoot?: string;
+  changesPollMs?: number;
   storage?: BlobStore;
   maxFileBytes?: number;
   maxPendingUploadBytes?: number;
@@ -52,6 +54,7 @@ export function buildApp(options: AppOptions = {}) {
     return reply.code(500).send(errorEnvelope('INTERNAL_ERROR', request.id));
   });
   if (options.database) registerAuth(app, options.database, options.publicUrl ?? 'http://localhost:3100');
+  if (options.database) registerChanges(app, options.database, options.publicUrl ?? 'http://localhost:3100', options.changesPollMs);
   if (options.database && options.storage) registerDocuments(app, options.database, options.storage, options.publicUrl ?? 'http://localhost:3100', options.maxFileBytes);
   if (options.database && options.storage) registerUploads(app, options.database, options.storage, options.publicUrl ?? 'http://localhost:3100', { maxFileBytes: options.maxFileBytes, maxPendingBytes: options.maxPendingUploadBytes, chunkBytes: options.uploadChunkBytes });
   if (options.webRoot) registerWeb(app, options.webRoot);

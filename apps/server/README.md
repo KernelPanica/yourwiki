@@ -254,3 +254,19 @@ byte ranges and current read permission. Conflicts return an operation ID;
 `GET .../pdf/recovery/:operationId` permits downloading that author's retained copy
 only while current read/export permissions allow it. Responses remain private/no-store.
 These endpoints do not overwrite the original and do not yet activate the React PDF editor.
+
+Local live invalidation: `GET /api/changes` opens a session-authenticated SSE stream.
+It accepts no query parameters or URL tokens; a supplied Origin must match the
+configured public origin. Signals are `ready`, `access`, `documents` (currently
+readable IDs only; an empty ID list means revalidate all), and `session-expired`
+followed by EOF. Keep-alive comments are emitted on quiet connections. Clients
+must refresh on ready/reconnect: this is not a replay feed or a source of document
+contents, and signal receipt never grants read/write access.
+
+One shared 250ms database poll runs only while connected. It reads bounded event
+batches, coalesces IDs and checks sessions/current ACL before delivery. Limits are
+4 connections per user and 128 per process. Slow readers are disconnected rather
+than retaining unbounded buffers; application shutdown closes streams. Transient
+read failures disconnect streams while allowing a fresh subscription after recovery.
+No provider is called. The React client is not wired to this endpoint yet: dirty
+editor/session-switch protections are required before enabling client invalidation.
