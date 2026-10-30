@@ -162,5 +162,20 @@ CREATE TABLE office_tokens (
 CREATE INDEX office_tokens_expiry ON office_tokens(expires_at);
 ALTER TABLE save_operations ADD COLUMN office_session_id TEXT REFERENCES office_sessions(id) ON DELETE RESTRICT;
 `;
-export const migrations = [core + epochTriggers, authInvalidation, authSettings, jobs, documents, workerSlots, uploads, pdfLayers, saveJournal, officeSessions] as const;
+const officeIngress = `
+CREATE TABLE office_ingress (
+ id TEXT PRIMARY KEY, document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE RESTRICT,
+ office_session_id TEXT NOT NULL REFERENCES office_sessions(id) ON DELETE RESTRICT,
+ author_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+ base_revision INTEGER NOT NULL, base_digest TEXT NOT NULL, lock_value TEXT NOT NULL,
+ declared_size INTEGER, reserved_bytes INTEGER NOT NULL CHECK(reserved_bytes>=0),
+ state TEXT NOT NULL CHECK(state IN ('receiving','prepared','committed','failed','discarded')),
+ digest TEXT, size INTEGER, lease_token TEXT NOT NULL, lease_until INTEGER NOT NULL,
+ created_at INTEGER NOT NULL, error_code TEXT,
+ CHECK((digest IS NULL AND size IS NULL) OR (digest IS NOT NULL AND size>=0))
+);
+CREATE UNIQUE INDEX office_receiving ON office_ingress(document_id) WHERE state='receiving';
+CREATE INDEX office_ingress_budget ON office_ingress(state,author_id);
+`;
+export const migrations = [core + epochTriggers, authInvalidation, authSettings, jobs, documents, workerSlots, uploads, pdfLayers, saveJournal, officeSessions, officeIngress] as const;
 export const applicationId = 0x5957494b; // YWIK; legacy Django uses no marker.

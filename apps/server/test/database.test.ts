@@ -110,3 +110,14 @@ test('version-nine journal rows survive office-session migration with an empty i
  const migrated=openDatabase(path);t.after(()=>migrated.close());assert.deepEqual(migrated.prepare('SELECT * FROM schema_migrations WHERE version<=9 ORDER BY version').all(),checksums);
  const row=migrated.prepare("SELECT state,digest,office_session_id FROM save_operations WHERE id='old-operation'").get();assert.deepEqual(row,{state:'staged',digest:'b'.repeat(64),office_session_id:null});
 });
+
+test('version-ten office identity and pending recovery survive ingress migration',t=>{
+ const path=fixture(t),original=new Sqlite(path);original.pragma('foreign_keys = ON');original.exec('CREATE TABLE schema_migrations(version INTEGER PRIMARY KEY,checksum TEXT NOT NULL)');
+ for(const [index,sql] of migrations.slice(0,10).entries()){original.exec(sql);original.prepare('INSERT INTO schema_migrations VALUES(?,?)').run(index+1,createHash('sha256').update(sql).digest('hex'));}
+ original.pragma(`application_id = ${applicationId}`);
+ original.exec("INSERT INTO users(id,username,display_name,password_hash) VALUES('owner','owner','Owner','!');INSERT INTO groups VALUES('g','Group');INSERT INTO resources(id,kind,owner_id,group_id) VALUES('doc','document','owner','g');INSERT INTO documents(id,title,format,local_revision,created_at) VALUES('doc','Old office','md',1,1)");
+ original.prepare("INSERT INTO save_operations(id,document_id,author_id,base_revision,base_digest,digest,size,state,created_at,updated_at) VALUES('pending','doc','owner',1,?,?,1,'staged',1,1)").run('a'.repeat(64),'b'.repeat(64));
+ original.prepare("INSERT INTO office_sessions(id,document_id,base_revision,base_digest,expires_at,pending_operation_id,created_at) VALUES('office','doc',1,?,1000,'pending',1)").run('a'.repeat(64));
+ original.prepare("UPDATE save_operations SET office_session_id='office' WHERE id='pending'").run();const before=original.prepare('SELECT * FROM office_sessions').get();original.close();
+ const migrated=openDatabase(path);t.after(()=>migrated.close());assert.deepEqual(migrated.prepare('SELECT * FROM office_sessions').get(),before);assert.equal((migrated.prepare("SELECT office_session_id FROM save_operations WHERE id='pending'").get() as any).office_session_id,'office');assert.deepEqual(migrated.prepare('SELECT * FROM office_ingress').all(),[]);
+});

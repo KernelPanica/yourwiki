@@ -1,0 +1,59 @@
+import {randomUUID} from 'node:crypto';
+import {OfficeSessions,OfficeError} from './sessions.ts';
+import {AccessService} from '../access.ts';
+import {transaction,type Database} from '../database.ts';
+import {BlobStore,BlobTooLargeError} from '../storage/blobs.ts';
+export class OfficeWriteError extends OfficeError {currentLock?:string;writeId?:string;constructor(code:string,currentLock?:string,writeId?:string){super(code);this.currentLock=currentLock;this.writeId=writeId;}}
+type Input={sessionId:string;token:string;lock:string;declaredSize:number|null;signal?:AbortSignal};
+type Row={id:string;document_id:string;office_session_id:string;author_id:string;base_revision:number;base_digest:string;state:string;digest:string|null;size:number|null;lease_token:string;lease_until:number;reserved_bytes:number;error_code:string|null};
+/** Internal bounded spool. Prepared bytes are durable but are not yet accepted as an original. */
+export class OfficeIngress {
+ private db:Database;private store:BlobStore;private office:OfficeSessions;private clock:()=>number;private maxFile:number;private maxPending:number;
+ constructor(db:Database,store:BlobStore,options:{maxFileBytes?:number;maxPendingBytes?:number;clock?:()=>number}={}){
+  this.db=db;this.store=store;this.clock=options.clock??Date.now;this.maxFile=options.maxFileBytes??4*1024**3;this.maxPending=options.maxPendingBytes??8*1024**3;this.office=new OfficeSessions(db,{clock:this.clock});
+  if(![this.maxFile,this.maxPending].every(value=>Number.isSafeInteger(value)&&value>0))throw new Error('Invalid office ingress limits');
+ }
+ private row(id:string){return this.db.prepare('SELECT * FROM office_ingress WHERE id=?').get(id) as Row|undefined;}
+ private result(row:Row){return {id:row.id,sessionId:row.office_session_id,documentId:row.document_id,userId:row.author_id,baseRevision:row.base_revision,baseDigest:row.base_digest,state:row.state,blob:row.digest!==null?{digest:row.digest,size:row.size!}:null};}
+ status(userId:string,id:string){const row=this.row(id);if(!row||row.author_id!==userId||!new AccessService(this.db).allows(userId,row.document_id,'read'))throw new OfficeError('NOT_FOUND');return this.result(row);}
+ async payloadStore(userId:string,id:string){const status=this.status(userId,id);if(!status.blob)throw new OfficeError('NOT_FOUND');return this.store.uploadStore(id);}
+ private owns(id:string,token:string){return !!this.db.prepare("SELECT 1 FROM office_ingress WHERE id=? AND lease_token=? AND state='receiving' AND lease_until>?").get(id,token,this.clock());}
+ async receive(value:Input,source:AsyncIterable<Uint8Array>){
+  const input={...value};if(input.declaredSize!==null&&(!Number.isSafeInteger(input.declaredSize)||input.declaredSize<0))throw new OfficeWriteError('INVALID_REQUEST');
+  if(input.declaredSize!==null&&input.declaredSize>this.maxFile)throw new OfficeWriteError('PAYLOAD_TOO_LARGE');input.signal?.throwIfAborted();
+  const initial=transaction(this.db,()=>{
+   const actor=this.office.authorize(input.sessionId,input.token);if(!actor.write)throw new OfficeWriteError('ACCESS_DENIED');
+   const now=this.clock(),current=actor.session.lock_expires_at>now?actor.session.lock_value:'';
+   const version=this.db.prepare('SELECT size FROM document_versions WHERE document_id=? AND revision=?').get(actor.session.document_id,actor.session.base_revision) as {size:number}|undefined;
+   if(current?current!==input.lock:version?.size!==0)throw new OfficeWriteError('OFFICE_LOCK_MISMATCH',current);
+   this.db.prepare("UPDATE office_ingress SET state='failed',reserved_bytes=0,error_code='OFFICE_WRITE_LEASE_LOST' WHERE state='receiving' AND lease_until<=?").run(now);
+   const budget=this.db.prepare("SELECT COALESCE(SUM(reserved_bytes),0) AS bytes,SUM(CASE WHEN state='receiving' THEN 1 ELSE 0 END) AS active,COUNT(*) AS n FROM office_ingress WHERE state NOT IN ('committed','discarded') AND (state!='failed' OR digest IS NOT NULL)").get() as {bytes:number;active:number;n:number};
+   const reserved=input.declaredSize??this.maxFile;
+   if(reserved>this.maxPending-budget.bytes||budget.active>=15||budget.n>=1000)throw new OfficeWriteError('OFFICE_WRITE_QUOTA');
+   if(this.db.prepare("SELECT 1 FROM office_ingress WHERE document_id=? AND state='receiving'").get(actor.session.document_id))throw new OfficeWriteError('OFFICE_WRITE_BUSY');
+   const id=randomUUID(),leaseToken=randomUUID();this.db.prepare("INSERT INTO office_ingress(id,document_id,office_session_id,author_id,base_revision,base_digest,lock_value,declared_size,reserved_bytes,state,lease_token,lease_until,created_at) VALUES(?,?,?,?,?,?,?,?,?,'receiving',?,?,?)").run(id,actor.session.document_id,input.sessionId,actor.userId,actor.session.base_revision,actor.session.base_digest,input.lock,input.declaredSize,reserved,leaseToken,now+30000,now);
+   return {id,leaseToken};
+  });
+  const controller=new AbortController(),signal=input.signal?AbortSignal.any([input.signal,controller.signal]):controller.signal;
+  const heartbeat=setInterval(()=>{
+   try{if(!this.office.authorize(input.sessionId,input.token).write)throw new OfficeWriteError('ACCESS_DENIED');if(this.db.prepare("UPDATE office_ingress SET lease_until=? WHERE id=? AND lease_token=? AND lease_until>? AND state='receiving'").run(this.clock()+30000,initial.id,initial.leaseToken,this.clock()).changes!==1)controller.abort(new OfficeWriteError('OFFICE_WRITE_LEASE_LOST'));}
+   catch(error){controller.abort(error);}
+  },10000);
+  const deadline=setTimeout(()=>controller.abort(new OfficeWriteError('OFFICE_WRITE_TIMEOUT')),3600000);
+  try{
+   const temporary=await this.store.uploadStore(initial.id);
+   const blob=await temporary.put(source,{maxBytes:input.declaredSize??this.maxFile,signal});
+   const prepared=transaction(this.db,()=>{
+    if(!this.owns(initial.id,initial.leaseToken))throw new OfficeWriteError('OFFICE_WRITE_LEASE_LOST',undefined,initial.id);
+    if(input.declaredSize!==null&&blob.size!==input.declaredSize){this.db.prepare("UPDATE office_ingress SET state='failed',digest=?,size=?,reserved_bytes=?,error_code='OFFICE_SIZE_MISMATCH' WHERE id=?").run(blob.digest,blob.size,blob.size,initial.id);return {error:new OfficeWriteError('OFFICE_SIZE_MISMATCH',undefined,initial.id)};}
+    this.db.prepare("UPDATE office_ingress SET state='prepared',digest=?,size=?,reserved_bytes=?,lease_until=? WHERE id=?").run(blob.digest,blob.size,blob.size,this.clock()+30000,initial.id);
+    return {...this.result(this.row(initial.id)!),leaseToken:initial.leaseToken};
+   });
+   if('error' in prepared)throw prepared.error;return prepared;
+  }catch(error){
+   this.db.prepare("UPDATE office_ingress SET state='failed',reserved_bytes=0,error_code=? WHERE id=? AND lease_token=? AND state='receiving'").run(error instanceof OfficeError?error.code:'OFFICE_UPLOAD_INTERRUPTED',initial.id,initial.leaseToken);
+   if(this.row(initial.id)?.digest===null)await this.store.removeUpload(initial.id);
+   if(error instanceof BlobTooLargeError)throw new OfficeWriteError('PAYLOAD_TOO_LARGE',undefined,initial.id);throw error;
+  }finally{clearInterval(heartbeat);clearTimeout(deadline);}
+ }
+}
