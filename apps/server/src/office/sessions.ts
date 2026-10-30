@@ -3,7 +3,8 @@ import {AccessService} from '../access.ts';
 import {authenticateSession,tokenHash} from '../auth/sessions.ts';
 import {transaction,type Database} from '../database.ts';
 import {officeFormats} from './formats.ts';
-export class OfficeError extends Error {code:string;constructor(code:string){super(code);this.code=code;}}
+import {OfficeError} from './errors.ts';
+export {OfficeError} from './errors.ts';
 export type OfficeSession={id:string;document_id:string;base_revision:number;base_digest:string;expires_at:number;superseded:number;lock_value:string;lock_expires_at:number;pending_operation_id:string|null;error_code:string|null};
 const lease=30*60_000,tokenLifetime=8*3600_000;
 export class OfficeSessions {

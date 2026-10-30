@@ -3,7 +3,7 @@ import {openPromise,type Entry} from 'yauzl';
 import {crc32} from 'node:zlib';
 import type {Readable} from 'node:stream';
 import type {BlobStore,BlobRef} from '../storage/blobs.ts';
-import {OfficeError} from './sessions.ts';
+import {OfficeError} from './errors.ts';
 const text=new Set(['md','txt','csv','tsv','dif','slk']),ole=new Set(['doc','xls','ppt','xla']);
 const parts:Record<string,string>={docx:'word/document.xml',docm:'word/document.xml',dotx:'word/document.xml',dotm:'word/document.xml',xlsx:'xl/workbook.xml',xlsm:'xl/workbook.xml',xltx:'xl/workbook.xml',xltm:'xl/workbook.xml',xlsb:'xl/workbook.bin',pptx:'ppt/presentation.xml',pptm:'ppt/presentation.xml',potx:'ppt/presentation.xml',potm:'ppt/presentation.xml',ppsx:'ppt/presentation.xml'};
 const odf:Record<string,string>={odt:'text',ods:'spreadsheet',odp:'presentation',odg:'graphics',odm:'text-master',ott:'text-template',ots:'spreadsheet-template',otp:'presentation-template',oth:'text-web'};
@@ -43,7 +43,7 @@ async function consume(stream:Readable,signal:AbortSignal,limit:number,consumer:
  finally{signal.removeEventListener('abort',abort);stream.destroy();}
 }
 /** Stream local file and selected archive parts; never materialize an entire office file. */
-export async function validateOfficeFile(store:BlobStore,value:BlobRef,format:string,options:{signal?:AbortSignal;maxExpandedBytes?:number;timeoutMs?:number}={}){
+export async function validateOfficeFile(store:Pick<BlobStore,'read'|'localFile'>,value:BlobRef,format:string,options:{signal?:AbortSignal;maxExpandedBytes?:number;timeoutMs?:number}={}){
  const blob={...value};
  const maximum=options.maxExpandedBytes??40*1024**3,timeout=options.timeoutMs??60000;
  if(!Number.isSafeInteger(maximum)||maximum<1||!Number.isSafeInteger(timeout)||timeout<1||timeout>3600000)throw new Error('Invalid office validation limits');
