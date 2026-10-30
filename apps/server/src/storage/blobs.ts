@@ -4,6 +4,10 @@ import { link, mkdir, open, realpath, stat, unlink } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import type { Readable } from 'node:stream';
 
+export class BlobTooLargeError extends Error {
+  constructor() { super('File exceeds the configured size limit'); }
+}
+
 export interface BlobRef { digest: string; size: number }
 export interface ByteRange { start: number; end: number }
 
@@ -66,7 +70,7 @@ export class BlobStore {
         for await (const chunk of interruptible(source, options.signal)) {
           options.signal?.throwIfAborted();
           if (!(chunk instanceof Uint8Array)) throw new Error('Blob chunks must be bytes');
-          if (chunk.byteLength > options.maxBytes - size) throw new Error('File exceeds the configured size limit');
+          if (chunk.byteLength > options.maxBytes - size) throw new BlobTooLargeError();
           await file.writeFile(chunk);
           hash.update(chunk); size += chunk.byteLength;
         }

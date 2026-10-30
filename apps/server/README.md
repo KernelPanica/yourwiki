@@ -92,3 +92,29 @@ and retain accepted bytes as recovery copies.
 These are internal APIs only. HTTP streaming/resume, recovery download, worker
 execution and actual format converters are still pending. The 4 GiB storage
 limit does not establish feasibility of 4 GiB office viewing/editing.
+
+## Opt-in document HTTP transport
+
+Pass `storage: await BlobStore.open('/private/yourwiki-v2')` alongside the
+explicit database and public URL to enable these authenticated local routes:
+
+- `GET /api/documents/:id`: published metadata only.
+- `GET /api/documents/:id/processing`: owner/admin draft status or readable
+  published-document preparation status.
+- `GET /api/documents/:id/previews/:manifestDigest`: published manifest receipt.
+- `GET /api/documents/:id/previews/:manifestDigest/assets/:name`: referenced
+  asset only, sandbox CSP and current read permissions.
+- `GET /api/documents/:id/content`: published original as attachment, export
+  permission required, single byte ranges supported.
+- `POST /api/documents?title=...&format=...&groupId=...` (or `parentId=...`):
+  raw `application/octet-stream` upload, returns 201 with document/revision/job.
+- `PUT /api/documents/:id/content?baseRevision=...`: raw streamed save, returns
+  202 while replacement preview prepares. Stale revisions return 409 with
+  recovery actions; accepted conflicting bytes have a recovery operation ID.
+
+Mutations require session cookie, exact Origin and session-bound X-CSRF-Token
+before body parsing. `maxFileBytes` configures the independent streaming limit
+(default 4 GiB); this bypasses the JSON parser's 1 MiB cap. Aborted uploads clean
+staging without committing partial revisions. Responses remain private/no-store;
+asset digests are not standalone access capabilities. Recovery-copy download,
+resumable transport and worker execution are not implemented by these routes.

@@ -67,3 +67,12 @@
 - Independent review found a stalled iterator.return() resource leak; reproduced RED and fixed with nonblocking best-effort source close. Regression covers rejection without requiring an AbortSignal.
 - Server: 61 named tests passed; TypeScript typecheck passed. HTTP file routes, resumable uploads, worker runner, converters and React remain pending. Office 4 GiB acceptance is unverified; production runtime unchanged.
 - Повтор полного legacy backend: 593 passed, 11 skipped, 240 warnings (29.10s). Повторный независимый review: существенных замечаний нет. Browser/live-provider baseline остаётся незавершённым по ранее записанным ограничениям.
+
+## Document HTTP transport — 2026-10-30
+
+- Opt-in local routes for published metadata, preparation status, receipt-bound manifests/assets and export-controlled original downloads with bounded single byte ranges.
+- Session and current ACL checks on reads; hidden drafts remain hidden. Preview assets carry sandbox CSP, no scripts/forms/external resources. Digests alone do not authorize access.
+- Raw create/save streams use separate size limit; session/exact Origin/CSRF run before parsing. Structured 413 and 409 preserve recovery actions/operation IDs. Production entrypoint unchanged.
+- Real localhost HTTP verified a streamed 2 MiB upload exceeding JSON cap and cleanup after connection abort without committing a partial revision. Route tests cover revoked ACL/session, cross-document receipt rejection, export bans and invalid ranges.
+- Independent review: no substantial findings, including separate real HTTP verification of early 413. Resumable upload protocol, recovery downloads, worker/converters and frontend remain pending.
+- Final server verification: 68 named tests passed; TypeScript typecheck and git diff --check passed. Legacy code unchanged since the preceding 593 passed/11 skipped baseline; browser/provider acceptance remains open.

@@ -13,7 +13,7 @@ type Settings = { session_hours: number; login_attempts: number; login_window_mi
 const dummy = 'pbkdf2_sha256$1000000$dummy-login-salt$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=';
 
 type User = { id: string; password_hash: string; auth_version: number; active: number };
-function cookie(request: FastifyRequest): string {
+export function sessionCookie(request: FastifyRequest): string {
   const values = (request.headers.cookie ?? '').split(';').map(value => value.trim())
     .filter(value => value.startsWith(cookieName + '='));
   return values.length === 1 ? values[0].slice(cookieName.length + 1) : '';
@@ -58,19 +58,19 @@ export function registerAuth(app: FastifyInstance, db: Database, publicUrl: stri
       return value;
     });
     if (!session) return reply.code(401).send(errorEnvelope('INVALID_CREDENTIALS', request.id));
-    revokeSession(db, cookie(request));
+    revokeSession(db, sessionCookie(request));
     return reply.header('set-cookie', cookieValue(session.token, session.maxAge)).send({ csrf: session.csrf, expiresAt: session.expiresAt });
   });
 
   app.get('/api/account', async (request, reply) => {
-    const token = cookie(request), session = authenticateSession(db, token);
+    const token = sessionCookie(request), session = authenticateSession(db, token);
     if (!session) return reply.code(401).send(errorEnvelope('SESSION_REQUIRED', request.id));
     const groups = db.prepare('SELECT g.id,g.name FROM groups g JOIN memberships m ON m.group_id=g.id WHERE m.user_id=? ORDER BY g.id').all(session.userId);
     return { user: { id: session.userId, username: session.username, displayName: session.displayName, adminRole: session.adminRole, groups }, csrf: csrfForToken(token) };
   });
 
   app.post('/api/auth/logout', async (request, reply) => {
-    const token = cookie(request), session = authenticateSession(db, token);
+    const token = sessionCookie(request), session = authenticateSession(db, token);
     if (!session) return reply.code(401).send(errorEnvelope('SESSION_REQUIRED', request.id));
     if (!sameOrigin(request) || typeof request.headers['x-csrf-token'] !== 'string' || !validCsrf(session, request.headers['x-csrf-token'])) {
       return reply.code(403).send(errorEnvelope('CSRF_REJECTED', request.id));
