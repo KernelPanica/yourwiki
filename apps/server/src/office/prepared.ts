@@ -3,7 +3,7 @@ import {transaction,type Database} from '../database.ts';
 import {BlobStore,type BlobRef} from '../storage/blobs.ts';
 import {OfficeSessions,OfficeError} from './sessions.ts';
 import {OfficeValidationWorker} from './validation-worker.ts';
-export const officeTransitVersion='office-transit-v1';
+export const officeTransitVersion='office-transit-v2';
 type Row={id:string;document_id:string;source_revision:number;source_digest:string;format:string;converter_version:string;state:string;digest:string|null;size:number|null;reserved_bytes:number;lease_token:string;lease_until:number;last_access_at:number};
 type Worker={prepare:(source:BlobStore,blob:BlobRef,format:string,target:BlobStore,signal:AbortSignal,limits:{maxOutputBytes:number})=>Promise<BlobRef>};
 /** Derived private bytes only. Original revisions remain the authority for conflict detection. */
@@ -60,7 +60,7 @@ export class OfficePrepared {
   }finally{clearInterval(heartbeat);clearTimeout(deadline);this.active.delete(row.id);}
  }
  cleanup(){if(this.closed)return Promise.resolve(0);return this.cleaning??=this.clean().finally(()=>{this.cleaning=undefined;});}
- private eligible(row:Row){return row.state==='failed'||['creating','deleting'].includes(row.state)&&row.lease_until<=this.clock()||row.state==='ready'&&row.last_access_at<this.clock()-86400000&&!this.db.prepare('SELECT 1 FROM office_sessions WHERE document_id=? AND base_revision=? AND base_digest=? AND (expires_at>? OR pending_operation_id IS NOT NULL)').get(row.document_id,row.source_revision,row.source_digest,this.clock());}
+ private eligible(row:Row){return row.state==='failed'||['creating','deleting'].includes(row.state)&&row.lease_until<=this.clock()||row.state==='ready'&&row.last_access_at<this.clock()-86400000&&!this.db.prepare('SELECT 1 FROM office_sessions WHERE prepared_id=? AND (expires_at>? OR pending_operation_id IS NOT NULL)').get(row.id,this.clock());}
  private async clean(){
   for(const [id,controller] of this.active){const row=this.row(id);if(row&&row.lease_until<=this.clock())controller.abort(new OfficeError('OFFICE_PREPARED_LEASE_LOST'));}
   const ids=new Set((this.db.prepare("SELECT id FROM office_prepared WHERE (state IN ('creating','deleting') AND lease_until<=?) OR (state='failed' AND reserved_bytes>0) OR (state='ready' AND last_access_at<?) LIMIT 32").all(this.clock(),this.clock()-86400000) as {id:string}[]).map(row=>row.id));

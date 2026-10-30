@@ -18,8 +18,8 @@ function xmlParser(flat=false){
  let depth=0;const parser=new SaxesParser({xmlns:true});parser.on('doctype',invalid);parser.on('error',invalid);
  parser.on('opentag',tag=>{if(++depth>256)throw new OfficeError('OFFICE_FILE_BUDGET');if(flat&&depth===1&&(tag.local!=='document'||tag.uri!=='urn:oasis:names:tc:opendocument:xmlns:office:1.0'))invalid();});parser.on('closetag',()=>{depth--;});return parser;
 }
-function xmlStream(flat=false){
- const parser=xmlParser(flat);let prefix=Buffer.alloc(0),decoder:TextDecoder|undefined;
+export function xmlStream(flat=false,suppliedParser?:SaxesParser){
+ const parser=suppliedParser??xmlParser(flat);let prefix=Buffer.alloc(0),decoder:TextDecoder|undefined;
  function select(final=false){
   if(!final&&prefix.length<8)return;
   let encoding:string;

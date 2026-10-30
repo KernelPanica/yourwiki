@@ -51,3 +51,11 @@ test('the sandbox repairs a ZIP64 legacy DOCX while keeping the source and unrel
  assert.notEqual(prepared.digest,source.digest);assert.equal(await f.store.verify(source),true);const archive=await openPromise(await target.localFile(prepared.digest),{autoClose:false,lazyEntries:true});t.after(()=>archive.close());assert.equal(archive.comment.toString(),'kept archive comment');const parts=new Map<string,Buffer>();for await(const entry of archive.eachEntry())parts.set(entry.fileName,await buffer(await archive.openReadStreamPromise(entry)));
  assert.equal(parts.get('word/vbaProject.bin')!.toString(),'macro bytes');assert.match(parts.get('word/_rels/document.xml.rels')!.toString(),/<Relationships xmlns=/);
 });
+
+
+test('the 96MiB sandbox prepares a relationship XML above ten megabytes without a whole-part buffer',async t=>{
+ const f=await fixture(t),zip=new ZipFile(),bytes=buffer(zip.outputStream),ns='http://schemas.openxmlformats.org/package/2006/relationships';zip.addBuffer(Buffer.from('<Types/>'),'[Content_Types].xml');zip.addBuffer(Buffer.from('<document/>'),'word/document.xml');
+ async function* relationships(){yield Buffer.from(`<r:Relationships xmlns:r="${ns}">`);for(let start=0;start<200000;start+=500){let chunk='';for(let i=start;i<start+500;i++)chunk+=`<r:Relationship Id="r${i}" Type="urn:test" Target="linked-${i}.xml"/>`;yield Buffer.from(chunk);}yield Buffer.from('</r:Relationships>');}
+ const {Readable}=await import('node:stream');zip.addReadStream(Readable.from(relationships()),'word/_rels/document.xml.rels');zip.end();const source=await f.store.put((async function*(){yield await bytes;})(),{maxBytes:10*1024**2}),target=await BlobStore.open(join(f.root,'large-prepared')),prepared=await new OfficeValidationWorker(f.db).prepare(f.store,source,'docx',target,new AbortController().signal);
+ const archive=await openPromise(await target.localFile(prepared.digest),{autoClose:false,lazyEntries:true});try{for await(const entry of archive.eachEntry())if(entry.fileName==='word/_rels/document.xml.rels'){assert.ok(entry.uncompressedSize>10*1024**2);const xml=(await buffer(await archive.openReadStreamPromise(entry))).toString();assert.equal((xml.match(/<Relationship /g)??[]).length,200000);assert.match(xml,/linked-199999.xml/);}}finally{archive.close();}assert.equal(await f.store.verify(source),true);
+});

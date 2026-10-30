@@ -204,5 +204,8 @@ ALTER TABLE office_sessions ADD COLUMN prepared_id TEXT REFERENCES office_prepar
 CREATE UNIQUE INDEX office_prepared_current ON office_prepared(document_id,source_revision,source_digest,format,converter_version) WHERE state IN ('creating','ready');
 CREATE INDEX office_prepared_cleanup ON office_prepared(state,lease_until,last_access_at);
 `;
-export const migrations = [core + epochTriggers, authInvalidation, authSettings, jobs, documents, workerSlots, uploads, pdfLayers, saveJournal, officeSessions, officeIngress, officeCleanup, officeRecovery, officePrepared] as const;
+const officePreparedBindings = `
+CREATE INDEX office_sessions_prepared ON office_sessions(prepared_id) WHERE prepared_id IS NOT NULL;
+`;
+export const migrations = [core + epochTriggers, authInvalidation, authSettings, jobs, documents, workerSlots, uploads, pdfLayers, saveJournal, officeSessions, officeIngress, officeCleanup, officeRecovery, officePrepared, officePreparedBindings] as const;
 export const applicationId = 0x5957494b; // YWIK; legacy Django uses no marker.

@@ -70,17 +70,27 @@ test('cleanup aborts an expired local preparation so its worker cannot acknowled
 test('an active session keeps its pinned converter across an engine update while a new session uses the current version',async t=>{
  const f=await fixture(t),first=await f.prepared.prepare(f.opened.sessionId,f.opened.token,new AbortController().signal);f.db.prepare("UPDATE office_prepared SET converter_version='prior-transit' WHERE id=?").run(first.id);
  assert.equal(f.prepared.get(f.opened.sessionId,f.opened.token).id,first.id);assert.equal((await f.prepared.prepare(f.opened.sessionId,f.opened.token,new AbortController().signal)).converterVersion,'prior-transit');
- f.office.release(f.browser.token,f.opened.sessionId,f.opened.token);const fresh=f.office.open(f.browser.token,f.doc.documentId),newer=await f.prepared.prepare(fresh.sessionId,fresh.token,new AbortController().signal);assert.notEqual(fresh.sessionId,f.opened.sessionId);assert.notEqual(newer.id,first.id);assert.equal(newer.converterVersion,'office-transit-v1');
+ f.office.release(f.browser.token,f.opened.sessionId,f.opened.token);const fresh=f.office.open(f.browser.token,f.doc.documentId),newer=await f.prepared.prepare(fresh.sessionId,fresh.token,new AbortController().signal);assert.notEqual(fresh.sessionId,f.opened.sessionId);assert.notEqual(newer.id,first.id);assert.equal(newer.converterVersion,'office-transit-v2');
 });
 
 test('missing bytes from an older converter require a new session instead of silently switching an active editor',async t=>{
  const f=await fixture(t),first=await f.prepared.prepare(f.opened.sessionId,f.opened.token,new AbortController().signal);f.db.prepare("UPDATE office_prepared SET converter_version='prior-transit' WHERE id=?").run(first.id);await f.store.removeUpload(first.id);
  await assert.rejects(f.prepared.payload(f.opened.sessionId,f.opened.token),/OFFICE_PREPARED_MISSING/);await assert.rejects(f.prepared.prepare(f.opened.sessionId,f.opened.token,new AbortController().signal),/CONFLICT/);
- f.office.release(f.browser.token,f.opened.sessionId,f.opened.token);const fresh=f.office.open(f.browser.token,f.doc.documentId);assert.equal((await f.prepared.prepare(fresh.sessionId,fresh.token,new AbortController().signal)).converterVersion,'office-transit-v1');
+ f.office.release(f.browser.token,f.opened.sessionId,f.opened.token);const fresh=f.office.open(f.browser.token,f.doc.documentId);assert.equal((await f.prepared.prepare(fresh.sessionId,fresh.token,new AbortController().signal)).converterVersion,'office-transit-v2');
 });
 
 test('an unrecoverable older prepared copy retires the broken room so another participant can open a fresh one',async t=>{
  const f=await fixture(t),first=await f.prepared.prepare(f.opened.sessionId,f.opened.token,new AbortController().signal),participant=f.office.open(f.browser.token,f.doc.documentId);f.db.prepare("UPDATE office_prepared SET converter_version='prior-transit' WHERE id=?").run(first.id);await f.store.removeUpload(first.id);
  await assert.rejects(f.prepared.payload(f.opened.sessionId,f.opened.token),/OFFICE_PREPARED_MISSING/);const room=f.db.prepare('SELECT superseded,error_code FROM office_sessions WHERE id=?').get(f.opened.sessionId) as any;assert.equal(room.superseded,1);assert.equal(room.error_code,'OFFICE_PREPARED_MISSING');
- const next=f.office.open(f.browser.token,f.doc.documentId);assert.notEqual(next.sessionId,participant.sessionId);assert.equal((await f.prepared.prepare(next.sessionId,next.token,new AbortController().signal)).converterVersion,'office-transit-v1');assert.equal(await f.store.verify(f.doc.blob),true);
+ const next=f.office.open(f.browser.token,f.doc.documentId);assert.notEqual(next.sessionId,participant.sessionId);assert.equal((await f.prepared.prepare(next.sessionId,next.token,new AbortController().signal)).converterVersion,'office-transit-v2');assert.equal(await f.store.verify(f.doc.blob),true);
+});
+
+test('an active new converter room does not indefinitely retain an unused older converter copy',async t=>{
+ const f=await fixture(t),old=await f.prepared.prepare(f.opened.sessionId,f.opened.token,new AbortController().signal);f.db.prepare("UPDATE office_prepared SET converter_version='older-converter',last_access_at=0 WHERE id=?").run(old.id);f.office.release(f.browser.token,f.opened.sessionId,f.opened.token);
+ const fresh=f.office.open(f.browser.token,f.doc.documentId),current=await f.prepared.prepare(fresh.sessionId,fresh.token,new AbortController().signal);await f.prepared.cleanup();assert.equal(await f.store.existingUploadStore(old.id),null);assert.notEqual(await f.store.existingUploadStore(current.id),null);assert.equal(f.prepared.get(fresh.sessionId,fresh.token).id,current.id);
+});
+
+
+test('an old but actively pinned prepared copy is retained by cleanup',async t=>{
+ const f=await fixture(t),active=await f.prepared.prepare(f.opened.sessionId,f.opened.token,new AbortController().signal);f.db.prepare('UPDATE office_prepared SET last_access_at=0 WHERE id=?').run(active.id);await f.prepared.cleanup();assert.notEqual(await f.store.existingUploadStore(active.id),null);assert.equal(f.prepared.get(f.opened.sessionId,f.opened.token).id,active.id);
 });
