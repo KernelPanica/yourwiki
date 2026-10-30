@@ -56,3 +56,14 @@
 - Независимое review: P2 foreign DB detection исправлено и снято; отдельные regression tests включены.
 - Новая схема и API не подключены к production entrypoint. React/auth UI, importer, file APIs и admin operations ещё не реализованы. Readiness без workspace checker false.
 - npm server suite/typecheck и исходные frontend tests пройдены. Повтор полного legacy pytest: 593 passed, 11 skipped, 240 warnings. Direct Node checks: 41 passed в 6 файлах.
+
+## Streaming storage / durable jobs / publication — 2026-10-30
+
+- Private immutable blobs: chunked SHA-256/write, enforced limits, fsync before acknowledgement, exclusive publication, range reads and corruption detection.
+- Durable deduplicated jobs: retries/leases/restart, stale token fencing and reclaimed marker. Provider reconciliation remains mandatory before uncertain cloud writes.
+- Local revisions and preview jobs are transactional; source/artifacts are verified before atomic publication/event/ack. Previous preview stays visible during preparation; stale source/converter requests cannot overwrite current publication.
+- New unpublished files are limited to owner/admin; ACL and base revision are rechecked after streaming. A conflict/revocation retains accepted bytes as a recovery receipt.
+- Published manifest receipts are retained across converter upgrades. No garbage collector currently removes immutable blobs.
+- Independent review found a stalled iterator.return() resource leak; reproduced RED and fixed with nonblocking best-effort source close. Regression covers rejection without requiring an AbortSignal.
+- Server: 61 named tests passed; TypeScript typecheck passed. HTTP file routes, resumable uploads, worker runner, converters and React remain pending. Office 4 GiB acceptance is unverified; production runtime unchanged.
+- Повтор полного legacy backend: 593 passed, 11 skipped, 240 warnings (29.10s). Повторный независимый review: существенных замечаний нет. Browser/live-provider baseline остаётся незавершённым по ранее записанным ограничениям.

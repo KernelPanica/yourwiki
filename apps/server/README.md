@@ -70,3 +70,25 @@ unsupported credentials rather than reset passwords or silently lock users out.
 inheritance exceptions and independent export bans. Cache size is bounded;
 reads inside transactions bypass it to avoid stale entries after rollback.
 This core does not yet expose document/admin mutations or the React UI.
+
+## Storage and publication core
+
+`BlobStore` streams originals to private immutable SHA-256 blobs, enforces byte
+limits before writes, supports byte ranges and cleans temporary payloads on
+failure. A source iterator's stalled cleanup cannot hold our staging file open.
+
+`JobQueue` persists deduplicated work with bounded retries, expiring leases and
+fenced acknowledgements. Reclaimed work signals an uncertain previous outcome;
+future cloud handlers must reconcile before repeating provider mutations.
+
+`DocumentService` commits local revisions and preview jobs together. Publication
+verifies source and all artifacts, then atomically moves the published pointer,
+records an event and acknowledges the job. Previous previews remain available
+while replacements prepare; obsolete workers cannot replace newer requests.
+Published manifest receipts survive converter changes. Unpublished files are
+restricted to owners/admins. Concurrent revision or ACL changes reject saves
+and retain accepted bytes as recovery copies.
+
+These are internal APIs only. HTTP streaming/resume, recovery download, worker
+execution and actual format converters are still pending. The 4 GiB storage
+limit does not establish feasibility of 4 GiB office viewing/editing.

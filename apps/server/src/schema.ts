@@ -58,5 +58,50 @@ ALTER TABLE app_state ADD COLUMN session_hours INTEGER NOT NULL DEFAULT 24 CHECK
 ALTER TABLE app_state ADD COLUMN login_attempts INTEGER NOT NULL DEFAULT 10 CHECK(login_attempts BETWEEN 1 AND 100);
 ALTER TABLE app_state ADD COLUMN login_window_minutes INTEGER NOT NULL DEFAULT 15 CHECK(login_window_minutes BETWEEN 1 AND 1440);
 `;
-export const migrations = [core + epochTriggers, authInvalidation, authSettings] as const;
+const jobs = `
+CREATE TABLE jobs (
+  id TEXT PRIMARY KEY, kind TEXT NOT NULL, dedupe_key TEXT NOT NULL, payload TEXT NOT NULL,
+  state TEXT NOT NULL DEFAULT 'queued' CHECK(state IN ('queued','running','succeeded','failed')),
+  available_at INTEGER NOT NULL, attempts INTEGER NOT NULL DEFAULT 0,
+  max_attempts INTEGER NOT NULL CHECK(max_attempts BETWEEN 1 AND 100),
+  lease_token TEXT, lease_until INTEGER, error_code TEXT, created_at INTEGER NOT NULL,
+  UNIQUE(kind,dedupe_key)
+);
+CREATE INDEX jobs_claim ON jobs(state,available_at,lease_until);
+`;
+const documents = `
+CREATE TABLE documents (
+  id TEXT PRIMARY KEY REFERENCES resources(id) ON DELETE RESTRICT,
+  title TEXT NOT NULL, format TEXT NOT NULL, local_revision INTEGER NOT NULL DEFAULT 0,
+  published_revision INTEGER, provider_revision INTEGER, preview_generation INTEGER NOT NULL DEFAULT 0,
+  preview_job_id TEXT REFERENCES jobs(id), created_at INTEGER NOT NULL
+);
+CREATE TABLE document_versions (
+  document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE RESTRICT,
+  revision INTEGER NOT NULL, digest TEXT NOT NULL, size INTEGER NOT NULL CHECK(size>=0),
+  author_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT, created_at INTEGER NOT NULL,
+  PRIMARY KEY(document_id,revision)
+);
+CREATE TABLE previews (
+  document_id TEXT NOT NULL, revision INTEGER NOT NULL, manifest_digest TEXT NOT NULL,
+  converter_version TEXT NOT NULL, created_at INTEGER NOT NULL,
+  PRIMARY KEY(document_id,revision),
+  FOREIGN KEY(document_id,revision) REFERENCES document_versions(document_id,revision) ON DELETE RESTRICT
+);
+CREATE TABLE preview_manifests (
+  manifest_digest TEXT PRIMARY KEY, document_id TEXT NOT NULL, revision INTEGER NOT NULL,
+  converter_version TEXT NOT NULL, created_at INTEGER NOT NULL,
+  FOREIGN KEY(document_id,revision) REFERENCES document_versions(document_id,revision) ON DELETE RESTRICT
+);
+CREATE TABLE recovery_copies (
+  id TEXT PRIMARY KEY, document_id TEXT REFERENCES documents(id) ON DELETE RESTRICT,
+  intended_document_id TEXT NOT NULL, author_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+  digest TEXT NOT NULL, size INTEGER NOT NULL, reason TEXT NOT NULL, created_at INTEGER NOT NULL
+);
+CREATE TABLE events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT NOT NULL, document_id TEXT NOT NULL,
+  payload TEXT NOT NULL, created_at INTEGER NOT NULL
+);
+`;
+export const migrations = [core + epochTriggers, authInvalidation, authSettings, jobs, documents] as const;
 export const applicationId = 0x5957494b; // YWIK; legacy Django uses no marker.
