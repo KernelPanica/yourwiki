@@ -1,0 +1,51 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {OfficeConnection,parseOfficeBootstrap} from '../src/office-connection.ts';
+import {ApiError} from '../src/api.ts';
+import {blockSession,resumeSession} from '../src/session-fence.ts';
+const opened={sessionId:'room-1234',accessToken:'a'.repeat(43),expiresAt:Date.now()+60000,write:true,export:true,actionUrl:'https://office.example/browser/editor.html?WOPISrc=https%3A%2F%2Fwiki.example%2Fwopi%2Ffiles%2Froom-1234'};
+const status={sessionId:opened.sessionId,documentId:'doc',expired:false,changed:false,errorCode:null,write:true,export:true,recovery:false};
+function deferred(){let resolve!:(v:any)=>void;const promise=new Promise<any>(r=>resolve=r);return {promise,resolve};}
+function setup(t:any,request:(url:string,init?:RequestInit)=>Promise<unknown>){resumeSession();const connection=new OfficeConnection({documentId:'doc',csrf:'csrf',language:'ru',format:'docx',request,statusMs:60000});t.after(()=>connection.dispose());const sent:any[]=[],frame={postMessage:(raw:string)=>sent.push(JSON.parse(raw))};return {connection,frame,sent};}
+function loaded(f:ReturnType<typeof setup>){f.connection.receive({origin:'https://office.example',source:f.frame,data:{MessageId:'App_LoadingStatus',Values:{Status:'Document_Loaded'}}});}
+test('bootstrap rejects malformed permissions, secret-bearing actions and mismatched document bindings',()=>{
+ assert.equal(parseOfficeBootstrap(opened).actionUrl,opened.actionUrl);
+ for(const change of [{write:'false'},{export:1},{expiresAt:0},{sessionId:'bad/room'},{accessToken:'secret'},{actionUrl:'javascript:alert(1)'},{actionUrl:'https://name:password@office.example/editor'},{actionUrl:opened.actionUrl+'&access_token=secret'},{actionUrl:'https://office.example/editor?WOPISrc=https%3A%2F%2Fwiki.example%2Fwopi%2Ffiles%2Fother'}])assert.throws(()=>parseOfficeBootstrap({...opened,...change}),/INVALID_OFFICE_BOOTSTRAP/);
+});
+test('opening is single-flight, uses CSRF and retains its frame across status refreshes',async t=>{
+ const calls:any[]=[];const f=setup(t,async(url,init)=>{calls.push({url,init});return url.endsWith('/office')?opened:status;});await Promise.all([f.connection.open(),f.connection.open()]);assert.equal(calls.length,1);assert.equal(calls[0].init.headers['x-csrf-token'],'csrf');assert.deepEqual(JSON.parse(calls[0].init.body),{language:'ru'});const bridge=f.connection.attach(f.frame);assert.equal(f.connection.attach(f.frame),bridge);loaded(f);await f.connection.check();await f.connection.check();assert.equal(f.connection.bridge,bridge);assert.equal(bridge.snapshot().loaded,true);assert.equal(f.sent.filter(x=>x.MessageId==='Action_Save').length,0);
+});
+test('a late opening reply after account invalidation cannot attach an editor',async t=>{
+ const reply=deferred(),f=setup(t,()=>reply.promise),opening=f.connection.open();blockSession();reply.resolve(opened);await opening;assert.equal(f.connection.snapshot().phase,'paused');assert.equal(f.connection.snapshot().bootstrap,null);assert.throws(()=>f.connection.attach(f.frame),/OFFICE_NOT_OPEN/);
+});
+test('status checks do not overlap and mismatched response identities cannot change the bridge',async t=>{
+ const reply=deferred();let checks=0;const f=setup(t,async url=>url.endsWith('/office')?opened:(checks++,reply.promise));await f.connection.open();const bridge=f.connection.attach(f.frame);loaded(f);const checking=f.connection.check();await f.connection.check();assert.equal(checks,1);reply.resolve({...status,documentId:'other',write:false});await checking;assert.equal(bridge.snapshot().write,true);assert.equal(f.connection.snapshot().errorCode,'INVALID_OFFICE_STATUS');
+});
+test('changed originals fence saves but preserve the same dirty editor and export option',async t=>{
+ const f=setup(t,async url=>url.endsWith('/office')?opened:{...status,changed:true});await f.connection.open();const bridge=f.connection.attach(f.frame);loaded(f);f.connection.receive({origin:'https://office.example',source:f.frame,data:{MessageId:'Doc_ModifiedStatus',Values:{Modified:true}}});await f.connection.check();assert.equal(bridge.snapshot().phase,'conflict');assert.equal(bridge.snapshot().needsRecovery,true);assert.equal(f.connection.bridge,bridge);assert.equal(bridge.exportCurrent(),true);
+});
+test('close revokes the capability before reporting safe unmount and never sends a save',async t=>{
+ const released=deferred();const calls:any[]=[];const f=setup(t,async(url,init)=>{calls.push({url,init});return url.endsWith('/office')?opened:released.promise;});await f.connection.open();const bridge=f.connection.attach(f.frame);loaded(f);let closed=false;const closing=f.connection.close().then(result=>closed=result);await Promise.resolve();assert.equal(f.connection.snapshot().phase,'closing');assert.equal(closed,false);assert.equal(f.connection.bridge,bridge);assert.equal(f.sent.some(x=>x.MessageId==='Action_Save'),false);assert.equal(calls.at(-1).url,'/api/office/room-1234/release');assert.deepEqual(JSON.parse(calls.at(-1).init.body),{accessToken:opened.accessToken});released.resolve(undefined);await closing;assert.equal(closed,true);assert.equal(f.connection.snapshot().phase,'closed');
+});
+test('uncertain release retains the frame and allows explicit release retry, without saving',async t=>{
+ let releases=0;const f=setup(t,async url=>{if(url.endsWith('/office'))return opened;if(++releases===1)throw new Error('connection lost');return undefined;});await f.connection.open();const bridge=f.connection.attach(f.frame);loaded(f);assert.equal(await f.connection.close(),false);assert.equal(f.connection.bridge,bridge);assert.equal(f.connection.snapshot().errorCode,'OFFICE_RELEASE_UNCERTAIN');assert.equal(await f.connection.close(),true);assert.equal(releases,2);assert.equal(f.sent.some(x=>x.MessageId==='Action_Save'),false);
+});
+test('late status after close starts cannot revive editing, and session failures block all office IO',async t=>{
+ const reply=deferred();const f=setup(t,async url=>url.endsWith('/office')?opened:url.endsWith('/release')?undefined:reply.promise);await f.connection.open();const bridge=f.connection.attach(f.frame);loaded(f);const checking=f.connection.check();await f.connection.close();reply.resolve(status);await checking;assert.equal(f.connection.snapshot().phase,'closed');assert.equal(bridge.receive({origin:'https://office.example',source:f.frame,data:{MessageId:'Doc_ModifiedStatus',Values:{Modified:true}}}),false);
+ const g=setup(t,async url=>{if(url.endsWith('/office'))return opened;throw new ApiError('SESSION_REQUIRED');});await g.connection.open();g.connection.attach(g.frame);await g.connection.check();assert.equal(g.connection.snapshot().phase,'paused');assert.equal(g.connection.bridge?.snapshot().phase,'paused');
+});
+test('a release whose reply was lost can be completed when retry confirms the capability is already absent',async t=>{
+ let releases=0;const f=setup(t,async url=>{if(url.endsWith('/office'))return opened;if(++releases===1)throw new Error('reply lost');throw new ApiError('NOT_FOUND');});await f.connection.open();f.connection.attach(f.frame);assert.equal(await f.connection.close(),false);assert.equal(await f.connection.close(),true);assert.equal(f.connection.snapshot().phase,'closed');
+});
+test('revoked read access stops subsequent status requests while retaining the paused frame',async t=>{
+ let checks=0;const f=setup(t,async url=>{if(url.endsWith('/office'))return opened;checks++;throw new ApiError('ACCESS_DENIED');});await f.connection.open();const bridge=f.connection.attach(f.frame);await f.connection.check();await f.connection.check();assert.equal(checks,1);assert.equal(f.connection.snapshot().phase,'paused');assert.equal(f.connection.bridge,bridge);
+});
+test('configured WOPI reverse-proxy path prefixes are preserved',()=>{
+ const value={...opened,actionUrl:opened.actionUrl.replace('%2Fwopi%2Ffiles','%2Fyourwiki%2Fwopi%2Ffiles')};assert.deepEqual(parseOfficeBootstrap(value),value);
+});
+test('capability expiry stops heartbeats and cannot be prolonged by an otherwise live shared room',async t=>{
+ resumeSession();let now=opened.expiresAt-1,checks=0;const connection=new OfficeConnection({documentId:'doc',csrf:'csrf',language:'ru',format:'docx',now:()=>now,statusMs:60000,request:async url=>{if(url.endsWith('/office'))return opened;checks++;return status;}});t.after(()=>connection.dispose());await connection.open();const frame={postMessage:()=>{}},bridge=connection.attach(frame);now=opened.expiresAt;await connection.check();assert.equal(checks,0);assert.equal(connection.snapshot().phase,'paused');assert.equal(bridge.snapshot().errorCode,'OFFICE_EXPIRED');assert.equal(bridge.snapshot().exportAllowed,false);await connection.check();assert.equal(checks,0);
+});
+test('a prepared bootstrap that expires before the frame is attached is never submitted to an engine',async t=>{
+ resumeSession();let now=opened.expiresAt-1;const connection=new OfficeConnection({documentId:'doc',csrf:'csrf',language:'ru',format:'docx',now:()=>now,request:async()=>opened});t.after(()=>connection.dispose());await connection.open();now=opened.expiresAt;assert.throws(()=>connection.attach({postMessage:()=>{throw new Error('must not submit');}}),/OFFICE_EXPIRED/);assert.equal(connection.snapshot().phase,'paused');assert.equal(connection.bridge,undefined);
+});
