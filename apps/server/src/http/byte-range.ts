@@ -9,4 +9,3 @@ export function byteRange(header: string | undefined, size: number) {
   const end = first === undefined ? size - 1 : Math.min(last ?? size - 1, size - 1);
   return start >= size || end < start ? null : { start, end };
 }
-
