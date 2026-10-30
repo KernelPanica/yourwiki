@@ -132,5 +132,17 @@ CREATE TABLE pdf_layer_versions (
   FOREIGN KEY(document_id,base_revision) REFERENCES document_versions(document_id,revision) ON DELETE RESTRICT
 );
 `;
-export const migrations = [core + epochTriggers, authInvalidation, authSettings, jobs, documents, workerSlots, uploads, pdfLayers] as const;
+const saveJournal = `
+CREATE TABLE save_operations (
+  id TEXT PRIMARY KEY, document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE RESTRICT,
+  author_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+  base_revision INTEGER NOT NULL CHECK(base_revision>0), base_digest TEXT NOT NULL,
+  digest TEXT NOT NULL, size INTEGER NOT NULL CHECK(size>=0),
+  state TEXT NOT NULL CHECK(state IN ('staged','saved','conflict','denied')),
+  receipt TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+  CHECK((state='saved' AND receipt IS NOT NULL) OR (state!='saved' AND receipt IS NULL))
+);
+CREATE INDEX save_operations_pending ON save_operations(state,author_id);
+`;
+export const migrations = [core + epochTriggers, authInvalidation, authSettings, jobs, documents, workerSlots, uploads, pdfLayers, saveJournal] as const;
 export const applicationId = 0x5957494b; // YWIK; legacy Django uses no marker.

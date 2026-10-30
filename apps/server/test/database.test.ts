@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import {createHash} from 'node:crypto';
+import {migrations,applicationId} from '../src/schema.ts';
 import { test } from 'node:test';
 import { mkdtempSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -78,4 +80,21 @@ test('foreign application markers on an otherwise empty database are respected',
   const path = fixture(t);
   const foreign = new Sqlite(path); foreign.pragma('application_id = 12345'); foreign.close();
   assert.throws(() => openDatabase(path), /foreign|legacy/i);
+});
+
+
+test('an existing version-eight workspace gains the save journal without rewriting prior migrations or records',t=>{
+ const path=fixture(t),original=new Sqlite(path);
+ original.exec('CREATE TABLE schema_migrations(version INTEGER PRIMARY KEY,checksum TEXT NOT NULL)');
+ for(const [index,sql] of migrations.slice(0,8).entries()){
+  original.exec(sql);original.prepare('INSERT INTO schema_migrations VALUES(?,?)').run(index+1,createHash('sha256').update(sql).digest('hex'));
+ }
+ original.pragma(`application_id = ${applicationId}`);
+ original.exec("INSERT INTO users(id,username,display_name,password_hash) VALUES('old-user','old-user','Existing user','!'); INSERT INTO groups VALUES('old-group','Existing group'); INSERT INTO memberships VALUES('old-user','old-group')");
+ const checksums=original.prepare('SELECT * FROM schema_migrations ORDER BY version').all();original.close();
+ const migrated=openDatabase(path);t.after(()=>migrated.close());
+ assert.deepEqual(migrated.prepare('SELECT * FROM schema_migrations WHERE version<=8 ORDER BY version').all(),checksums);
+ assert.equal((migrated.prepare("SELECT display_name FROM users WHERE id='old-user'").get() as any).display_name,'Existing user');
+ assert.equal((migrated.prepare("SELECT COUNT(*) AS n FROM memberships WHERE user_id='old-user'").get() as any).n,1);
+ assert.deepEqual(migrated.prepare('SELECT * FROM save_operations').all(),[]);
 });
