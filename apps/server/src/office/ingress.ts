@@ -1,3 +1,4 @@
+import {officeRecoveryAllowed} from './recovery-access.ts';
 import {OfficeIngressMaintenance} from './ingress-maintenance.ts';
 import {randomUUID} from 'node:crypto';
 import {OfficeSessions,OfficeError} from './sessions.ts';
@@ -16,7 +17,14 @@ export class OfficeIngress {
  }
  private row(id:string){return this.db.prepare('SELECT * FROM office_ingress WHERE id=?').get(id) as Row|undefined;}
  private result(row:Row){return {id:row.id,sessionId:row.office_session_id,documentId:row.document_id,userId:row.author_id,baseRevision:row.base_revision,baseDigest:row.base_digest,state:row.state,errorCode:row.error_code,blob:row.digest!==null?{digest:row.digest,size:row.size!}:null};}
- status(userId:string,id:string){const row=this.row(id);if(!row||row.author_id!==userId||!new AccessService(this.db).allows(userId,row.document_id,'read'))throw new OfficeError('NOT_FOUND');return this.result(row);}
+ status(userId:string,id:string){const row=this.row(id);if(!row||!officeRecoveryAllowed(this.db,userId,row))throw new OfficeError('NOT_FOUND');return this.result(row);}
+ recoveries(userId:string,documentId:string,cursor='',limit=50){
+  if(!Number.isSafeInteger(limit)||limit<1||limit>50||cursor.length>128)throw new OfficeError('INVALID_REQUEST');
+  if(!new AccessService(this.db).allows(userId,documentId,'read'))throw new OfficeError('NOT_FOUND');
+  const user=this.db.prepare('SELECT admin_role FROM users WHERE id=?').get(userId) as {admin_role:string};
+  const rows=this.db.prepare("SELECT * FROM office_ingress WHERE document_id=? AND id>? AND (state='receiving' OR (state IN ('prepared','failed') AND digest IS NOT NULL)) AND (?=1 OR author_id=?) ORDER BY id LIMIT ?").all(documentId,cursor,Number(user.admin_role==='giga'),userId,limit+1) as Row[];
+  return {items:rows.slice(0,limit).map(row=>this.result(row)),nextCursor:rows.length>limit?rows[limit-1]!.id:null};
+ }
  async payloadStore(userId:string,id:string){const status=this.status(userId,id);if(!status.blob||status.state==='discarded')throw new OfficeError('NOT_FOUND');const store=await this.store.existingUploadStore(id);if(!store)throw new OfficeError('OFFICE_RECOVERY_MISSING');return store;}
  cleanupExpired(){for(const [id,controller] of this.active){const row=this.row(id);if(row&&['receiving','prepared'].includes(row.state)&&row.lease_until<=this.clock())controller.abort(new OfficeWriteError('OFFICE_WRITE_LEASE_LOST'));}return this.maintenance.cleanupExpired();}
  async discard(userId:string,id:string){this.status(userId,id);this.active.get(id)?.abort(new OfficeWriteError('OFFICE_WRITE_DISCARDED'));return this.maintenance.discard(userId,id);}

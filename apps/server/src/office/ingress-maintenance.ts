@@ -1,6 +1,6 @@
 import {randomUUID} from 'node:crypto';
 import {transaction,type Database} from '../database.ts';
-import {AccessService} from '../access.ts';
+import {officeRecoveryAllowed} from './recovery-access.ts';
 import type {BlobStore} from '../storage/blobs.ts';
 import {OfficeError} from './sessions.ts';
 type Row={id:string;author_id:string;document_id:string;office_session_id:string;state:string;digest:string|null;size:number|null;reserved_bytes:number;declared_size:number|null;lease_until:number};
@@ -12,10 +12,10 @@ export class OfficeIngressMaintenance {
  cleanupExpired(){return this.cleaning??=this.run().finally(()=>{this.cleaning=undefined;});}
  async discard(userId:string,id:string){
   transaction(this.db,()=>{
-   const row=this.row(id);if(!row||row.author_id!==userId||!new AccessService(this.db).allows(userId,row.document_id,'read'))throw new OfficeError('NOT_FOUND');
+   const row=this.row(id);if(!row||!officeRecoveryAllowed(this.db,userId,row))throw new OfficeError('NOT_FOUND');
    if(row.state==='committed')return;
    this.db.prepare("UPDATE office_ingress SET state='discarded',error_code='OFFICE_WRITE_DISCARDED' WHERE id=?").run(id);
-   this.db.prepare("UPDATE save_operations SET cancelled_at=? WHERE id=? AND author_id=? AND state!='saved'").run(this.clock(),id,userId);
+   this.db.prepare("UPDATE save_operations SET cancelled_at=? WHERE id=? AND author_id=? AND state!='saved'").run(this.clock(),id,row.author_id);
    this.db.prepare("UPDATE office_sessions SET pending_operation_id=NULL,error_code=CASE WHEN superseded=1 THEN error_code ELSE NULL END WHERE id=? AND pending_operation_id=?").run(row.office_session_id,id);
   });
   await this.cleanupExpired();await this.reclaim(id);

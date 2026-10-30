@@ -187,5 +187,9 @@ CREATE INDEX save_operations_retained ON save_operations(author_id,size) WHERE s
 CREATE INDEX office_ingress_retained ON office_ingress(reserved_bytes,state,author_id)
  WHERE reserved_bytes>0 OR state IN ('receiving','prepared') OR (state='failed' AND digest IS NOT NULL);
 `;
-export const migrations = [core + epochTriggers, authInvalidation, authSettings, jobs, documents, workerSlots, uploads, pdfLayers, saveJournal, officeSessions, officeIngress, officeCleanup] as const;
+const officeRecovery = `
+CREATE INDEX office_ingress_recovery ON office_ingress(document_id,id)
+ WHERE state='receiving' OR (state IN ('prepared','failed') AND digest IS NOT NULL);
+`;
+export const migrations = [core + epochTriggers, authInvalidation, authSettings, jobs, documents, workerSlots, uploads, pdfLayers, saveJournal, officeSessions, officeIngress, officeCleanup, officeRecovery] as const;
 export const applicationId = 0x5957494b; // YWIK; legacy Django uses no marker.

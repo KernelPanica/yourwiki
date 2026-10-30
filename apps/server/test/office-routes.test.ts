@@ -9,6 +9,7 @@ import {DocumentService} from '../src/documents.ts';
 import {JobQueue} from '../src/jobs.ts';
 import {createSession,revokeSession} from '../src/auth/sessions.ts';
 import {OfficeSessions} from '../src/office/sessions.ts';
+import {OfficeIngress} from '../src/office/ingress.ts';
 import {SaveJournal} from '../src/save-journal.ts';
 import {buildApp} from '../src/app.ts';
 async function* bytes(value:string){yield Buffer.from(value);}
@@ -75,4 +76,52 @@ test('real HTTP WOPI metadata and partial file reads enforce token authenticatio
  const url=`${address}/wopi/files/${opened.sessionId}`;const unauth=await fetch(url);assert.equal(unauth.status,401);await unauth.arrayBuffer();
  const info=await fetch(url+'?access_token='+opened.token);assert.equal(info.status,200);assert.equal((await info.json() as {ReadOnly:boolean}).ReadOnly,true);
  const file=await fetch(url+'/contents?access_token='+opened.token,{headers:{range:'bytes=-8'}});assert.equal(file.status,206);assert.equal(await file.text(),'original');assert.equal(file.headers.get('cache-control'),'no-store');
+});
+
+async function pending(f:any,value='recovery bytes',user=f.one){
+ const opened=f.office.open(user.token,f.doc.documentId);f.office.lock(opened.sessionId,opened.token,'LOCK','recover-lock');
+ const ingress=new OfficeIngress(f.db,f.store);const receipt=await ingress.receive({sessionId:opened.sessionId,token:opened.token,lock:'recover-lock',declaredSize:Buffer.byteLength(value)},bytes(value));return {ingress,receipt};
+}
+test('prepared office recovery is listed and streamed by cookie after the editor expires, without exposing storage capabilities',async t=>{
+ const f=await fixture(t),{receipt}=await pending(f);f.db.prepare('UPDATE office_sessions SET expires_at=1 WHERE id=?').run(receipt.sessionId);
+ const listing=await f.app.inject({url:`/api/documents/${f.doc.documentId}/office-recovery`,headers:f.headers()});assert.equal(listing.statusCode,200);const item=listing.json().items[0];assert.equal(item.id,receipt.id);assert.equal(item.state,'prepared');assert.equal(item.download,true);assert.equal(JSON.stringify(item).includes('digest'),false);assert.equal(JSON.stringify(item).includes('lease'),false);
+ const url=`/api/office-recovery/${receipt.id}/contents`,file=await f.app.inject({url,headers:{...f.headers(),range:'bytes=0-7'}});assert.equal(file.statusCode,206);assert.equal(file.body,'recovery');assert.equal(file.headers['cache-control'],'no-store');assert.match(file.headers['content-disposition']!,/attachment/);
+ assert.equal((await f.app.inject({url})).statusCode,401);assert.equal((await f.app.inject({url,headers:f.headers(f.two)})).statusCode,404);
+});
+test('recovery metadata respects ownership and download checks current export permission',async t=>{
+ const f=await fixture(t),{receipt}=await pending(f),url=`/api/office-recovery/${receipt.id}`;
+ assert.equal((await f.app.inject({url,headers:f.headers(f.two)})).statusCode,404);
+ f.db.prepare('UPDATE resources SET export_disabled=1 WHERE id=?').run(f.doc.documentId);
+ assert.equal((await f.app.inject({url,headers:f.headers()})).json().download,false);assert.equal((await f.app.inject({url:url+'/contents',headers:f.headers()})).statusCode,403);
+ const list=await f.app.inject({url:`/api/documents/${f.doc.documentId}/office-recovery`,headers:f.headers(f.two)});assert.deepEqual(list.json().items,[]);
+});
+test('discard is CSRF protected, author scoped and tombstones recovery without changing the original',async t=>{
+ const f=await fixture(t),{receipt}=await pending(f),url=`/api/office-recovery/${receipt.id}/discard`;
+ assert.equal((await f.app.inject({method:'POST',url,headers:{cookie:f.headers().cookie}})).statusCode,403);
+ assert.equal((await f.app.inject({method:'POST',url,headers:f.headers(f.two)})).statusCode,404);
+ assert.equal((await f.app.inject({method:'POST',url,headers:f.headers()})).statusCode,204);
+ assert.equal((await f.app.inject({url:`/api/office-recovery/${receipt.id}/contents`,headers:f.headers()})).statusCode,404);
+ assert.equal(await f.store.existingUploadStore(receipt.id),null);assert.equal((f.db.prepare('SELECT local_revision FROM documents').get() as any).local_revision,1);
+});
+test('only giga admins can inspect and discard another author recovery; list uses bounded keyset pages',async t=>{
+ const f=await fixture(t),first=await pending(f,'first'),second=await pending(f,'second');const url=`/api/office-recovery/${first.receipt.id}`;
+ f.db.prepare("UPDATE users SET admin_role='simple' WHERE id='two'").run();assert.equal((await f.app.inject({url,headers:f.headers(f.two)})).statusCode,404);
+ f.db.prepare("UPDATE users SET admin_role='giga' WHERE id='two'").run();assert.equal((await f.app.inject({url,headers:f.headers(f.two)})).statusCode,200);
+ const base=`/api/documents/${f.doc.documentId}/office-recovery`,one=(await f.app.inject({url:base+'?limit=1',headers:f.headers(f.two)})).json();assert.equal(one.items.length,1);assert.ok(one.nextCursor);
+ const two=(await f.app.inject({url:base+'?limit=1&cursor='+one.nextCursor,headers:f.headers(f.two)})).json();assert.equal(two.items.length,1);assert.notEqual(two.items[0].id,one.items[0].id);assert.equal(two.nextCursor,null);
+ assert.equal((await f.app.inject({method:'POST',url:url+'/discard',headers:f.headers(f.two)})).statusCode,204);assert.notEqual(await f.store.existingUploadStore(second.receipt.id),null);
+});
+
+test('export revocation while recovery bytes open closes the stream instead of sending the snapshot',async t=>{
+ const f=await fixture(t),{receipt}=await pending(f),existing=f.store.existingUploadStore.bind(f.store);let opened=false;
+ f.store.existingUploadStore=async id=>{const namespace=await existing(id);if(namespace){const read=namespace.read.bind(namespace);namespace.read=async(...args)=>{const stream=await read(...args);opened=true;f.db.prepare('UPDATE resources SET export_disabled=1 WHERE id=?').run(f.doc.documentId);return stream;};}return namespace;};
+ const response=await f.app.inject({url:`/api/office-recovery/${receipt.id}/contents`,headers:f.headers()});assert.equal(opened,true);assert.equal(response.statusCode,403);assert.equal(response.body.includes('recovery bytes'),false);
+});
+
+test('giga discard cancels the original author journal even after that author loses access',async t=>{
+ const f=await fixture(t),{receipt,ingress}=await pending(f),namespace=await ingress.payloadStore('one',receipt.id),blob=await f.store.adopt(namespace,receipt.blob!),journal=new SaveJournal(f.db,f.store);
+ await journal.stagePrepared({operationId:receipt.id,userId:'one',documentId:f.doc.documentId,officeSessionId:receipt.sessionId,baseRevision:receipt.baseRevision,baseDigest:receipt.baseDigest,blob});
+ f.db.prepare('UPDATE office_sessions SET pending_operation_id=? WHERE id=?').run(receipt.id,receipt.sessionId);f.db.prepare("UPDATE users SET active=0 WHERE id='one'").run();f.db.prepare("UPDATE users SET admin_role='giga' WHERE id='two'").run();
+ assert.equal((await f.app.inject({method:'POST',url:`/api/office-recovery/${receipt.id}/discard`,headers:f.headers(f.two)})).statusCode,204);
+ assert.notEqual((f.db.prepare('SELECT cancelled_at FROM save_operations WHERE id=?').get(receipt.id) as any).cancelled_at,null);assert.equal((f.db.prepare('SELECT pending_operation_id FROM office_sessions WHERE id=?').get(receipt.sessionId) as any).pending_operation_id,null);assert.equal(await f.store.existingUploadStore(receipt.id),null);
 });

@@ -2,6 +2,7 @@ import type {FastifyInstance,FastifyRequest,FastifyReply} from 'fastify';
 import {transaction} from '../database.ts';
 import type {Database} from '../database.ts';
 import type {BlobStore,BlobRef} from '../storage/blobs.ts';
+import {OfficeIngress} from './ingress.ts';
 import {OfficeSessions,OfficeError} from './sessions.ts';
 import {OfficeDiscovery,officeUrl} from './discovery.ts';
 import {DocumentService} from '../documents.ts';
@@ -12,7 +13,7 @@ import {errorEnvelope} from '../errors.ts';
 import {byteRange} from '../http/byte-range.ts';
 export type OfficeOptions={publicUrl:string;internalUrl?:string;wopiUrl?:string;fetch?:typeof fetch};
 export function registerOffice(app:FastifyInstance,db:Database,store:BlobStore,publicUrl:string,options:OfficeOptions){
- const office=new OfficeSessions(db),docs=new DocumentService(db,store),access=new AccessService(db),discovery=new OfficeDiscovery(options);
+ const ingress=new OfficeIngress(db,store),office=new OfficeSessions(db),docs=new DocumentService(db,store),access=new AccessService(db),discovery=new OfficeDiscovery(options);
  const origin=new URL(publicUrl).origin,wopiBase=officeUrl(options.wopiUrl??publicUrl).href.replace(/\/$/,'');
  // Editing is enabled only after bounded PutFile/recovery is installed; never advertise a non-saving editor.
  const editingReady=false;
@@ -23,7 +24,7 @@ export function registerOffice(app:FastifyInstance,db:Database,store:BlobStore,p
  }
  function fail(error:unknown,request:FastifyRequest,reply:FastifyReply){
   if(!(error instanceof OfficeError))throw error;
-  const status:Record<string,number>={SESSION_REQUIRED:401,INVALID_OFFICE_TOKEN:401,OFFICE_EXPIRED:401,ACCESS_DENIED:403,CSRF_REJECTED:403,NOT_FOUND:404,CONFLICT:409,INVALID_OFFICE_LOCK:400,INVALID_OFFICE_DISCOVERY:503,OFFICE_UNAVAILABLE:503,OFFICE_NOT_READY:503,OFFICE_LIMIT:429,UNSUPPORTED_OFFICE_FORMAT:422,UNSUPPORTED_OFFICE_OPERATION:501};
+  const status:Record<string,number>={INVALID_REQUEST:400,OFFICE_RECOVERY_MISSING:404,SESSION_REQUIRED:401,INVALID_OFFICE_TOKEN:401,OFFICE_EXPIRED:401,ACCESS_DENIED:403,CSRF_REJECTED:403,NOT_FOUND:404,CONFLICT:409,INVALID_OFFICE_LOCK:400,INVALID_OFFICE_DISCOVERY:503,OFFICE_UNAVAILABLE:503,OFFICE_NOT_READY:503,OFFICE_LIMIT:429,UNSUPPORTED_OFFICE_FORMAT:422,UNSUPPORTED_OFFICE_OPERATION:501};
   const envelope=errorEnvelope(error.code,request.id);if(['CONFLICT','OFFICE_EXPIRED'].includes(error.code))envelope.recoveryActions=['copy_changes','download_changes','reload'];
   if(error.code==='CONFLICT'&&request.url.startsWith('/wopi/'))reply.header('x-wopi-lock','');
   return reply.code(status[error.code]??500).send(envelope);
@@ -47,10 +48,10 @@ export function registerOffice(app:FastifyInstance,db:Database,store:BlobStore,p
   const row=db.prepare('SELECT d.title,d.format,r.owner_id,v.size,v.digest,v.created_at FROM documents d JOIN resources r ON r.id=d.id JOIN document_versions v ON v.document_id=d.id AND v.revision=? WHERE d.id=?').get(actor.session.base_revision,actor.session.document_id) as {title:string;format:string;owner_id:string;size:number;digest:string;created_at:number}|undefined;
   if(!row||row.digest!==actor.session.base_digest)throw new OfficeError('CONFLICT');return row;
  }
- async function sendBytes(request:FastifyRequest,reply:FastifyReply,blob:BlobRef,recheck:()=>void){
+ async function sendBytes(request:FastifyRequest,reply:FastifyReply,blob:BlobRef,recheck:()=>void,source:BlobStore=store){
   const range=byteRange(request.headers.range,blob.size);reply.header('accept-ranges','bytes').header('content-security-policy',"sandbox; default-src 'none'");
   if(range===null)return reply.code(416).header('content-range',`bytes */${blob.size}`).send(errorEnvelope('INVALID_RANGE',request.id));
-  const stream=await store.read(blob.digest,range??undefined);try{recheck();}catch(error){stream.destroy();throw error;}
+  const stream=await source.read(blob.digest,range??undefined);try{recheck();}catch(error){stream.destroy();throw error;}
   reply.type('application/octet-stream').header('content-length',range?range.end-range.start+1:blob.size);
   if(range)reply.code(206).header('content-range',`bytes ${range.start}-${range.end}/${blob.size}`);
   return reply.send(stream);
@@ -73,6 +74,26 @@ export function registerOffice(app:FastifyInstance,db:Database,store:BlobStore,p
   if(result.lock!==undefined)reply.header('x-wopi-lock',result.lock);return reply.code(result.status).send();
  }));
  });
+ function recoveryMetadata(userId:string,item:ReturnType<OfficeIngress['status']>){
+  return {id:item.id,sessionId:item.sessionId,documentId:item.documentId,authorId:item.userId,state:item.state,baseRevision:item.baseRevision,size:item.blob?.size??null,errorCode:item.errorCode,
+   download:!!item.blob&&['prepared','failed'].includes(item.state)&&access.allows(userId,item.documentId,'export'),discard:!['committed','discarded'].includes(item.state)};
+ }
+ app.get<{Params:{id:string};Querystring:{cursor?:string;limit?:number}}>('/api/documents/:id/office-recovery',{schema:{params,querystring:{type:'object',additionalProperties:false,properties:{cursor:{type:'string',maxLength:128},limit:{type:'integer',minimum:1,maximum:50,default:50}}}}},(request,reply)=>handle(request,reply,()=>{
+  const actor=browser(request),page=ingress.recoveries(actor.userId,request.params.id,request.query.cursor,request.query.limit);
+  return {items:page.items.map(item=>recoveryMetadata(actor.userId,item)),nextCursor:page.nextCursor};
+ }));
+ app.get<{Params:{id:string}}>('/api/office-recovery/:id',{schema:{params}},(request,reply)=>handle(request,reply,()=>{const actor=browser(request);return recoveryMetadata(actor.userId,ingress.status(actor.userId,request.params.id));}));
+ app.get<{Params:{id:string}}>('/api/office-recovery/:id/contents',{schema:{params}},(request,reply)=>handle(request,reply,async()=>{
+  const actor=browser(request),item=ingress.status(actor.userId,request.params.id);
+  if(!item.blob||!['prepared','failed'].includes(item.state))throw new OfficeError('NOT_FOUND');
+  if(!access.allows(actor.userId,item.documentId,'export'))throw new OfficeError('ACCESS_DENIED');
+  const source=await ingress.payloadStore(actor.userId,item.id);
+  const format=(db.prepare('SELECT format FROM documents WHERE id=?').get(item.documentId) as {format:string}).format;
+  const check=()=>{const current=browser(request);if(current.userId!==actor.userId)throw new OfficeError('ACCESS_DENIED');const latest=ingress.status(current.userId,item.id);if(!['prepared','failed'].includes(latest.state)||latest.blob?.digest!==item.blob!.digest||latest.blob.size!==item.blob!.size)throw new OfficeError('NOT_FOUND');if(!access.allows(current.userId,item.documentId,'export'))throw new OfficeError('ACCESS_DENIED');};
+  reply.header('content-disposition',`attachment; filename="office-recovery.${/^[a-z0-9]{1,8}$/.test(format)?format:'bin'}"`);
+  return sendBytes(request,reply,item.blob,check,source);
+ }));
+ app.post<{Params:{id:string}}>('/api/office-recovery/:id/discard',{schema:{params}},(request,reply)=>handle(request,reply,async()=>{const actor=browser(request,true);await ingress.discard(actor.userId,request.params.id);return reply.code(204).send();}));
  app.get<{Params:{id:string}}>('/api/office/:id/recovery',{schema:{params}},(request,reply)=>handle(request,reply,async()=>{
   const initial=transaction(db,()=>{
    const actor=browser(request),status=office.status(sessionCookie(request),request.params.id);if(!status.recovery)throw new OfficeError('ACCESS_DENIED');

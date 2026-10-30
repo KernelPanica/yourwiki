@@ -132,3 +132,14 @@ test('version-eleven prepared office data survives cleanup migration without bei
  const before=old.prepare('SELECT * FROM office_ingress').get(),checksums=old.prepare('SELECT * FROM schema_migrations ORDER BY version').all();old.close();
  const migrated=openDatabase(path);t.after(()=>migrated.close());assert.deepEqual(migrated.prepare('SELECT * FROM office_ingress').get(),before);assert.deepEqual(migrated.prepare('SELECT * FROM schema_migrations WHERE version<=11 ORDER BY version').all(),checksums);assert.equal((migrated.prepare("SELECT cancelled_at FROM save_operations WHERE id='write'").get() as any).cancelled_at,null);
 });
+
+test('version-twelve prepared recovery and checksums survive the recovery-list index migration',t=>{
+ const path=fixture(t),old=new Sqlite(path);old.pragma('foreign_keys = ON');old.exec('CREATE TABLE schema_migrations(version INTEGER PRIMARY KEY,checksum TEXT NOT NULL)');
+ for(const [index,sql] of migrations.slice(0,12).entries()){old.exec(sql);old.prepare('INSERT INTO schema_migrations VALUES(?,?)').run(index+1,createHash('sha256').update(sql).digest('hex'));}old.pragma(`application_id = ${applicationId}`);
+ old.exec("INSERT INTO users(id,username,display_name,password_hash) VALUES('u','u','User','!');INSERT INTO groups VALUES('g','Group');INSERT INTO resources(id,kind,owner_id,group_id) VALUES('doc','document','u','g');INSERT INTO documents(id,title,format,local_revision,created_at) VALUES('doc','Office','md',1,1)");
+ old.prepare("INSERT INTO office_sessions(id,document_id,base_revision,base_digest,expires_at,created_at) VALUES('office','doc',1,?,1000,1)").run('a'.repeat(64));
+ old.prepare("INSERT INTO office_ingress(id,document_id,office_session_id,author_id,base_revision,base_digest,lock_value,declared_size,reserved_bytes,state,digest,size,lease_token,lease_until,created_at) VALUES('write','doc','office','u',1,?,'lock',3,3,'prepared',?,3,'lease',1000,1)").run('a'.repeat(64),'b'.repeat(64));
+ const before=old.prepare('SELECT * FROM office_ingress').get(),checksums=old.prepare('SELECT * FROM schema_migrations ORDER BY version').all();old.close();
+ const migrated=openDatabase(path);t.after(()=>migrated.close());assert.deepEqual(migrated.prepare('SELECT * FROM office_ingress').get(),before);assert.deepEqual(migrated.prepare('SELECT * FROM schema_migrations WHERE version<=12 ORDER BY version').all(),checksums);
+ const plan=migrated.prepare("EXPLAIN QUERY PLAN SELECT * FROM office_ingress WHERE document_id=? AND id>? AND (state='receiving' OR (state IN ('prepared','failed') AND digest IS NOT NULL)) ORDER BY id LIMIT 51").all('doc','') as {detail:string}[];assert.ok(plan.some(row=>row.detail.includes('office_ingress_recovery')));
+});
