@@ -4,7 +4,7 @@ Approved scope: preserve the existing PDF.js workspace, annotations/forms, indep
 
 - [x] Stream published preview assets with HTTP byte ranges; authenticate and check current ACL before each request; reject malformed and unsatisfiable ranges. Do not require export permission for viewing.
 - [x] Append an immutable migration for independent PDF layers and revision/conflict receipts. Keep the original immutable; preserve recovery data after failed or conflicting saves.
-- [ ] Add authenticated current PDF state, layer read/write and recovery routes with CSRF, byte limits and revision checks. Cover concurrent saves and base changes.
+- [x] Add authenticated current PDF state, layer read/write and recovery routes with CSRF, byte limits and revision checks. Cover concurrent saves and base changes.
 - [ ] Port the PDF.js workspace as a lazy module, including forms, annotations, autosave status, conflict/recovery dialogs and permission-loss handling. Serve pinned worker/fonts/CMaps/WASM locally under compatible CSP.
 - [ ] Browser verification: forms and annotations survive reload, base never overwritten, two clients conflict safely, dirty navigation does not save automatically, export policy, mobile controls and range loading.
 

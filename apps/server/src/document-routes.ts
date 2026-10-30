@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import type { Readable } from 'node:stream';
 import { buffer } from 'node:stream/consumers';
 import type { Database } from './database.ts';
+import { PdfLayerService } from './pdf-layers.ts';
 import { AccessService } from './access.ts';
 import { DocumentService, DocumentError } from './documents.ts';
 import type { PreviewManifest } from './documents.ts';
@@ -29,6 +30,7 @@ export function registerDocuments(app: FastifyInstance, db: Database, store: Blo
   if (!Number.isSafeInteger(maxBytes) || maxBytes < 1) throw new Error('Invalid file size limit');
   const service = new DocumentService(db, store, { maxBytes });
   const access = new AccessService(db);
+  const pdfLayers = new PdfLayerService(db, store, { maxBytes });
   const origin = new URL(publicUrl).origin;
   function identity(request: FastifyRequest, reply: FastifyReply, mutation = false) {
     const session = authenticateSession(db, sessionCookie(request));
@@ -137,6 +139,36 @@ export function registerDocuments(app: FastifyInstance, db: Database, store: Blo
     return reply.send(await store.read(source.digest, range));
   });
 
+  // Layer revisions and recovery IDs authorize lookup; raw blob digests never do.
+  app.get<{ Params: { id: string } }>('/api/documents/:id/pdf', { schema: { params: idSchema } }, async (request, reply) => {
+    const actor = identity(request, reply); if (!actor) return;
+    return pdfLayers.state(actor.userId, request.params.id) ?? notFound(request, reply);
+  });
+  async function pdfBytes(request: FastifyRequest, reply: FastifyReply, recovery: boolean) {
+    const actor = identity(request, reply); if (!actor) return;
+    const params = request.params as { id: string; revision?: number; recoveryId?: string };
+    if (!pdfLayers.state(actor.userId, params.id)) return notFound(request, reply);
+    const blob = (recovery
+      ? db.prepare('SELECT digest,size FROM recovery_copies WHERE id=? AND document_id=? AND author_id=?').get(params.recoveryId, params.id, actor.userId)
+      : db.prepare('SELECT digest,size FROM pdf_layer_versions WHERE document_id=? AND revision=?').get(params.id, params.revision)) as { digest: string; size: number } | undefined;
+    if (!blob) return notFound(request, reply);
+    if (recovery && !access.allows(actor.userId, params.id, 'export')) return reply.code(403).send(errorEnvelope('ACCESS_DENIED', request.id));
+    const range = byteRange(request.headers.range, blob.size);
+    reply.header('accept-ranges', 'bytes').header('cross-origin-resource-policy', 'same-origin');
+    reply.header('content-security-policy', previewCsp);
+    if (range === null) return reply.code(416).header('content-range', `bytes */${blob.size}`).send(errorEnvelope('INVALID_RANGE', request.id));
+    reply.type('application/pdf').header('content-length', range ? range.end - range.start + 1 : blob.size);
+    if (recovery) reply.header('content-disposition', 'attachment; filename="recovered.pdf"');
+    if (range) reply.code(206).header('content-range', `bytes ${range.start}-${range.end}/${blob.size}`);
+    return reply.send(await store.read(blob.digest, range));
+  }
+  app.get('/api/documents/:id/pdf/layers/:revision', { schema: { params: {
+    type: 'object', required: ['id','revision'], properties: { id: { type: 'string', minLength: 1, maxLength: 128 }, revision: { type: 'integer', minimum: 1 } },
+  } } }, (request, reply) => pdfBytes(request, reply, false));
+  app.get('/api/documents/:id/pdf/recovery/:recoveryId', { schema: { params: {
+    type: 'object', required: ['id','recoveryId'], properties: { id: { type: 'string', minLength: 1, maxLength: 128 }, recoveryId: { type: 'string', format: 'uuid' } },
+  } } }, (request, reply) => pdfBytes(request, reply, true));
+
   // Encapsulation limits the unbuffered parser to file mutation routes.
   app.register(async upload => {
     upload.addContentTypeParser('application/octet-stream', (_request, payload, done) => done(null, payload));
@@ -161,6 +193,21 @@ export function registerDocuments(app: FastifyInstance, db: Database, store: Blo
       } catch (error) { return fail(error, request, reply); }
       finally { request.raw.removeListener('aborted', abort); }
     }
+    upload.put<{ Params: { id: string }; Querystring: { baseRevision: number; layerRevision: number; replaceStaleLayer?: boolean } }>('/api/documents/:id/pdf/layer', { schema: { params: idSchema, querystring: {
+      type: 'object', additionalProperties: false, required: ['baseRevision','layerRevision'], properties: {
+        baseRevision: { type: 'integer', minimum: 1 }, layerRevision: { type: 'integer', minimum: 0 }, replaceStaleLayer: { type: 'boolean', default: false },
+      },
+    } } }, async (request, reply) => {
+      const actor = identity(request, reply, true); if (!actor) return;
+      if (request.headers['content-type']?.split(';')[0].trim().toLowerCase() !== 'application/octet-stream') return reply.code(415).send(errorEnvelope('UNSUPPORTED_MEDIA_TYPE', request.id));
+      const controller = new AbortController(), abort = () => controller.abort();
+      request.raw.once('aborted', abort);
+      try {
+        const saved = await pdfLayers.save({ userId: actor.userId, documentId: request.params.id, ...request.query, signal: controller.signal }, request.body as Readable);
+        return { baseRevision: saved.baseRevision, layerRevision: saved.layerRevision, state: 'saved' };
+      } catch (error) { return fail(error, request, reply); }
+      finally { request.raw.removeListener('aborted', abort); }
+    });
     upload.post('/api/documents', { schema: { querystring: query } }, (request, reply) => receive(request, reply, false));
     upload.put('/api/documents/:id/content', { schema: { params: idSchema, querystring: {
       type: 'object', additionalProperties: false, required: ['baseRevision'], properties: { baseRevision: { type: 'integer', minimum: 0 } },

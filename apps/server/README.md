@@ -243,3 +243,14 @@ one authorized local response. Neither endpoint calls cloud providers.
 
 React implements the first read path, not editor/provider/PDF.js parity. The
 old runtime remains authoritative until the remaining acceptance gates pass.
+
+PDF persistence APIs (opt-in TypeScript runtime): `GET /api/documents/:id/pdf`
+returns current base/layer revisions and whether the saved layer belongs to an older original.
+`PUT /api/documents/:id/pdf/layer?baseRevision=N&layerRevision=M` streams an
+`application/octet-stream` derived PDF with the normal session, Origin and CSRF checks.
+Replacing an older-base layer additionally requires `replaceStaleLayer=true` and exact
+current revisions. `GET .../pdf/layers/:revision` streams an immutable saved layer with
+byte ranges and current read permission. Conflicts return an operation ID;
+`GET .../pdf/recovery/:operationId` permits downloading that author's retained copy
+only while current read/export permissions allow it. Responses remain private/no-store.
+These endpoints do not overwrite the original and do not yet activate the React PDF editor.
