@@ -15,7 +15,7 @@ type Validator={validate:(store:BlobStore,blob:BlobRef,format:string,signal:Abor
 /** Internal local-save pipeline with pinned Collabora timestamp preconditions. */
 export class OfficeSaves {
  private db:Database;private store:BlobStore;private ingress:OfficeIngress;private validator:Validator;private journal:SaveJournal;
- constructor(db:Database,store:BlobStore,ingress:OfficeIngress,options:{maxFileBytes?:number;clock?:()=>number;validator?:Validator}={}){
+ constructor(db:Database,store:BlobStore,ingress:OfficeIngress,options:{maxFileBytes?:number;maxPendingBytes?:number;clock?:()=>number;validator?:Validator}={}){
   this.db=db;this.store=store;this.ingress=ingress;this.validator=options.validator??new OfficeValidationWorker(db);this.journal=new SaveJournal(db,store,options);
  }
  async save(input:{lastModifiedTime:string|null;sessionId:string;token:string;lock:string;declaredSize:number|null;signal?:AbortSignal},source:AsyncIterable<Uint8Array>){

@@ -1,3 +1,5 @@
+import {Readable} from 'node:stream';
+import {request as httpRequest} from 'node:http';
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {mkdtemp,rm} from 'node:fs/promises';
@@ -124,4 +126,56 @@ test('giga discard cancels the original author journal even after that author lo
  f.db.prepare('UPDATE office_sessions SET pending_operation_id=? WHERE id=?').run(receipt.id,receipt.sessionId);f.db.prepare("UPDATE users SET active=0 WHERE id='one'").run();f.db.prepare("UPDATE users SET admin_role='giga' WHERE id='two'").run();
  assert.equal((await f.app.inject({method:'POST',url:`/api/office-recovery/${receipt.id}/discard`,headers:f.headers(f.two)})).statusCode,204);
  assert.notEqual((f.db.prepare('SELECT cancelled_at FROM save_operations WHERE id=?').get(receipt.id) as any).cancelled_at,null);assert.equal((f.db.prepare('SELECT pending_operation_id FROM office_sessions WHERE id=?').get(receipt.sessionId) as any).pending_operation_id,null);assert.equal(await f.store.existingUploadStore(receipt.id),null);
+});
+
+async function writer(f:any){const opened=f.office.open(f.one.token,f.doc.documentId);f.office.lock(opened.sessionId,opened.token,'LOCK','save-lock');const base=`/wopi/files/${opened.sessionId}?access_token=${opened.token}`,info=(await f.app.inject({url:base})).json();return {opened,url:`/wopi/files/${opened.sessionId}/contents?access_token=${opened.token}`,headers:{'content-type':'application/octet-stream','x-wopi-override':'PUT','x-wopi-lock':'save-lock','x-cool-wopi-timestamp':info.LastModifiedTime}};}
+test('HTTP PutFile saves local bytes, returns WOPI version/time and acknowledges a lost-response retry once',async t=>{
+ const f=await fixture(t),w=await writer(f);const first=await f.app.inject({method:'POST',url:w.url,headers:w.headers,payload:'changed'});assert.equal(first.statusCode,200);assert.match(String(first.headers['x-wopi-itemversion']),/^2:/);assert.ok(first.json().LastModifiedTime);
+ const retry=await f.app.inject({method:'POST',url:w.url,headers:w.headers,payload:'changed'});assert.equal(retry.statusCode,200);assert.equal(retry.headers['x-wopi-itemversion'],first.headers['x-wopi-itemversion']);assert.equal(retry.json().LastModifiedTime,first.json().LastModifiedTime);assert.equal((f.db.prepare('SELECT local_revision FROM documents').get() as any).local_revision,2);
+});
+test('HTTP PutFile differentiates lock mismatch from document change and exposes recoverable operation identity',async t=>{
+ const f=await fixture(t),w=await writer(f);
+ const locked=await f.app.inject({method:'POST',url:w.url,headers:{...w.headers,'x-wopi-lock':'wrong'},payload:'changed'});assert.equal(locked.statusCode,409);assert.equal(locked.headers['x-wopi-lock'],'save-lock');assert.equal(locked.json().COOLStatusCode,undefined);
+ const first=await f.app.inject({method:'POST',url:w.url,headers:w.headers,payload:'first'});assert.equal(first.statusCode,200);
+ const conflict=await f.app.inject({method:'POST',url:w.url,headers:w.headers,payload:'second'});assert.equal(conflict.statusCode,409);assert.equal(conflict.json().COOLStatusCode,1010);assert.equal(conflict.headers['x-wopi-lock'],'save-lock');assert.ok(conflict.json().operationId);
+ const recovery=await f.app.inject({url:`/api/office-recovery/${conflict.json().operationId}/contents`,headers:f.headers()});assert.equal(recovery.body,'second');
+ const undo=await f.app.inject({method:'POST',url:w.url,headers:{...w.headers,'x-cool-wopi-timestamp':first.json().LastModifiedTime},payload:'office original'});assert.equal(undo.statusCode,200);assert.match(String(undo.headers['x-wopi-itemversion']),/^3:/);
+});
+test('HTTP PutFile accepts legacy timestamp, refuses readonly and invalid content/override before mutation',async t=>{
+ const f=await fixture(t),w=await writer(f),{'x-cool-wopi-timestamp':timestamp,...headers}=w.headers;
+ const saved=await f.app.inject({method:'POST',url:w.url,headers:{...headers,'x-lool-wopi-timestamp':timestamp},payload:'legacy'});assert.equal(saved.statusCode,200);
+ const readonly=f.office.open(f.two.token,f.doc.documentId,false),url=`/wopi/files/${readonly.sessionId}/contents?access_token=${readonly.token}`;assert.equal((await f.app.inject({method:'POST',url,headers:w.headers,payload:'bad'})).statusCode,403);
+ assert.equal((await f.app.inject({method:'POST',url:w.url,headers:{...w.headers,'x-wopi-override':'RENAME_FILE'},payload:'bad'})).statusCode,501);
+ assert.equal((await f.app.inject({method:'POST',url:w.url,headers:{...w.headers,'content-type':'application/json'},payload:'{}'})).statusCode,415);
+ assert.equal((f.db.prepare('SELECT local_revision FROM documents').get() as any).local_revision,2);
+});
+
+
+test('real HTTP PutFile streams beyond the ordinary JSON body limit and reports saved size',async t=>{
+ const f=await fixture(t),w=await writer(f),address=await f.app.listen({host:'127.0.0.1',port:0});
+ async function* payload(){for(let i=0;i<32;i++)yield Buffer.alloc(65536,'x');}
+ const response=await fetch(address+w.url,{method:'POST',headers:w.headers,body:Readable.from(payload()),duplex:'half'} as any);assert.equal(response.status,200);assert.ok((await response.json() as any).LastModifiedTime);
+ assert.equal((f.db.prepare('SELECT size FROM document_versions WHERE revision=2').get() as any).size,2097152);
+});
+test('configured office upload limits return a clear error and invalid complete bytes remain recoverable',async t=>{
+ const f=await fixture(t),w=await writer(f),limited=buildApp({database:f.db,storage:f.store,publicUrl:origin,maxFileBytes:8,office:{publicUrl:origin+'/collabora'}});t.after(()=>limited.close());
+ const oversized=await limited.inject({method:'POST',url:w.url,headers:w.headers,payload:'123456789'});assert.equal(oversized.statusCode,413);assert.equal(oversized.json().code,'PAYLOAD_TOO_LARGE');assert.equal(f.db.prepare('SELECT 1 FROM office_ingress').get(),undefined);
+ const malformed=await limited.inject({method:'POST',url:w.url,headers:w.headers,payload:Buffer.from([0,1,2])});assert.equal(malformed.statusCode,422);assert.equal(malformed.json().code,'INVALID_OFFICE_FILE');assert.ok(malformed.json().operationId);
+ assert.equal((f.db.prepare('SELECT local_revision FROM documents').get() as any).local_revision,1);
+});
+test('real HTTP disconnect cancels a partial office upload and releases its reservation',async t=>{
+ const f=await fixture(t),w=await writer(f),address=await f.app.listen({host:'127.0.0.1',port:0});
+ const request=httpRequest(address+w.url,{method:'POST',headers:{...w.headers,'content-length':'100'}});request.on('error',()=>{});request.write('partial');
+ const wait=async(predicate:()=>boolean)=>{const until=Date.now()+2000;while(!predicate()){if(Date.now()>until)throw new Error('upload state did not settle');await new Promise(resolve=>setTimeout(resolve,5));}};
+ await wait(()=>!!f.db.prepare("SELECT 1 FROM office_ingress WHERE state='receiving'").get());request.destroy();
+ await wait(()=>!!f.db.prepare("SELECT 1 FROM office_ingress WHERE state='failed' AND reserved_bytes=0").get());assert.equal((f.db.prepare('SELECT local_revision FROM documents').get() as any).local_revision,1);
+});
+
+
+test('chunked PutFile enforces the configured bound without Content-Length and rejects conflicting timestamp headers',async t=>{
+ const f=await fixture(t),w=await writer(f),limited=buildApp({database:f.db,storage:f.store,publicUrl:origin,maxFileBytes:8,office:{publicUrl:origin+'/collabora'}});t.after(()=>limited.close());
+ const address=await limited.listen({host:'127.0.0.1',port:0});async function* chunks(){yield Buffer.from('1234');yield Buffer.from('56789');}
+ const response=await fetch(address+w.url,{method:'POST',headers:w.headers,body:Readable.from(chunks()),duplex:'half'} as any);assert.equal(response.status,413);assert.equal((await response.json() as any).code,'PAYLOAD_TOO_LARGE');
+ assert.equal((f.db.prepare('SELECT SUM(reserved_bytes) AS n FROM office_ingress').get() as any).n,0);
+ const invalid=await limited.inject({method:'POST',url:w.url,headers:{...w.headers,'x-lool-wopi-timestamp':'different'},payload:'abc'});assert.equal(invalid.statusCode,400);assert.equal(invalid.json().code,'INVALID_REQUEST');assert.equal((f.db.prepare('SELECT local_revision FROM documents').get() as any).local_revision,1);
 });
