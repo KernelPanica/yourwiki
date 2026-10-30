@@ -108,3 +108,12 @@ test('temporary namespaces cannot escape storage or delete permanent originals',
   await assert.rejects(store.removeUpload('../blobs'), /temporary upload ID/);
   assert.equal(await store.verify(original), true);
 });
+
+test('adopting a prepared blob preserves bytes after namespace removal and never overwrites corrupt targets',async t=>{
+ const root=await mkdtemp(join(tmpdir(),'yourwiki-adopt-'));t.after(()=>rm(root,{recursive:true,force:true}));const store=await BlobStore.open(root),id='11111111-1111-4111-8111-111111111111',temporary=await store.uploadStore(id);
+ const ref=await temporary.put((async function*(){yield Buffer.from('prepared office');})(),{maxBytes:100});
+ assert.deepEqual(await store.adopt(temporary,ref),ref);assert.equal((await stat(await store.localFile(ref.digest))).ino,(await stat(await temporary.localFile(ref.digest))).ino);await store.removeUpload(id);assert.equal((await buffer(await store.read(ref.digest))).toString(),'prepared office');
+ const other=await store.uploadStore('22222222-2222-4222-8222-222222222222'),next=await other.put((async function*(){yield Buffer.from('different');})(),{maxBytes:100});
+ await writeFile(await other.localFile(next.digest),'corrupted');await assert.rejects(store.adopt(other,next),/corrupt/);await assert.rejects(store.stat(next.digest));
+ await writeFile(await other.localFile(next.digest),'different');await store.put((async function*(){yield Buffer.from('different');})(),{maxBytes:100});await writeFile(await store.localFile(next.digest),'corrupted');await assert.rejects(store.adopt(other,next),/corrupt/);assert.equal((await buffer(await store.read(next.digest))).toString(),'corrupted');
+});

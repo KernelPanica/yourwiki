@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { createReadStream } from 'node:fs';
-import { link, mkdir, open, realpath, stat, unlink, rm } from 'node:fs/promises';
+import { link, mkdir, open, realpath, stat, unlink, rm, opendir } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import type { Readable } from 'node:stream';
 
@@ -72,6 +72,48 @@ export class BlobStore {
     await syncDirectory(dirname(path)).catch(error => { if (error.code !== 'ENOENT') throw error; });
   }
 
+  /** Inspect only; unlike uploadStore this never recreates a removed namespace. */
+  async existingUploadStore(id:string):Promise<BlobStore|null>{
+    try{return new BlobStore(await realpath(this.uploadPath(id)));}
+    catch(error){if((error as NodeJS.ErrnoException).code==='ENOENT')return null;throw error;}
+  }
+
+  async *uploadNamespaces():AsyncGenerator<string>{
+    let directory;try{directory=await opendir(join(this.root,'uploads'));}catch(error){if((error as NodeJS.ErrnoException).code==='ENOENT')return;throw error;}
+    for await(const entry of directory)if(entry.isDirectory()&&/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(entry.name))yield entry.name;
+  }
+
+  /** Internal namespace reconciliation only. Files in staging are intentionally excluded. */
+  async *completedBlobs():AsyncGenerator<BlobRef>{
+    let directory;try{directory=await opendir(join(this.root,'blobs'));}catch(error){if((error as NodeJS.ErrnoException).code==='ENOENT')return;throw error;}
+    for await(const prefix of directory){
+      if(!prefix.isDirectory()||!/^[a-f0-9]{2}$/.test(prefix.name))continue;
+      const entries=await opendir(join(this.root,'blobs',prefix.name));
+      for await(const entry of entries)if(entry.isFile()&&/^[a-f0-9]{62}$/.test(entry.name))yield await this.stat(prefix.name+entry.name);
+    }
+  }
+
+  /** Make a discovered complete namespace blob durable before reconstructing its receipt. */
+  async syncPrepared(ref:BlobRef){
+    const file=await open(this.path(ref.digest),'r');try{await file.sync();}finally{await file.close();}
+    await syncDirectory(dirname(this.path(ref.digest)));await syncDirectory(join(this.root,'blobs'));await syncDirectory(this.root);await syncDirectory(dirname(this.root));
+  }
+
+  /** Verify and durably link prepared bytes. No original/reference is modified here. */
+  async adopt(source:BlobStore,value:BlobRef,options:{signal?:AbortSignal}={}):Promise<BlobRef>{
+    const ref={...value};options.signal?.throwIfAborted();
+    if(!await source.verify(ref,options.signal))throw new Error('Prepared immutable blob is corrupt');
+    options.signal?.throwIfAborted();const target=this.path(ref.digest);
+    await mkdir(dirname(target),{recursive:true,mode:0o700});await syncDirectory(join(this.root,'blobs'));
+    try{await link(source.path(ref.digest),target);}
+    catch(error){
+      if((error as NodeJS.ErrnoException).code==='EXDEV')return this.put(await source.read(ref.digest),{maxBytes:ref.size,signal:options.signal});
+      if((error as NodeJS.ErrnoException).code!=='EEXIST')throw error;
+      if(!await this.verify(ref,options.signal))throw new Error('Existing immutable blob is corrupt');
+    }
+    await syncDirectory(dirname(target));options.signal?.throwIfAborted();return ref;
+  }
+
   private path(digest: string): string {
     if (!/^[a-f0-9]{64}$/.test(digest)) throw new Error('Invalid blob digest');
     return join(this.root, 'blobs', digest.slice(0, 2), digest.slice(2));
@@ -132,15 +174,18 @@ export class BlobStore {
     return createReadStream(this.path(digest), range);
   }
 
-  async verify(ref: BlobRef): Promise<boolean> {
+  async verify(ref: BlobRef,signal?:AbortSignal): Promise<boolean> {
+    signal?.throwIfAborted();
     // Invalid references are programmer/input errors, not a missing blob.
     this.path(ref.digest);
     if (!Number.isSafeInteger(ref.size) || ref.size < 0) return false;
     try {
       if ((await this.stat(ref.digest)).size !== ref.size) return false;
       const hash = createHash('sha256');
-      for await (const chunk of await this.read(ref.digest)) hash.update(chunk);
-      return hash.digest('hex') === ref.digest;
+      const stream=await this.read(ref.digest),abort=()=>stream.destroy(signal?.reason instanceof Error?signal.reason:new Error('Verification aborted'));
+      signal?.addEventListener('abort',abort,{once:true});
+      try{signal?.throwIfAborted();for await(const chunk of stream){signal?.throwIfAborted();hash.update(chunk);}signal?.throwIfAborted();return hash.digest('hex')===ref.digest;}
+      finally{signal?.removeEventListener('abort',abort);stream.destroy();}
     } catch (error) {
       if (['ENOENT', 'EISDIR'].includes((error as NodeJS.ErrnoException).code ?? '')) return false;
       throw error;

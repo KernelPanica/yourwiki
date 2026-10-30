@@ -177,5 +177,15 @@ CREATE TABLE office_ingress (
 CREATE UNIQUE INDEX office_receiving ON office_ingress(document_id) WHERE state='receiving';
 CREATE INDEX office_ingress_budget ON office_ingress(state,author_id);
 `;
-export const migrations = [core + epochTriggers, authInvalidation, authSettings, jobs, documents, workerSlots, uploads, pdfLayers, saveJournal, officeSessions, officeIngress] as const;
+const officeCleanup = `
+CREATE TABLE office_ingress_cleanup (
+ id TEXT PRIMARY KEY REFERENCES office_ingress(id) ON DELETE CASCADE,
+ token TEXT NOT NULL, lease_until INTEGER NOT NULL
+);
+ALTER TABLE save_operations ADD COLUMN cancelled_at INTEGER;
+CREATE INDEX save_operations_retained ON save_operations(author_id,size) WHERE state!='saved' AND cancelled_at IS NULL;
+CREATE INDEX office_ingress_retained ON office_ingress(reserved_bytes,state,author_id)
+ WHERE reserved_bytes>0 OR state IN ('receiving','prepared') OR (state='failed' AND digest IS NOT NULL);
+`;
+export const migrations = [core + epochTriggers, authInvalidation, authSettings, jobs, documents, workerSlots, uploads, pdfLayers, saveJournal, officeSessions, officeIngress, officeCleanup] as const;
 export const applicationId = 0x5957494b; // YWIK; legacy Django uses no marker.
