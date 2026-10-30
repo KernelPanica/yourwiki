@@ -6,15 +6,17 @@ import type { BlobRef, BlobStore } from '../storage/blobs.ts';
 import { BlobTooLargeError } from '../storage/blobs.ts';
 import type { PreviewArtifact, PreviewManifest } from '../documents.ts';
 
-export class ConversionError extends Error {
-  code: string; terminal: boolean;
-  constructor(code: string, terminal = true) { super(code); this.code = code; this.terminal = terminal; }
-}
-export interface ConversionOptions { textLimit?: number; outputLimit?: number; timeoutMs?: number }
+import { ConversionError } from './errors.ts';
+export { ConversionError } from './errors.ts';
+import { convertOffice, officeFormats } from './office.ts';
+import type { OfficeOptions } from './office.ts';
+
+export interface ConversionOptions { textLimit?: number; outputLimit?: number; timeoutMs?: number; office?: OfficeOptions }
 export type ConversionResult = { kind: PreviewManifest['kind']; primary: string; artifacts: PreviewArtifact[] };
 
 export async function convert(store: BlobStore, source: BlobRef, format: string, signal: AbortSignal, options: ConversionOptions = {}): Promise<ConversionResult> {
   signal.throwIfAborted();
+  if (officeFormats.has(format)) return convertOffice(store, source, format, signal, options.office);
   if (format === 'pdf') {
     const prefix = source.size ? (await buffer(await store.read(source.digest, { start: 0, end: Math.min(1023, source.size - 1) }))).toString('latin1') : '';
     if (!prefix.includes('%PDF-')) throw new ConversionError('INVALID_PDF');

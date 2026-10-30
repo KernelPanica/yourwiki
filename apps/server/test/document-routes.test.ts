@@ -53,7 +53,7 @@ test('document HTTP hides drafts and exposes published manifest and sandboxed as
   assert.equal(manifest.json().primary, 'content');
   const asset = await app.inject({ url: manifestUrl + '/assets/content', headers: headers('reader') });
   assert.equal(asset.body, '<p>hello</p>');
-  assert.match(asset.headers['content-security-policy'] as string, /sandbox/);
+  assert.match(asset.headers['content-security-policy'] as string, /sandbox allow-same-origin/);
   assert.match(asset.headers['content-security-policy'] as string, /script-src 'none'/);
   assert.equal((await app.inject({ url: manifestUrl + '/assets/unknown', headers: headers() })).statusCode, 404);
 });

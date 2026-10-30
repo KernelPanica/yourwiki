@@ -10,7 +10,7 @@ import { sessionCookie } from './auth/routes.ts';
 import { authenticateSession, validCsrf } from './auth/sessions.ts';
 import { errorEnvelope } from './errors.ts';
 
-const previewCsp = "sandbox; default-src 'none'; script-src 'none'; style-src 'unsafe-inline'; img-src 'self' data:; font-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'";
+const previewCsp = "sandbox allow-same-origin; default-src 'none'; script-src 'none'; style-src 'unsafe-inline'; img-src 'self' data:; font-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'";
 const idSchema = { type: 'object', required: ['id'], properties: { id: { type: 'string', minLength: 1, maxLength: 128 } } };
 
 function byteRange(header: string | undefined, size: number) {

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
+import { createReadStream } from 'node:fs';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -57,7 +58,7 @@ test('text is escaped; PDF references immutable original without text conversion
 test('unsupported formats fail explicitly without consuming unrelated background jobs', async t => {
   const { worker, service, queue, create } = await setup(t);
   const other = queue.enqueue({ kind: 'provider.deliver', key: 'pending', payload: {} });
-  const created = await create('docx', 'not yet converted');
+  const created = await create('unsupported', 'not yet converted');
   assert.equal(await worker.runOnce(), 'failed');
   assert.equal(service.processingStatus('owner', created.documentId)!.errorCode, 'PREVIEW_UNSUPPORTED');
   assert.equal(service.processingStatus('owner', created.documentId)!.state, 'failed');
@@ -158,4 +159,18 @@ test('standalone CLI publishes durable work and exits cleanly on SIGTERM', async
   child.kill('SIGTERM');
   assert.equal(await exited, 0, output);
   assert.equal((db.prepare('SELECT COUNT(*) AS n FROM worker_slots').get() as any).n, 0);
+});
+
+const officeIntegration = process.env.YOURWIKI_TEST_OFFICE_ROOT ? test : test.skip;
+officeIntegration('native DOCX worker publishes an authenticated office HTML preview', async t => {
+  const { db, store, service, worker } = await setup(t, { office: { officeRoot: process.env.YOURWIKI_TEST_OFFICE_ROOT } });
+  const created = await service.create({ userId: 'owner', parentId: null, groupId: 'team', title: 'Office', format: 'docx' }, createReadStream(new URL('./fixtures/office/document.docx', import.meta.url)));
+  assert.equal(await worker.runOnce(), 'published');
+  const app = buildApp({ database: db, storage: store, publicUrl: 'https://wiki.test' });
+  t.after(() => app.close());
+  const session = createSession(db, 'owner'), headers = { cookie: 'yourwiki_v2_session='+session.token };
+  const url = '/api/documents/'+created.documentId;
+  const published = (await app.inject({ url, headers })).json();
+  const preview = await app.inject({ url: `${url}/previews/${published.manifestDigest}/assets/content`, headers });
+  assert.equal(preview.statusCode, 200); assert.match(preview.body, /Merged document title/);
 });

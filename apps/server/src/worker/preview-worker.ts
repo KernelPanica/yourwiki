@@ -15,7 +15,10 @@ export class PreviewWorker {
   private options: WorkerOptions; private busy = false;
   constructor(db: Database, store: BlobStore, options: WorkerOptions = {}) {
     this.db = db; this.store = store; this.queue = new JobQueue(db); this.documents = new DocumentService(db, store);
-    for (const [key, value] of Object.entries(options)) if (!Number.isSafeInteger(value) || value < 1) throw new Error('Invalid worker option: ' + key);
+    for (const key of ['textLimit','outputLimit','timeoutMs','leaseMs'] as const) {
+      const value = options[key];
+      if (value !== undefined && (!Number.isSafeInteger(value) || value < 1)) throw new Error('Invalid worker option: ' + key);
+    }
     if (options.leaseMs !== undefined && (options.leaseMs < 30 || options.leaseMs > 3600_000)) throw new Error('Invalid worker lease');
     this.options = options;
   }

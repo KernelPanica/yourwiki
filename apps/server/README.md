@@ -88,8 +88,8 @@ Published manifest receipts survive converter changes. Unpublished files are
 restricted to owners/admins. Concurrent revision or ACL changes reject saves
 and retain accepted bytes as recovery copies.
 
-These internal APIs are exposed by the opt-in routes below. Resumable uploads,
-recovery downloads and office converters are still pending. The 4 GiB storage
+These internal APIs are exposed by the opt-in routes below. Resumable HTTP uploads and initial office converters are implemented below;
+recovery downloads remain pending. The 4 GiB storage
 limit does not establish feasibility of 4 GiB office viewing/editing.
 
 ## Opt-in document HTTP transport
@@ -115,8 +115,7 @@ Mutations require session cookie, exact Origin and session-bound X-CSRF-Token
 before body parsing. `maxFileBytes` configures the independent streaming limit
 (default 4 GiB); this bypasses the JSON parser's 1 MiB cap. Aborted uploads clean
 staging without committing partial revisions. Responses remain private/no-store;
-asset digests are not standalone access capabilities. Recovery-copy download,
-resumable transport remain pending; worker execution is a separate process.
+asset digests are not standalone access capabilities. Recovery-copy download remains pending; resumable transport is described below; worker execution is a separate process.
 
 ## Preview worker
 
@@ -145,9 +144,9 @@ attachment image resolution remains pending. Parser reference:
 [markdown-it documentation](https://github.com/markdown-it/markdown-it).
 
 PDF header checking is preliminary; bytes remain unchanged for the future
-PDF.js viewer and its annotations/forms workflow. Office conversion, native
-Yourwiki document formats, Canvas/drawio, embedded resources/fonts and large
-file acceptance remain pending. The worker does not establish 4 GiB office
+PDF.js viewer and its annotations/forms workflow. Initial office conversion is described below. Native Yourwiki document formats,
+Canvas/drawio, complete embedded-resource/font fidelity and large-file acceptance
+remain pending. The worker does not establish 4 GiB office
 viewing/editing or the page performance target.
 
 ## Resumable uploads
@@ -184,3 +183,46 @@ still pending. Disk capacity must also cover the permanent assembled copy,
 existing files/history, and filesystem overhead; a total workspace quota and
 free-space monitoring remain to be connected before production. These tests
 do not establish 4 GiB office rendering/editing or end-to-end page latency.
+
+## Native office previews (Linux)
+
+The preview registry also routes Writer formats (DOC/DOCX/ODT/RTF and related
+templates), Calc formats (XLS/XLSX/ODS/CSV/TSV and related templates) and Impress
+formats (PPT/PPTX/ODP and related templates) to a native LibreOffice engine.
+Tests currently prove small DOCX, XLSX, ODS and PPTX fixtures; other registered
+formats and complex fidelity still require corpus acceptance.
+
+Required: Linux user namespaces, `/usr/bin/bwrap`, `/usr/bin/prlimit`, tar,
+pdfinfo/pdftoppm, system fonts and a LibreOffice installation (default
+`/usr/lib/libreoffice`, containing `program/soffice`). Optional explicit root:
+
+```sh
+npm --prefix apps/server run worker -- /absolute/new.sqlite3 /absolute/storage --office-root /absolute/libreoffice
+YOURWIKI_TEST_OFFICE_ROOT=/absolute/libreoffice npm --prefix apps/server test
+```
+
+No host-execution fallback exists if sandbox setup is unavailable. The sandbox
+has no network, host HOME or general host filesystem; only the selected original
+is mounted readonly alongside system libraries/fonts and the engine. It uses a
+fresh macro-disabled profile, PID namespace/die-with-parent and bounded tmpfs
+(64 MiB output, 64 MiB scratch, 32 MiB profile), CPU/file-size limits and a
+120-second wall timeout. Native processes are killed on cancellation. Worker
+Node heap is capped at 384 MiB by the npm worker command. The native virtual
+address-space ceiling is 8 GiB; **this is not a resident-memory limit**. A hard
+RSS/cgroup limit and measurements alongside Collabora on target hardware remain
+release work. The bundled development LibreOffice is not a production version
+pin; reproducible worker packaging and font distribution remain pending.
+
+Writer/Calc output is sanitized HTML with cell spans, basic inline formatting,
+calculated results and authenticated local raster images. Scripts, forms,
+remote image loads and unsafe CSS are removed. Sandbox `allow-same-origin`
+permits authenticated nested images/fonts; scripts remain blocked by CSP and
+are not granted sandbox permission. Export prevention cannot make visible
+content impossible to copy.
+
+Presentations export to PDF internally, then to ordered 1600px PNG slides and
+240px thumbnails (default maximum 200 slides); the intermediate PDF is not
+published. The primary JSON artifact contains `{schemaVersion:1, slides:[
+{index,image,thumbnail}]}` and references named artifacts. The React main-slide/
+left-thumbnail GUI is still pending. Engine filter reference:
+[LibreOffice conversion filters](https://help.libreoffice.org/latest/en-US/text/shared/guide/convertfilters.html).

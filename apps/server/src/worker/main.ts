@@ -6,8 +6,8 @@ import { PreviewWorker } from './preview-worker.ts';
 
 // Explicit paths only: no legacy database discovery or production activation.
 const args = process.argv.slice(2);
-if (args.length !== 2 || args.some(path => !isAbsolute(path))) {
-  console.error('Usage: npm run worker -- /absolute/new-yourwiki-v2.sqlite3 /absolute/private-storage');
+if (![2,4].includes(args.length) || !args.slice(0,2).every(isAbsolute) || (args.length === 4 && (args[2] !== '--office-root' || !isAbsolute(args[3])))) {
+  console.error('Usage: npm run worker -- /absolute/new-yourwiki-v2.sqlite3 /absolute/private-storage [--office-root /absolute/libreoffice]');
   process.exitCode = 1;
 } else {
   try {
@@ -20,7 +20,7 @@ if (args.length !== 2 || args.some(path => !isAbsolute(path))) {
       process.once('SIGINT', stop); process.once('SIGTERM', stop);
       try {
         console.info('Yourwiki preview worker started (one conversion slot).');
-        await new PreviewWorker(db, store).run(controller.signal);
+        await new PreviewWorker(db, store, { office: args[3] ? { officeRoot: args[3] } : undefined }).run(controller.signal);
       } finally { process.removeListener('SIGINT', stop); process.removeListener('SIGTERM', stop); }
     } finally { db.close(); }
   } catch {

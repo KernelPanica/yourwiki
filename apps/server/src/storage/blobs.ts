@@ -113,6 +113,12 @@ export class BlobStore {
     }
   }
 
+  /** Trusted native worker use only; never expose this path through the API. */
+  async localFile(digest: string): Promise<string> {
+    await this.stat(digest);
+    return this.path(digest);
+  }
+
   async stat(digest: string): Promise<BlobRef> {
     const info = await stat(this.path(digest));
     if (!info.isFile()) throw new Error('Blob is not a regular file');
