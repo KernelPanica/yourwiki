@@ -25,9 +25,10 @@ export class OfficeSaves {
    if(!document)throw new OfficeWriteError('NOT_FOUND');
    // Compare only with the current original. Searching historical hashes would
    // mistake an intentional Undo for a retransmission of an old save.
-   if(context.blob.digest===context.baseDigest&&context.blob.size===document.size)return context.commit(()=>({
-    operationId:received.id,state:'saved' as const,blob:context.blob,
-    receipt:{documentId:context.documentId,revision:context.baseRevision,jobId:document.preview_job_id,blob:context.blob},
+   const transformed=this.db.prepare("SELECT 1 FROM office_prepared p JOIN office_sessions s ON s.prepared_id=p.id WHERE s.id=? AND p.document_id=? AND p.source_revision=? AND p.source_digest=? AND p.format=? AND p.state='ready' AND p.digest=? AND p.size=?").get(input.sessionId,context.documentId,context.baseRevision,context.baseDigest,document.format,context.blob.digest,context.blob.size);
+   if(context.blob.digest===context.baseDigest&&context.blob.size===document.size||transformed)return context.commit(()=>({
+    operationId:received.id,state:'saved' as const,blob:{digest:context.baseDigest,size:document.size},
+    receipt:{documentId:context.documentId,revision:context.baseRevision,jobId:document.preview_job_id,blob:{digest:context.baseDigest,size:document.size}},
     delivery:'local' as const,providerDelivery:'not_attempted' as const,
    }));
    const time=new Date(document.created_at).toISOString();

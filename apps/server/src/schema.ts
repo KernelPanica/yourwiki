@@ -191,5 +191,18 @@ const officeRecovery = `
 CREATE INDEX office_ingress_recovery ON office_ingress(document_id,id)
  WHERE state='receiving' OR (state IN ('prepared','failed') AND digest IS NOT NULL);
 `;
-export const migrations = [core + epochTriggers, authInvalidation, authSettings, jobs, documents, workerSlots, uploads, pdfLayers, saveJournal, officeSessions, officeIngress, officeCleanup, officeRecovery] as const;
+const officePrepared = `
+CREATE TABLE office_prepared (
+ id TEXT PRIMARY KEY, document_id TEXT NOT NULL REFERENCES documents(id),
+ source_revision INTEGER NOT NULL, source_digest TEXT NOT NULL, format TEXT NOT NULL, converter_version TEXT NOT NULL,
+ state TEXT NOT NULL CHECK(state IN ('creating','ready','failed','deleting')),
+ digest TEXT, size INTEGER, reserved_bytes INTEGER NOT NULL CHECK(reserved_bytes>=0),
+ lease_token TEXT NOT NULL, lease_until INTEGER NOT NULL, created_at INTEGER NOT NULL, last_access_at INTEGER NOT NULL, error_code TEXT,
+ CHECK((digest IS NULL AND size IS NULL) OR (digest IS NOT NULL AND size>=0))
+);
+ALTER TABLE office_sessions ADD COLUMN prepared_id TEXT REFERENCES office_prepared(id) ON DELETE RESTRICT;
+CREATE UNIQUE INDEX office_prepared_current ON office_prepared(document_id,source_revision,source_digest,format,converter_version) WHERE state IN ('creating','ready');
+CREATE INDEX office_prepared_cleanup ON office_prepared(state,lease_until,last_access_at);
+`;
+export const migrations = [core + epochTriggers, authInvalidation, authSettings, jobs, documents, workerSlots, uploads, pdfLayers, saveJournal, officeSessions, officeIngress, officeCleanup, officeRecovery, officePrepared] as const;
 export const applicationId = 0x5957494b; // YWIK; legacy Django uses no marker.

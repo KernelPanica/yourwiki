@@ -64,7 +64,7 @@ export class SaveJournal {
    if(!this.baseMatches(row))throw new DocumentError('CONFLICT');
    const receipt=this.documents.commitPreparedSave({userId,documentId:row.document_id,baseRevision:row.base_revision,officeSessionId:row.office_session_id??undefined},{digest:row.digest,size:row.size});
    if(row.office_session_id){
-    const updated=this.db.prepare(`UPDATE office_sessions SET base_revision=?,base_digest=?,
+    const updated=this.db.prepare(`UPDATE office_sessions SET base_revision=?,base_digest=?,prepared_id=NULL,
      pending_operation_id=CASE WHEN pending_operation_id=? THEN NULL ELSE pending_operation_id END,
      error_code=CASE WHEN pending_operation_id IS NULL OR pending_operation_id=? THEN NULL ELSE error_code END
      WHERE id=? AND document_id=? AND base_revision=? AND base_digest=? AND superseded=0 AND expires_at>?`).run(receipt.revision,receipt.blob.digest,row.id,row.id,row.office_session_id,row.document_id,row.base_revision,row.base_digest,this.clock());

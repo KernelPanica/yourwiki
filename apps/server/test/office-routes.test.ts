@@ -205,3 +205,11 @@ test('HTTP shutdown cancels a stalled office request before waiting for the conn
  const closed=f.app.close();await Promise.race([closed,new Promise((_,reject)=>{const timer=setTimeout(()=>reject(new Error('shutdown waited for stalled office body')),1000);timer.unref();})]);
  assert.equal((f.db.prepare('SELECT SUM(reserved_bytes) AS n FROM office_ingress').get() as any).n,0);assert.equal((f.db.prepare('SELECT local_revision FROM documents').get() as any).local_revision,1);
 });
+
+test('WOPI metadata and ranges refer to prepared native Markdown while an unchanged editor save preserves the original snapshot',async t=>{
+ const f=await fixture(t);const native=JSON.stringify({format:'yourwiki',version:1,kind:'document',data:{type:'doc',content:[{type:'paragraph',content:[{type:'text',text:'Prepared'}]}]}}),blob=await f.store.put(bytes(native),{maxBytes:1000});f.db.prepare('UPDATE document_versions SET digest=?,size=? WHERE document_id=? AND revision=1').run(blob.digest,blob.size,f.doc.documentId);
+ const w=await writer(f),info=await f.app.inject({url:`/wopi/files/${w.opened.sessionId}?access_token=${w.opened.token}`});assert.equal(info.json().Size,10);assert.equal(info.json().Version,`1:${blob.digest}`);
+ const file=await f.app.inject({url:w.url});assert.equal(file.body,'Prepared\n\n');const range=await f.app.inject({url:w.url,headers:{range:'bytes=0-7'}});assert.equal(range.statusCode,206);assert.equal(range.body,'Prepared');assert.equal(range.headers['content-range'],'bytes 0-7/10');
+ const saved=await f.app.inject({method:'POST',url:w.url,headers:w.headers,payload:'Prepared\n\n'});assert.equal(saved.statusCode,200);assert.equal(saved.headers['x-wopi-itemversion'],`1:${blob.digest}`);assert.equal((f.db.prepare('SELECT local_revision FROM documents').get() as any).local_revision,1);assert.equal(await f.store.verify(blob),true);
+ const changed=await f.app.inject({method:'POST',url:w.url,headers:w.headers,payload:'Edited\n'});assert.equal(changed.statusCode,200);assert.equal((f.db.prepare('SELECT prepared_id FROM office_sessions WHERE id=?').get(w.opened.sessionId) as any).prepared_id,null);
+});

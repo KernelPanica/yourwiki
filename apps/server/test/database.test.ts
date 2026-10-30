@@ -119,7 +119,7 @@ test('version-ten office identity and pending recovery survive ingress migration
  original.prepare("INSERT INTO save_operations(id,document_id,author_id,base_revision,base_digest,digest,size,state,created_at,updated_at) VALUES('pending','doc','owner',1,?,?,1,'staged',1,1)").run('a'.repeat(64),'b'.repeat(64));
  original.prepare("INSERT INTO office_sessions(id,document_id,base_revision,base_digest,expires_at,pending_operation_id,created_at) VALUES('office','doc',1,?,1000,'pending',1)").run('a'.repeat(64));
  original.prepare("UPDATE save_operations SET office_session_id='office' WHERE id='pending'").run();const before=original.prepare('SELECT * FROM office_sessions').get();original.close();
- const migrated=openDatabase(path);t.after(()=>migrated.close());assert.deepEqual(migrated.prepare('SELECT * FROM office_sessions').get(),before);assert.equal((migrated.prepare("SELECT office_session_id FROM save_operations WHERE id='pending'").get() as any).office_session_id,'office');assert.deepEqual(migrated.prepare('SELECT * FROM office_ingress').all(),[]);
+ const migrated=openDatabase(path);t.after(()=>migrated.close());assert.deepEqual(migrated.prepare('SELECT * FROM office_sessions').get(),{...(before as Record<string,unknown>),prepared_id:null});assert.equal((migrated.prepare("SELECT office_session_id FROM save_operations WHERE id='pending'").get() as any).office_session_id,'office');assert.deepEqual(migrated.prepare('SELECT * FROM office_ingress').all(),[]);
 });
 
 test('version-eleven prepared office data survives cleanup migration without being cancelled',t=>{
@@ -142,4 +142,11 @@ test('version-twelve prepared recovery and checksums survive the recovery-list i
  const before=old.prepare('SELECT * FROM office_ingress').get(),checksums=old.prepare('SELECT * FROM schema_migrations ORDER BY version').all();old.close();
  const migrated=openDatabase(path);t.after(()=>migrated.close());assert.deepEqual(migrated.prepare('SELECT * FROM office_ingress').get(),before);assert.deepEqual(migrated.prepare('SELECT * FROM schema_migrations WHERE version<=12 ORDER BY version').all(),checksums);
  const plan=migrated.prepare("EXPLAIN QUERY PLAN SELECT * FROM office_ingress WHERE document_id=? AND id>? AND (state='receiving' OR (state IN ('prepared','failed') AND digest IS NOT NULL)) ORDER BY id LIMIT 51").all('doc','') as {detail:string}[];assert.ok(plan.some(row=>row.detail.includes('office_ingress_recovery')));
+});
+
+test('version-thirteen office identity survives prepared-source migration with prior checksums intact',t=>{
+ const path=fixture(t),old=new Sqlite(path);old.pragma('foreign_keys = ON');old.exec('CREATE TABLE schema_migrations(version INTEGER PRIMARY KEY,checksum TEXT NOT NULL)');
+ for(const [index,sql] of migrations.slice(0,13).entries()){old.exec(sql);old.prepare('INSERT INTO schema_migrations VALUES(?,?)').run(index+1,createHash('sha256').update(sql).digest('hex'));}old.pragma(`application_id = ${applicationId}`);
+ old.exec("INSERT INTO users(id,username,display_name,password_hash) VALUES('u','u','User','!');INSERT INTO groups VALUES('g','Group');INSERT INTO resources(id,kind,owner_id,group_id) VALUES('doc','document','u','g');INSERT INTO documents(id,title,format,local_revision,created_at) VALUES('doc','Office','md',1,1)");old.prepare("INSERT INTO office_sessions(id,document_id,base_revision,base_digest,expires_at,created_at) VALUES('office','doc',1,?,1000,1)").run('a'.repeat(64));
+ const before=old.prepare('SELECT * FROM office_sessions').get(),checksums=old.prepare('SELECT * FROM schema_migrations ORDER BY version').all();old.close();const migrated=openDatabase(path);t.after(()=>migrated.close());assert.deepEqual(migrated.prepare('SELECT * FROM office_sessions').get(),{...(before as Record<string,unknown>),prepared_id:null});assert.deepEqual(migrated.prepare('SELECT * FROM schema_migrations WHERE version<=13 ORDER BY version').all(),checksums);assert.deepEqual(migrated.prepare('SELECT * FROM office_prepared').all(),[]);
 });
