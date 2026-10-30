@@ -26,8 +26,7 @@ cap is not the planned 4 GB file-upload limit.
 Errors contain server-generated request IDs and explicit recovery metadata.
 Unknown outcomes never imply a safe retry. Exception messages, raw parser
 inputs and request URLs are not returned in error bodies. Structured production
-logging, database/auth/ACL, React SSR and worker are subsequent implementation
-steps; this server is not a production replacement yet.
+logging and React SSR remain subsequent implementation steps; this server is not a production replacement yet.
 
 ## Database, identity and access core
 
@@ -89,8 +88,8 @@ Published manifest receipts survive converter changes. Unpublished files are
 restricted to owners/admins. Concurrent revision or ACL changes reject saves
 and retain accepted bytes as recovery copies.
 
-These are internal APIs only. HTTP streaming/resume, recovery download, worker
-execution and actual format converters are still pending. The 4 GiB storage
+These internal APIs are exposed by the opt-in routes below. Resumable uploads,
+recovery downloads and office converters are still pending. The 4 GiB storage
 limit does not establish feasibility of 4 GiB office viewing/editing.
 
 ## Opt-in document HTTP transport
@@ -117,4 +116,36 @@ before body parsing. `maxFileBytes` configures the independent streaming limit
 (default 4 GiB); this bypasses the JSON parser's 1 MiB cap. Aborted uploads clean
 staging without committing partial revisions. Responses remain private/no-store;
 asset digests are not standalone access capabilities. Recovery-copy download,
-resumable transport and worker execution are not implemented by these routes.
+resumable transport remain pending; worker execution is a separate process.
+
+## Preview worker
+
+Run against an explicitly initialized **new** workspace database and storage:
+
+```sh
+npm --prefix apps/server run worker -- /absolute/new-yourwiki-v2.sqlite3 /absolute/private-storage
+```
+
+The CLI refuses missing paths and the database core refuses foreign/legacy
+schemas. It does not discover/import users or enable the API automatically.
+Run under a process supervisor that cleans up child processes on forced exit.
+SIGINT/SIGTERM cancels active conversion, leaves retryable work and releases
+the shared preview slot. Expired leases recover work after abrupt termination.
+A durable slot serializes conversion across worker instances; provider jobs
+are never claimed by this worker.
+
+Current converter version `preview-v1` supports Markdown (`md`, `markdown`),
+UTF-8 text (`txt`, `text`) and PDF passthrough. Text rendering runs in a child
+Node process with a 256 MiB V8 heap cap, 30 second timeout, 16 MiB input and
+64 MiB HTML output budgets. These defaults are explicit resource guards;
+exceeding them reports `PREVIEW_TOO_COMPLEX`. This is process separation,
+not an OS security sandbox. No secrets from the parent environment are passed.
+Raw Markdown HTML is disabled, and remote images are rendered as alt text;
+attachment image resolution remains pending. Parser reference:
+[markdown-it documentation](https://github.com/markdown-it/markdown-it).
+
+PDF header checking is preliminary; bytes remain unchanged for the future
+PDF.js viewer and its annotations/forms workflow. Office conversion, native
+Yourwiki document formats, Canvas/drawio, embedded resources/fonts and large
+file acceptance remain pending. The worker does not establish 4 GiB office
+viewing/editing or the page performance target.

@@ -76,3 +76,14 @@
 - Real localhost HTTP verified a streamed 2 MiB upload exceeding JSON cap and cleanup after connection abort without committing a partial revision. Route tests cover revoked ACL/session, cross-document receipt rejection, export bans and invalid ranges.
 - Independent review: no substantial findings, including separate real HTTP verification of early 413. Resumable upload protocol, recovery downloads, worker/converters and frontend remain pending.
 - Final server verification: 68 named tests passed; TypeScript typecheck and git diff --check passed. Legacy code unchanged since the preceding 593 passed/11 skipped baseline; browser/provider acceptance remains open.
+
+## Preview worker / initial real converters — 2026-10-30
+
+- Dedicated opt-in CLI worker consumes only preview.prepare jobs, renews fenced claims, and uses a durable shared preview slot. One conversion at a time across instances; expired slots recover on restart. Provider jobs untouched.
+- Markdown/text subprocess uses pinned markdown-it 15.0.3 (MIT, built-in types), HTML escaping, no remote image embeds, bounded stdin/stdout/stderr, heap cap and timeout/abort. Parent credentials are not passed in environment. This is process separation, not an OS sandbox; forced process exit requires supervisor child cleanup.
+- PDF passthrough references immutable original (preliminary header check only), without loading whole PDF into RAM. No PDF.js functionality is replaced by this step.
+- Shutdown/lease loss kills converter and prevents stale publication. Unsupported/invalid/over-budget work produces visible terminal errors; transient conversion failures retry with backoff. Existing published preview remains available.
+- End-to-end HTTP upload → real subprocess → verified publication → authenticated HTML asset tested. Standalone CLI on disk SQLite published work and exited cleanly on SIGTERM. Tests cover Markdown/table/escaping, text/PDF, ignored provider jobs, limits, timeout, shutdown, lease loss and shared serialization.
+- Ruling: initial text input budget is 16 MiB, HTML output 64 MiB, subprocess heap 256 MiB and timeout 30s to bound memory on minimum hardware. This does not revise the outstanding 4 GiB office requirement; office and larger-corpus acceptance remain unfinished. Converter registry still needs office/native formats, fonts and attachment resolution.
+- Independent review found no substantial issues. Minimal reproduction confirmed sandbox spawn may exit 0 without stdout; verification therefore uses the authorized nonsandbox local process environment. Empty successful subprocess output is additionally rejected defensively.
+- Final verification: 78 server tests passed, TypeScript typecheck and git diff --check passed. Legacy runtime unchanged; prior backend baseline remains 593 passed/11 skipped. Full rewrite, browser/live provider and hardware performance acceptance remain open.

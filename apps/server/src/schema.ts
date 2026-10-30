@@ -103,5 +103,10 @@ CREATE TABLE events (
   payload TEXT NOT NULL, created_at INTEGER NOT NULL
 );
 `;
-export const migrations = [core + epochTriggers, authInvalidation, authSettings, jobs, documents] as const;
+const workerSlots = `
+CREATE TABLE worker_slots (
+  name TEXT PRIMARY KEY, token TEXT NOT NULL, lease_until INTEGER NOT NULL
+);
+`;
+export const migrations = [core + epochTriggers, authInvalidation, authSettings, jobs, documents, workerSlots] as const;
 export const applicationId = 0x5957494b; // YWIK; legacy Django uses no marker.

@@ -34,14 +34,17 @@ export class JobQueue {
     });
   }
 
-  claim(now = Date.now(), leaseMs = 30_000): ClaimedJob | null {
+  claim(now = Date.now(), leaseMs = 30_000, kind?: string): ClaimedJob | null {
     time(now); lease(leaseMs);
+    if (kind !== undefined && !/^[a-z][a-z0-9_.-]{0,63}$/.test(kind)) throw new Error('Invalid job kind');
+    const filter = kind === undefined ? '' : ' AND kind=?';
+    const args = kind === undefined ? [] : [kind];
     return transaction(this.db, () => {
       this.db.prepare(`UPDATE jobs SET state='failed',lease_token=NULL,lease_until=NULL,error_code='RETRY_EXHAUSTED'
-        WHERE attempts>=max_attempts AND (state='queued' OR (state='running' AND lease_until<=?))`).run(now);
+        WHERE attempts>=max_attempts AND (state='queued' OR (state='running' AND lease_until<=?))${filter}`).run(now, ...args);
       const row = this.db.prepare(`SELECT * FROM jobs WHERE attempts<max_attempts
-        AND ((state='queued' AND available_at<=?) OR (state='running' AND lease_until<=?))
-        ORDER BY created_at,id LIMIT 1`).get(now, now) as JobRow | undefined;
+        AND ((state='queued' AND available_at<=?) OR (state='running' AND lease_until<=?))${filter}
+        ORDER BY created_at,id LIMIT 1`).get(now, now, ...args) as JobRow | undefined;
       if (!row) return null;
       const token = randomUUID();
       this.db.prepare("UPDATE jobs SET state='running',lease_token=?,lease_until=?,attempts=attempts+1 WHERE id=?")
@@ -73,6 +76,13 @@ export class JobQueue {
     return this.db.prepare(`UPDATE jobs SET state=CASE WHEN attempts<max_attempts THEN 'queued' ELSE 'failed' END,
       lease_token=NULL,lease_until=NULL,error_code=?,available_at=?
       WHERE id=? AND state='running' AND lease_token=? AND lease_until>?`).run(code, now + retryDelay, claim.id, claim.token, now).changes === 1;
+  }
+
+  reject(claim: ClaimedJob, code: string, now = Date.now()): boolean {
+    time(now);
+    if (!/^[A-Z][A-Z0-9_]{0,63}$/.test(code)) throw new Error('Invalid job failure metadata');
+    return this.db.prepare(`UPDATE jobs SET state='failed',lease_token=NULL,lease_until=NULL,error_code=?
+      WHERE id=? AND state='running' AND lease_token=? AND lease_until>?`).run(code, claim.id, claim.token, now).changes === 1;
   }
 
   status(id: string): (Omit<JobRow, 'payload'> & { payload: Record<string, unknown> }) | null {
