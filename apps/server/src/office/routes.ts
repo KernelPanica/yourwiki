@@ -13,9 +13,15 @@ import {authenticateSession,validCsrf} from '../auth/sessions.ts';
 import {sessionCookie} from '../auth/routes.ts';
 import {errorEnvelope} from '../errors.ts';
 import {byteRange} from '../http/byte-range.ts';
-export type OfficeOptions={publicUrl:string;internalUrl?:string;wopiUrl?:string;fetch?:typeof fetch};
+export type OfficeOptions={cleanupIntervalMs?:number;publicUrl:string;internalUrl?:string;wopiUrl?:string;fetch?:typeof fetch};
 export function registerOffice(app:FastifyInstance,db:Database,store:BlobStore,publicUrl:string,options:OfficeOptions,limits:{maxFileBytes?:number;maxPendingBytes?:number}={}){
  const ingress=new OfficeIngress(db,store,limits),saves=new OfficeSaves(db,store,ingress,limits),office=new OfficeSessions(db),docs=new DocumentService(db,store),access=new AccessService(db),discovery=new OfficeDiscovery(options);
+ const cleanupInterval=options.cleanupIntervalMs??60000;
+ if(!Number.isSafeInteger(cleanupInterval)||cleanupInterval<10||cleanupInterval>300000)throw new Error('Invalid office cleanup interval');
+ let stopping=false,interval:ReturnType<typeof setInterval>|undefined,cleaning:Promise<void>|undefined;
+ const cleanup=()=>{if(stopping||cleaning)return;cleaning=ingress.cleanupExpired().then(()=>{},()=>{}).finally(()=>{cleaning=undefined;});};
+ app.addHook('onReady',async()=>{if(stopping)return;cleanup();interval=setInterval(cleanup,cleanupInterval);interval.unref();});
+ app.addHook('preClose',async()=>{stopping=true;if(interval)clearInterval(interval);await ingress.close();await cleaning;});
  const origin=new URL(publicUrl).origin,wopiBase=officeUrl(options.wopiUrl??publicUrl).href.replace(/\/$/,'');
  // Editing is enabled only after bounded PutFile/recovery is installed; never advertise a non-saving editor.
  const editingReady=false;
@@ -27,7 +33,7 @@ export function registerOffice(app:FastifyInstance,db:Database,store:BlobStore,p
  function fail(error:unknown,request:FastifyRequest,reply:FastifyReply){
   if(!(error instanceof OfficeError))throw error;
   if(request.method==='POST'&&request.url.startsWith('/wopi/')&&!request.raw.complete)reply.header('connection','close');
-  const status:Record<string,number>={INVALID_REQUEST:400,UNSUPPORTED_MEDIA_TYPE:415,PAYLOAD_TOO_LARGE:413,INVALID_OFFICE_FILE:422,OFFICE_FILE_BUDGET:422,OFFICE_SIZE_MISMATCH:400,OFFICE_LOCK_MISMATCH:409,OFFICE_WRITE_BUSY:409,OFFICE_WRITE_LEASE_LOST:409,OFFICE_WRITE_DISCARDED:409,OFFICE_WRITE_QUOTA:429,PENDING_LIMIT:429,OFFICE_VALIDATOR_BUSY:503,OFFICE_VALIDATOR_UNAVAILABLE:503,OFFICE_VALIDATOR_FAILED:503,OFFICE_VALIDATOR_LEASE_LOST:503,OFFICE_VALIDATION_TIMEOUT:504,OFFICE_WRITE_TIMEOUT:408,OFFICE_RECOVERY_MISSING:404,SESSION_REQUIRED:401,INVALID_OFFICE_TOKEN:401,OFFICE_EXPIRED:401,ACCESS_DENIED:403,CSRF_REJECTED:403,NOT_FOUND:404,CONFLICT:409,INVALID_OFFICE_LOCK:400,INVALID_OFFICE_DISCOVERY:503,OFFICE_UNAVAILABLE:503,OFFICE_NOT_READY:503,OFFICE_LIMIT:429,UNSUPPORTED_OFFICE_FORMAT:422,UNSUPPORTED_OFFICE_OPERATION:501};
+  const status:Record<string,number>={OFFICE_CLOSED:503,INVALID_REQUEST:400,UNSUPPORTED_MEDIA_TYPE:415,PAYLOAD_TOO_LARGE:413,INVALID_OFFICE_FILE:422,OFFICE_FILE_BUDGET:422,OFFICE_SIZE_MISMATCH:400,OFFICE_LOCK_MISMATCH:409,OFFICE_WRITE_BUSY:409,OFFICE_WRITE_LEASE_LOST:409,OFFICE_WRITE_DISCARDED:409,OFFICE_WRITE_QUOTA:429,PENDING_LIMIT:429,OFFICE_VALIDATOR_BUSY:503,OFFICE_VALIDATOR_UNAVAILABLE:503,OFFICE_VALIDATOR_FAILED:503,OFFICE_VALIDATOR_LEASE_LOST:503,OFFICE_VALIDATION_TIMEOUT:504,OFFICE_WRITE_TIMEOUT:408,OFFICE_RECOVERY_MISSING:404,SESSION_REQUIRED:401,INVALID_OFFICE_TOKEN:401,OFFICE_EXPIRED:401,ACCESS_DENIED:403,CSRF_REJECTED:403,NOT_FOUND:404,CONFLICT:409,INVALID_OFFICE_LOCK:400,INVALID_OFFICE_DISCOVERY:503,OFFICE_UNAVAILABLE:503,OFFICE_NOT_READY:503,OFFICE_LIMIT:429,UNSUPPORTED_OFFICE_FORMAT:422,UNSUPPORTED_OFFICE_OPERATION:501};
   const envelope:ReturnType<typeof errorEnvelope>&{COOLStatusCode?:number;LOOLStatusCode?:number}=errorEnvelope(error.code,request.id);if(['CONFLICT','OFFICE_EXPIRED'].includes(error.code))envelope.recoveryActions=['copy_changes','download_changes','reload'];
   if(error instanceof OfficeWriteError&&error.writeId){envelope.operationId=error.writeId;envelope.recoveryActions=['download_changes','reload'];}
   if(request.url.startsWith('/wopi/')&&(status[error.code]===409)){

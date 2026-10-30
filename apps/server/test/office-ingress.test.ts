@@ -157,3 +157,18 @@ test('a second processor cannot take a claimed prepared lease or commit after le
  }),/OFFICE_WRITE_LEASE_LOST/);
  assert.equal((f.db.prepare('SELECT lease_token FROM office_ingress WHERE id=?').get(received.id) as any).lease_token,'replacement');
 });
+
+test('shutdown aborts crash snapshot verification, releases cleanup claim and preserves charged bytes for restart',async t=>{
+ const f=await fixture(t),received=await f.ingress.receive(f.input,bytes('new'));
+ f.db.prepare("UPDATE office_ingress SET state='receiving',digest=NULL,size=NULL,lease_until=1 WHERE id=?").run(received.id);
+ const existing=f.store.existingUploadStore.bind(f.store);let enter!:()=>void;const ready=new Promise<void>(resolve=>{enter=resolve;});
+ f.store.existingUploadStore=async id=>{const namespace=await existing(id);if(namespace)namespace.verify=async(_blob,signal)=>{enter();await new Promise<void>(resolve=>signal!.addEventListener('abort',()=>resolve(),{once:true}));signal!.throwIfAborted();return false;};return namespace;};
+ const cleaning=f.ingress.cleanupExpired();await ready;await f.ingress.close();await cleaning;
+ assert.equal(f.db.prepare('SELECT 1 FROM office_ingress_cleanup').get(),undefined);const row=f.db.prepare('SELECT reserved_bytes,state,digest FROM office_ingress WHERE id=?').get(received.id) as any;assert.equal(row.reserved_bytes,3);assert.equal(row.state,'failed');assert.equal(row.digest,null);
+ f.store.existingUploadStore=existing;const restarted=new OfficeIngress(f.db,f.store,{clock:()=>1000});await restarted.cleanupExpired();assert.equal(restarted.status('u',received.id).state,'prepared');
+ await assert.rejects(f.ingress.receive(f.input,bytes('new')),/OFFICE_CLOSED/);
+});
+test('shutdown cancels a stalled receiver and settles before database close',async t=>{
+ const f=await fixture(t);let enter!:()=>void;const ready=new Promise<void>(resolve=>{enter=resolve;});async function* source(){enter();yield Buffer.from('n');await new Promise(()=>{});}
+ const receiving=f.ingress.receive(f.input,source()).then(()=>null,error=>error);await ready;await f.ingress.close();assert.match((await receiving as Error).message,/OFFICE_CLOSED/);assert.equal((f.db.prepare('SELECT SUM(reserved_bytes) AS n FROM office_ingress').get() as any).n,0);
+});

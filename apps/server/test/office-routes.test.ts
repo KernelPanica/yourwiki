@@ -16,12 +16,12 @@ import {SaveJournal} from '../src/save-journal.ts';
 import {buildApp} from '../src/app.ts';
 async function* bytes(value:string){yield Buffer.from(value);}
 const origin='https://wiki.example';
-async function fixture(t:any,fetcher:typeof fetch=async()=>new Response('<wopi-discovery><net-zone><app><action ext="md" name="edit" urlsrc="https://ignored/collabora/browser/build/cool.html?"/></app></net-zone></wopi-discovery>')){
+async function fixture(t:any,fetcher:typeof fetch=async()=>new Response('<wopi-discovery><net-zone><app><action ext="md" name="edit" urlsrc="https://ignored/collabora/browser/build/cool.html?"/></app></net-zone></wopi-discovery>'),officeOptions:{cleanupIntervalMs?:number}={}){
  const root=await mkdtemp(join(tmpdir(),'yourwiki-office-http-')),db=openDatabase(':memory:');db.exec("INSERT INTO users(id,username,display_name,password_hash) VALUES('one','one','First','!'),('two','two','Second','!'); INSERT INTO groups VALUES('g','Group');INSERT INTO memberships VALUES('one','g'),('two','g')");
  const store=await BlobStore.open(root),docs=new DocumentService(db,store),doc=await docs.create({userId:'one',title:'Office',format:'md',parentId:null,groupId:'g'},bytes('office original'));
  const asset=await store.put(bytes('<p>Office</p>'),{maxBytes:100});await docs.publish(new JobQueue(db).claim(Date.now())!,{schemaVersion:1,documentId:doc.documentId,revision:1,sourceDigest:doc.blob.digest,converterVersion:'preview-v1',kind:'document',primary:'index.html',artifacts:[{...asset,name:'index.html',mimeType:'text/html'}]});
  const one=createSession(db,'one'),two=createSession(db,'two'),office=new OfficeSessions(db);
- const app=buildApp({database:db,storage:store,publicUrl:origin,office:{publicUrl:origin+'/collabora',fetch:fetcher}});
+ const app=buildApp({database:db,storage:store,publicUrl:origin,office:{publicUrl:origin+'/collabora',fetch:fetcher,...officeOptions}});
  t.after(async()=>{await app.close();db.close();await rm(root,{recursive:true,force:true});});
  const headers=(user=one)=>({cookie:'yourwiki_v2_session='+user.token,origin,'x-csrf-token':user.csrf});
  return {app,db,doc,office,one,two,headers,store};
@@ -178,4 +178,30 @@ test('chunked PutFile enforces the configured bound without Content-Length and r
  const response=await fetch(address+w.url,{method:'POST',headers:w.headers,body:Readable.from(chunks()),duplex:'half'} as any);assert.equal(response.status,413);assert.equal((await response.json() as any).code,'PAYLOAD_TOO_LARGE');
  assert.equal((f.db.prepare('SELECT SUM(reserved_bytes) AS n FROM office_ingress').get() as any).n,0);
  const invalid=await limited.inject({method:'POST',url:w.url,headers:{...w.headers,'x-lool-wopi-timestamp':'different'},payload:'abc'});assert.equal(invalid.statusCode,400);assert.equal(invalid.json().code,'INVALID_REQUEST');assert.equal((f.db.prepare('SELECT local_revision FROM documents').get() as any).local_revision,1);
+});
+
+async function waitFor(predicate:()=>boolean){const deadline=Date.now()+2000;while(!predicate()){if(Date.now()>deadline)throw new Error('background cleanup did not settle');await new Promise(resolve=>setTimeout(resolve,5));}}
+test('HTTP startup reconciles complete crash snapshots and reclaims incomplete ones without touching the original',async t=>{
+ const f=await fixture(t),complete=await pending(f,'complete'),partial=await pending(f,'partial');
+ await f.store.removeUpload(partial.receipt.id);await f.store.uploadStore(partial.receipt.id);
+ f.db.prepare("UPDATE office_ingress SET state='receiving',digest=NULL,size=NULL,lease_until=1 WHERE id=?").run(complete.receipt.id);f.db.prepare("UPDATE office_ingress SET state='failed',digest=NULL,size=NULL WHERE id=?").run(partial.receipt.id);await f.app.ready();
+ await waitFor(()=>{const a=f.db.prepare('SELECT state FROM office_ingress WHERE id=?').get(complete.receipt.id) as any,b=f.db.prepare('SELECT reserved_bytes FROM office_ingress WHERE id=?').get(partial.receipt.id) as any;return a.state==='prepared'&&b.reserved_bytes===0;});
+ assert.equal(await f.store.existingUploadStore(partial.receipt.id),null);assert.equal(await f.store.verify(f.doc.blob),true);assert.equal((f.db.prepare('SELECT local_revision FROM documents').get() as any).local_revision,1);
+});
+
+test('periodic office cleanup runs after startup and stops before database shutdown',async t=>{
+ const f=await fixture(t,undefined,{cleanupIntervalMs:10}),namespaces=f.store.uploadNamespaces.bind(f.store);let scans=0;
+ f.store.uploadNamespaces=async function*(){try{yield* namespaces();}finally{scans++;}};
+ await f.app.ready();await waitFor(()=>scans>0);const item=await pending(f,'partial');await f.store.removeUpload(item.receipt.id);await f.store.uploadStore(item.receipt.id);
+ f.db.prepare("UPDATE office_ingress SET state='failed',digest=NULL,size=NULL WHERE id=?").run(item.receipt.id);
+ await waitFor(()=>(f.db.prepare('SELECT reserved_bytes FROM office_ingress WHERE id=?').get(item.receipt.id) as any).reserved_bytes===0);
+ await f.app.close();const stopped=scans;await new Promise(resolve=>setTimeout(resolve,40));assert.equal(scans,stopped);
+});
+
+test('HTTP shutdown cancels a stalled office request before waiting for the connection to drain',async t=>{
+ const f=await fixture(t),w=await writer(f),address=await f.app.listen({host:'127.0.0.1',port:0});
+ const request=httpRequest(address+w.url,{method:'POST',headers:{...w.headers,'content-length':'100'}},response=>response.resume());request.on('error',()=>{});t.after(()=>request.destroy());request.write('partial');
+ await waitFor(()=>!!f.db.prepare("SELECT 1 FROM office_ingress WHERE state='receiving'").get());
+ const closed=f.app.close();await Promise.race([closed,new Promise((_,reject)=>{const timer=setTimeout(()=>reject(new Error('shutdown waited for stalled office body')),1000);timer.unref();})]);
+ assert.equal((f.db.prepare('SELECT SUM(reserved_bytes) AS n FROM office_ingress').get() as any).n,0);assert.equal((f.db.prepare('SELECT local_revision FROM documents').get() as any).local_revision,1);
 });
