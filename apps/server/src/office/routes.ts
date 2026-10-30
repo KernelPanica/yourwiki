@@ -68,6 +68,13 @@ export function registerOffice(app:FastifyInstance,db:Database,store:BlobStore,p
  app.post<{Params:{id:string}}>('/api/office/:id/status',{schema:{params}},(request,reply)=>handle(request,reply,()=>{browser(request,true);return office.status(sessionCookie(request),request.params.id);}));
  app.post<{Params:{id:string};Body:{accessToken:string}}>('/api/office/:id/save-intents',{schema:{params,body:{type:'object',additionalProperties:false,required:['accessToken'],properties:{accessToken:{type:'string',pattern:'^[A-Za-z0-9_-]{43}$'}}}}},(request,reply)=>handle(request,reply,()=>{browser(request,true);return intents.issue(sessionCookie(request),request.params.id,request.body.accessToken);}));
  app.get<{Params:{id:string;tag:string}}>('/api/office/:id/save-intents/:tag',{schema:{params:{type:'object',required:['id','tag'],properties:{id:{type:'string',minLength:1,maxLength:128},tag:{type:'string',pattern:'^yourwiki-save-[A-Za-z0-9_-]{32}$'}}}}},(request,reply)=>handle(request,reply,()=>{browser(request);return intents.status(sessionCookie(request),request.params.id,request.params.tag);}));
+ // Narrow revocation control: the opaque bearer authorizes its own deletion, including after cookie expiry.
+ // Origin + JSON-only submission prevent ambient cross-site browser requests; responses disclose no token state.
+ app.post<{Body:{sessionId:string;accessToken:string}}>('/api/auth/office-revoke',{bodyLimit:1024,schema:{body:{type:'object',additionalProperties:false,required:['sessionId','accessToken'],properties:{sessionId:{type:'string',pattern:'^[-A-Za-z0-9_]{1,128}$'},accessToken:{type:'string',pattern:'^[A-Za-z0-9_-]{43}$'}}}}},(request,reply)=>handle(request,reply,()=>{
+  if(request.headers.origin!==origin)throw new OfficeError('CSRF_REJECTED');
+  if(request.headers['content-type']?.split(';')[0].trim().toLowerCase()!=='application/json')throw new OfficeError('UNSUPPORTED_MEDIA_TYPE');
+  office.revokeCapability(request.body.sessionId,request.body.accessToken);return reply.code(204).send();
+ }));
  app.post<{Params:{id:string};Body:{accessToken:string}}>('/api/office/:id/release',{schema:{params,body:{type:'object',required:['accessToken'],additionalProperties:false,properties:{accessToken:{type:'string',pattern:'^[A-Za-z0-9_-]{43}$'}}}}},(request,reply)=>handle(request,reply,()=>{browser(request,true);office.release(sessionCookie(request),request.params.id,request.body.accessToken);return reply.code(204).send();}));
  function authorize(request:FastifyRequest){const id=(request.params as {id:string}).id,token=(request.query as Record<string,unknown>).access_token;return office.authorize(id,typeof token==='string'?token:'');}
  function original(actor:ReturnType<OfficeSessions['authorize']>){

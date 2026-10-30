@@ -111,3 +111,13 @@ test('browser status retains recovery discovery after token expiry with author/a
  f.db.prepare('UPDATE resources SET export_disabled=1 WHERE id=?').run(f.doc.documentId);assert.equal(f.office.status(f.one.token,opened.sessionId).recovery,false);
  assert.throws(()=>f.office.status('invalid',opened.sessionId),/SESSION_REQUIRED/);
 });
+test('capability revocation after browser invalidation is idempotent, scoped and preserves other participants',async t=>{
+ const f=await fixture(t),a=f.office.open(f.one.token,f.doc.documentId),b=f.office.open(f.two.token,f.doc.documentId);f.office.lock(b.sessionId,b.token,'LOCK','shared');
+ revokeSession(f.db,f.one.token);f.office.revokeCapability('wrong-room',b.token);assert.equal(f.office.authorize(b.sessionId,b.token).write,true);
+ f.office.revokeCapability(a.sessionId,a.token);f.office.revokeCapability(a.sessionId,a.token);assert.equal(f.office.authorize(b.sessionId,b.token).write,true);assert.equal(f.office.lock(b.sessionId,b.token,'GET_LOCK').lock,'shared');
+ f.office.revokeCapability(b.sessionId,'z'.repeat(43));assert.equal(f.office.authorize(b.sessionId,b.token).write,true);f.office.revokeCapability(b.sessionId,b.token);assert.throws(()=>f.office.authorize(b.sessionId,b.token),/INVALID_OFFICE_TOKEN/);assert.equal(f.office.status(f.two.token,b.sessionId).expired,true);
+});
+test('revoking a known capability cannot erase staged recovery or commit its bytes',async t=>{
+ const f=await fixture(t),a=f.office.open(f.one.token,f.doc.documentId),blob=await f.store.put(bytes('retained recovery'),{maxBytes:100}),journal=new SaveJournal(f.db,f.store,{clock:()=>1000});await journal.stagePrepared({userId:'one',documentId:f.doc.documentId,operationId:'revoke-recovery',baseRevision:1,baseDigest:f.doc.blob.digest,blob,officeSessionId:a.sessionId});f.db.prepare('UPDATE office_sessions SET pending_operation_id=? WHERE id=?').run('revoke-recovery',a.sessionId);
+ f.office.revokeCapability(a.sessionId,a.token);assert.equal(journal.status('one','revoke-recovery').state,'staged');assert.equal(f.office.status(f.one.token,a.sessionId).recovery,true);assert.equal((f.db.prepare('SELECT local_revision FROM documents WHERE id=?').get(f.doc.documentId) as any).local_revision,1);assert.equal(await f.store.verify(blob),true);
+});

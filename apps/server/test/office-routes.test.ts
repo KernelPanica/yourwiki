@@ -229,3 +229,12 @@ test('legacy ExtendedData headers can confirm an unchanged local save without an
 test('published metadata advertises the configured office integration without enabling unaccepted writes',async t=>{
  const f=await fixture(t),url=`/api/documents/${f.doc.documentId}`;const view=(await f.app.inject({url:url+'/view',headers:f.headers()})).json();assert.equal(view.document.capabilities.office,true);assert.equal((await f.app.inject({method:'POST',url:url+'/office',headers:f.headers(),payload:{language:'ru'}})).json().code,'OFFICE_NOT_READY');
 });
+test('same-origin bearer-only revocation remains available after cookie expiry and grants no document access',async t=>{
+ const f=await fixture(t),a=f.office.open(f.one.token,f.doc.documentId),b=f.office.open(f.two.token,f.doc.documentId),url='/api/auth/office-revoke',payload={sessionId:a.sessionId,accessToken:a.token};
+ revokeSession(f.db,f.one.token);assert.equal((await f.app.inject({method:'POST',url,payload})).statusCode,403);assert.equal((await f.app.inject({method:'POST',url,headers:{origin:'https://other.example'},payload})).statusCode,403);
+ for(const body of [payload,payload,{sessionId:b.sessionId,accessToken:'z'.repeat(43)}]){const response=await f.app.inject({method:'POST',url,headers:{origin},payload:body});assert.equal(response.statusCode,204);assert.equal(response.body,'');}
+ assert.equal(f.office.authorize(b.sessionId,b.token).userId,'two');assert.equal((await f.app.inject({url:`/api/office/${b.sessionId}/recovery`,headers:{origin}})).statusCode,401);
+ assert.equal((await f.app.inject({method:'POST',url,headers:{origin},payload:{...payload,accessToken:'bad'}})).statusCode,400);
+ assert.equal((await f.app.inject({method:'POST',url,headers:{origin},payload:{...payload,padding:'x'.repeat(3000)}})).statusCode,413);
+ assert.equal((await f.app.inject({method:'POST',url,headers:{origin},payload:{sessionId:b.sessionId,accessToken:b.token}})).statusCode,204);assert.throws(()=>f.office.authorize(b.sessionId,b.token),/INVALID_OFFICE_TOKEN/);
+});

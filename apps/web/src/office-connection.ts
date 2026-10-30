@@ -18,7 +18,7 @@ export function parseOfficeBootstrap(value:unknown):OfficeBootstrap {
 }
 /** Owns one iframe capability. Call close() and await true before unmounting a live frame. */
 export class OfficeConnection {
- private options:Options;private request:NonNullable<Options['request']>;private generation:number;private lifetime=new AbortController();private disposed=false;
+ private options:Options;private request:NonNullable<Options['request']>;private generation:number;private lifetime=new AbortController();private disposed=false;private revocation:AbortController|undefined;
  private state:OfficeConnectionSnapshot={phase:'idle',bootstrap:null,errorCode:null};private listeners=new Set<()=>void>();private opening:Promise<void>|undefined;private closing:Promise<boolean>|undefined;
  private statusTimer:ReturnType<typeof setTimeout>|undefined;private checking=false;private frame:Frame|undefined;private removeFence:()=>void;
  bridge:OfficeBridge|undefined;save:OfficeSaveCoordinator|undefined;
@@ -67,17 +67,31 @@ export class OfficeConnection {
   }catch(error){if(this.state.phase==='open')this.failed(error);return false;}finally{this.checking=false;this.scheduleStatus();}
  }
  async exportCurrent(){if(!await this.check()||!this.current()||this.state.phase!=='open')return false;return this.bridge?.exportCurrent()??false;}
+ private async revoke(opened:OfficeBootstrap,signal:AbortSignal){
+  const response=await this.request('/api/auth/office-revoke',{method:'POST',signal,headers:{'content-type':'application/json'},body:JSON.stringify({sessionId:opened.sessionId,accessToken:opened.accessToken})});
+  if(response!==undefined)throw new ApiError('INVALID_REVOCATION_ACK');
+ }
+ private closed(){if(this.disposed)return false;this.bridge?.dispose();this.update({phase:'closed',errorCode:null});return true;}
  close(){
-  if(this.closing)return this.closing;if(this.state.phase==='closed')return Promise.resolve(true);if(!this.current())return Promise.resolve(false);
+  if(this.closing)return this.closing;if(this.state.phase==='closed')return Promise.resolve(true);if(this.disposed)return Promise.resolve(false);const detached=!this.current();
   // A pending bootstrap may still create a capability. Do not claim it is safe to unmount.
   if(!this.state.bootstrap)return Promise.resolve(this.state.phase!=='opening');
   this.stopStatus();this.save?.dispose();this.bridge?.saveFailed('OFFICE_CLOSING');this.update({phase:'closing',errorCode:null});const opened=this.state.bootstrap;
   const closing=(async()=>{try{
-   await this.request(`/api/office/${encodeURIComponent(opened.sessionId)}/release`,{method:'POST',signal:this.lifetime.signal,headers:{'content-type':'application/json','x-csrf-token':this.options.csrf},body:JSON.stringify({accessToken:opened.accessToken})});
-   if(!this.current())return false;this.bridge?.dispose();this.update({phase:'closed',errorCode:null});return true;
-  }catch(error){if(this.current()){if(error instanceof ApiError&&error.code==='NOT_FOUND'){this.bridge?.dispose();this.update({phase:'closed',errorCode:null});return true;}this.failed(error);if(this.current())this.update({phase:'failed',errorCode:'OFFICE_RELEASE_UNCERTAIN'});}return false;}})();
-  this.closing=closing;void closing.finally(()=>{if(this.closing===closing)this.closing=undefined;});return closing;
+   if(detached){this.revocation=new AbortController();await this.revoke(opened,this.revocation.signal);}
+   else await this.request(`/api/office/${encodeURIComponent(opened.sessionId)}/release`,{method:'POST',signal:this.lifetime.signal,headers:{'content-type':'application/json','x-csrf-token':this.options.csrf},body:JSON.stringify({accessToken:opened.accessToken})});
+   if(!detached&&!this.current())return false;return this.closed();
+  }catch(error){
+   if(this.disposed)return false;
+   // A rolling update may return the router's NOT_FOUND, not a token-absence receipt.
+   if(!detached&&this.current()&&error instanceof ApiError&&error.code==='NOT_FOUND'){
+    try{this.revocation=new AbortController();await this.revoke(opened,this.revocation.signal);return this.closed();}catch{/* Require an explicit revocation acknowledgement before unmount. */}
+   }
+   if(!detached)this.failed(error);if(!this.disposed&&(detached||this.current()))this.update({phase:'failed',errorCode:'OFFICE_RELEASE_UNCERTAIN'});return false;
+  }})();
+  this.closing=closing;void closing.finally(()=>{if(this.closing===closing){this.closing=undefined;this.revocation=undefined;}});return closing;
  }
+
  /** Final teardown only; this does not prove server-side revocation. */
- dispose(){if(this.disposed)return;this.disposed=true;this.stopStatus();this.lifetime.abort();this.save?.dispose();this.bridge?.dispose();this.removeFence();this.listeners.clear();}
+ dispose(){if(this.disposed)return;this.disposed=true;this.stopStatus();this.lifetime.abort();this.revocation?.abort();this.save?.dispose();this.bridge?.dispose();this.removeFence();this.listeners.clear();}
 }

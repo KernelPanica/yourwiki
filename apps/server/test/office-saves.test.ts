@@ -101,3 +101,6 @@ test('initial zero-byte WOPI creation works unlocked without a timestamp',async 
  const saved=await f.saves.save({...f.input,lock:'',lastModifiedTime:null},bytes('new'));assert.equal(saved.receipt!.revision,2);
  assert.equal((f.db.prepare('SELECT local_revision FROM documents').get() as any).local_revision,2);
 });
+test('capability revocation during validation fences the late write and retains complete recovery',async t=>{
+ let f:any;f=await fixture(t,{validate:async()=>{f.office.revokeCapability(f.opened.sessionId,f.opened.token);}});await assert.rejects(f.saves.save(f.input,bytes('new')),/INVALID_OFFICE_TOKEN/);assert.equal((f.db.prepare('SELECT local_revision FROM documents').get() as any).local_revision,1);const row=f.db.prepare('SELECT id,state FROM office_ingress').get() as any;assert.equal(row.state,'prepared');assert.ok(await f.ingress.payloadStore('u',row.id));
+});

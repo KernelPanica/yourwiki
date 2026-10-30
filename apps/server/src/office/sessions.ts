@@ -74,10 +74,22 @@ export class OfficeSessions {
    if(typeof token!=='string'||!(/^[A-Za-z0-9_-]{43}$/).test(token))throw new OfficeError('INVALID_OFFICE_TOKEN');
    const removed=this.db.prepare('DELETE FROM office_tokens WHERE token_hash=? AND office_session_id=? AND browser_session_hash=? AND user_id=?').run(tokenHash(token),sessionId,actor.tokenHash,actor.userId);
    if(!removed.changes)throw new OfficeError('NOT_FOUND');
-   const remaining=this.db.prepare('SELECT 1 FROM office_tokens t JOIN sessions s ON s.token_hash=t.browser_session_hash JOIN users u ON u.id=t.user_id WHERE t.office_session_id=? AND t.expires_at>? AND s.expires_at>? AND s.user_id=t.user_id AND u.auth_version=s.auth_version AND u.active=1 LIMIT 1').get(sessionId,now,now);
-   if(!remaining)this.db.prepare("UPDATE office_sessions SET expires_at=?,lock_value='',lock_expires_at=0 WHERE id=? AND pending_operation_id IS NULL").run(now,sessionId);
+   this.retireUnused(sessionId,now);
   });
  }
+ private retireUnused(sessionId:string,now:number){
+  const remaining=this.db.prepare('SELECT 1 FROM office_tokens t JOIN sessions s ON s.token_hash=t.browser_session_hash JOIN users u ON u.id=t.user_id WHERE t.office_session_id=? AND t.expires_at>? AND s.expires_at>? AND s.user_id=t.user_id AND u.auth_version=s.auth_version AND u.active=1 LIMIT 1').get(sessionId,now,now);
+  if(!remaining)this.db.prepare("UPDATE office_sessions SET expires_at=?,lock_value='',lock_expires_at=0 WHERE id=? AND pending_operation_id IS NULL").run(now,sessionId);
+ }
+ /** Possession authorizes only revoking this opaque capability; no document access or save. */
+ revokeCapability(sessionId:string,token:string){
+  if(typeof sessionId!=='string'||!/^[-A-Za-z0-9_]{1,128}$/.test(sessionId)||typeof token!=='string'||!/^[A-Za-z0-9_-]{43}$/.test(token))throw new OfficeError('INVALID_OFFICE_TOKEN');
+  transaction(this.db,()=>{
+   const removed=this.db.prepare('DELETE FROM office_tokens WHERE token_hash=? AND office_session_id=?').run(tokenHash(token),sessionId);
+   if(removed.changes)this.retireUnused(sessionId,this.clock());
+  });
+ }
+
  lock(sessionId:string,token:string,operation:string,value='',old?:string):{status:number;lock?:string}{
   const result=transaction(this.db,()=>{
    const actor=this.authorize(sessionId,token),row=actor.session;

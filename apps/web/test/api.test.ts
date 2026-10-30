@@ -22,3 +22,7 @@ test('session changes fence late JSON and block private requests before fetch wh
  globalThis.fetch=(async()=>({ok:true,status:200,json:async()=>({user:{id:'new'}})}) as Response) as typeof fetch;
  assert.deepEqual(await api('/api/account'),{user:{id:'new'}});
 });
+test('a blocked session permits only the exact office revocation control, never other office APIs',async t=>{
+ const original=globalThis.fetch;t.after(()=>{globalThis.fetch=original;resumeSession();});resumeSession();blockSession();const calls:string[]=[];globalThis.fetch=(async url=>{calls.push(String(url));return new Response(null,{status:204});}) as typeof fetch;
+ await api('/api/auth/office-revoke',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({sessionId:'room',accessToken:'a'.repeat(43)})});assert.deepEqual(calls,['/api/auth/office-revoke']);for(const url of ['/api/auth/office-revoke-extra','/api/auth/office-revoke/anything','/api/office/room/status','/api/documents'])await assert.rejects(api(url),(e:any)=>e.code==='SESSION_REQUIRED');assert.equal(calls.length,1);
+});

@@ -62,6 +62,16 @@ setTimeout(()=>send('App_LoadingStatus',{Status:'Document_Loaded'}),700);
    await page.set_viewport_size({'width':393,'height':852});await page.get_by_role('button',name='На весь экран',exact=True).click();await page.locator('.office-fullscreen').wait_for();geometry=await page.evaluate('()=>({width:innerWidth,scroll:document.documentElement.scrollWidth})');assert geometry['width']==geometry['scroll'],geometry
    artifact=ROOT/'output'/'playwright'/'office-mobile.png';artifact.parent.mkdir(parents=True,exist_ok=True);await page.screenshot(path=str(artifact));await page.get_by_role('button',name='Выйти из полного экрана',exact=True).click()
    await page.get_by_role('link',name='Аккаунт',exact=True).click();await page.wait_for_url('**/account');available=False;await page.get_by_role('link',name='Yourwiki·',exact=True).click();await page.get_by_role('link',name='MD Live notes').click();await page.get_by_role('alert').filter(has_text='Редактор пока недоступен').wait_for();assert await preview.is_visible();assert await page.locator('iframe.office-frame').count()==0;assert not errors,errors
+   available=True;await page.get_by_role('link',name='Аккаунт',exact=True).click();await page.wait_for_url('**/account');await page.get_by_role('link',name='Yourwiki·',exact=True).click();await page.get_by_role('link',name='MD Live notes').click();await page.locator('.office-workspace[data-loaded="true"]').wait_for();await field.fill('Retained after expiry')
+   revocation_entered=asyncio.Event();revocation_gate=asyncio.Event()
+   async def revoke_capability(route):
+    body=json.loads(route.request.post_data);assert body=={'sessionId':'browser-room','accessToken':'a'*43};calls.append(('revoke',route.request.method));revocation_entered.set();await revocation_gate.wait();await route.fulfill(status=204)
+   await page.route('**/api/auth/office-revoke',revoke_capability)
+   server.stdin.write(b'{"action":"expire"}\n');await server.stdin.drain();assert json.loads(await asyncio.wait_for(server.stdout.readline(),10))['ok']
+   await page.get_by_role('alert').filter(has_text='Сохранение остановлено').wait_for();assert await field.input_value()=='Retained after expiry';writes_before=sum(c[0]=='save' for c in calls)
+   page.once('dialog',lambda d:d.dismiss());await page.get_by_role('button',name='Войти',exact=True).click();assert await field.input_value()=='Retained after expiry';assert not revocation_entered.is_set()
+   page.once('dialog',lambda d:d.accept());await page.get_by_role('button',name='Войти',exact=True).click();await asyncio.wait_for(revocation_entered.wait(),5);assert await field.input_value()=='Retained after expiry';assert sum(c[0]=='save' for c in calls)==writes_before
+   revocation_gate.set();await page.locator('input[name=username]').wait_for();assert await page.locator('iframe.office-frame').count()==0;assert not errors,errors
    print(json.dumps({'syntheticOffice':'passed','framePosts':sum(c[0]=='engine' for c in calls),'saveOnLeave':False,'errors':errors}));await browser.close()
  finally:
   server.terminate();await asyncio.wait_for(server.wait(),15)
