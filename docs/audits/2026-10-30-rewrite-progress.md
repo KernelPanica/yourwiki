@@ -42,3 +42,17 @@
 - Повтор browser: 6 passed/1 failed на старом locator `New file here`; остальные сценарии не объявлены пройденными.
 - Полный backend baseline 593 passed/11 skipped остаётся действительным: production-код не менялся, browser correction отдельно.
 - Следующий шаг — SQLite/auth/ACL и отдельная актуализация legacy UI acceptance. Общий rewrite не завершён.
+
+## SQLite / authentication / ACL core — 2026-10-30
+
+План: docs/superpowers/plans/2026-10-30-auth-access-core.md.
+
+- Реализованы отдельная новая SQLite schema, migration checksum ledger, foreign DB отказ, WAL/FK, атомарные epoch triggers.
+- Ruling: выбрать stable better-sqlite3 с packaged prebuilds; node:sqlite по актуальным официальным docs release candidate. Старый runtime остаётся на SQLite Django.
+- Реализованы совместимые PBKDF2 SHA256/SHA1/scrypt и фикстуры настоящего Django с Unicode. Другие алгоритмы пока fail closed; будущий importer обязан явно блокировать неподдерживаемые credentials.
+- Server-side opaque sessions: только hashes в БД, expiry, disable/password auth_version invalidation, session-bound CSRF.
+- Opt-in login/account/logout с Origin/CSRF, cookie, account/IP rate quotas; forwarded IP не доверяется. Квота резервируется до async KDF, состояние credentials перепроверяется после него.
+- ACL сохранены: root defaults, owner/group/everyone, персональные исключения, multi-group, inheritance, independent export restrictions и admin rules. Cache bounded, transactional reads не кешируются из-за rollback ABA.
+- Независимое review: P2 foreign DB detection исправлено и снято; отдельные regression tests включены.
+- Новая схема и API не подключены к production entrypoint. React/auth UI, importer, file APIs и admin operations ещё не реализованы. Readiness без workspace checker false.
+- npm server suite/typecheck и исходные frontend tests пройдены. Повтор полного legacy pytest: 593 passed, 11 skipped, 240 warnings. Direct Node checks: 41 passed в 6 файлах.

@@ -1,8 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import Fastify from 'fastify';
 import { errorEnvelope } from './errors.ts';
+import type { Database } from './database.ts';
+import { registerAuth } from './auth/routes.ts';
 
 export interface AppOptions {
+  database?: Database;
+  publicUrl?: string;
   /** Local migrations/storage readiness only; never call cloud APIs here. */
   readiness?: () => Promise<boolean>;
 }
@@ -38,6 +42,7 @@ export function buildApp(options: AppOptions = {}) {
     }
     return reply.code(500).send(errorEnvelope('INTERNAL_ERROR', request.id));
   });
+  if (options.database) registerAuth(app, options.database, options.publicUrl ?? 'http://localhost:3100');
   app.get('/health/', async () => ({ status: 'ok', service: 'yourwiki' }));
   app.get('/ready/', async (request, reply) => {
     let ready = false;

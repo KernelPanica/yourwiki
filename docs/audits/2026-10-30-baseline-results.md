@@ -32,3 +32,5 @@ Chromium установлен в /tmp/yourwiki-playwright. `RUN_BROWSER=1 ... py
 Повтор: **6 passed, 1 failed**, остановка по -x. Ошибка `tests/browser/test_browser.py::test_workspace_and_registration`: Locator.click timeout на отсутствующую ссылку `New file here` после успешного входа. Этот legacy-тест и оставшиеся сценарии требуют актуализации/проверки; полный browser baseline не зелёный. Реальная Collabora не запускалась.
 
 Итог этапа: новый auditor и Fastify foundation проверены; offline backend зелёный; полный UI baseline не завершён.
+
+После SQLite/auth/ACL core: полный offline legacy набор 593 passed/11 skipped (29.35 s); 41 именованных Node-проверок в новом сервере прошли, tsc --noEmit прошёл; исходные frontend test files 4 passed. Production и работающие данные не переключены.
