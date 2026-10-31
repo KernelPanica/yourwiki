@@ -9,7 +9,7 @@ export class OfficeWriteError extends OfficeError {currentLock?:string;writeId?:
 type Input={clientTag?:string;sessionId:string;token:string;lock:string;declaredSize:number|null;signal?:AbortSignal};
 type PreparedInput={id:string;leaseToken:string;sessionId:string;token:string;signal?:AbortSignal};
 type PreparedContext={signal:AbortSignal;blob:BlobRef;store:BlobStore;userId:string;documentId:string;baseRevision:number;baseDigest:string;assertCurrent:()=>void;commit:<R>(save:()=>R)=>R};
-type Row={id:string;document_id:string;office_session_id:string;author_id:string;base_revision:number;base_digest:string;state:string;digest:string|null;size:number|null;lease_token:string;lease_until:number;lock_value:string;reserved_bytes:number;error_code:string|null};
+type Row={created_at:number;id:string;document_id:string;office_session_id:string;author_id:string;base_revision:number;base_digest:string;state:string;digest:string|null;size:number|null;lease_token:string;lease_until:number;lock_value:string;reserved_bytes:number;error_code:string|null};
 /** Internal bounded spool. Prepared bytes are durable but are not yet accepted as an original. */
 export class OfficeIngress {
  private closed=false;private pending=new Set<Promise<unknown>>();private closing:Promise<void>|undefined;
@@ -25,7 +25,7 @@ export class OfficeIngress {
   await Promise.allSettled([this.maintenance.close(),...this.pending]);
  }
  private row(id:string){return this.db.prepare('SELECT * FROM office_ingress WHERE id=?').get(id) as Row|undefined;}
- private result(row:Row){return {id:row.id,sessionId:row.office_session_id,documentId:row.document_id,userId:row.author_id,baseRevision:row.base_revision,baseDigest:row.base_digest,state:row.state,errorCode:row.error_code,blob:row.digest!==null?{digest:row.digest,size:row.size!}:null};}
+ private result(row:Row){return {createdAt:row.created_at,id:row.id,sessionId:row.office_session_id,documentId:row.document_id,userId:row.author_id,baseRevision:row.base_revision,baseDigest:row.base_digest,state:row.state,errorCode:row.error_code,blob:row.digest!==null?{digest:row.digest,size:row.size!}:null};}
  status(userId:string,id:string){const row=this.row(id);if(!row||!officeRecoveryAllowed(this.db,userId,row))throw new OfficeError('NOT_FOUND');return this.result(row);}
  recoveries(userId:string,documentId:string,cursor='',limit=50){
   if(!Number.isSafeInteger(limit)||limit<1||limit>50||cursor.length>128)throw new OfficeError('INVALID_REQUEST');

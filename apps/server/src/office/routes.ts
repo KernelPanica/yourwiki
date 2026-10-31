@@ -129,7 +129,7 @@ export function registerOffice(app:FastifyInstance,db:Database,store:BlobStore,p
  }));
  });
  function recoveryMetadata(userId:string,item:ReturnType<OfficeIngress['status']>){
-  return {id:item.id,sessionId:item.sessionId,documentId:item.documentId,authorId:item.userId,state:item.state,baseRevision:item.baseRevision,size:item.blob?.size??null,errorCode:item.errorCode,
+  return {createdAt:item.createdAt,id:item.id,sessionId:item.sessionId,documentId:item.documentId,authorId:item.userId,state:item.state,baseRevision:item.baseRevision,size:item.blob?.size??null,errorCode:item.errorCode,
    download:!!item.blob&&['prepared','failed'].includes(item.state)&&access.allows(userId,item.documentId,'export'),discard:!['committed','discarded'].includes(item.state)};
  }
  app.get<{Params:{id:string};Querystring:{cursor?:string;limit?:number}}>('/api/documents/:id/office-recovery',{schema:{params,querystring:{type:'object',additionalProperties:false,properties:{cursor:{type:'string',maxLength:128},limit:{type:'integer',minimum:1,maximum:50,default:50}}}}},(request,reply)=>handle(request,reply,()=>{

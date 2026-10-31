@@ -1,3 +1,4 @@
+import OfficeRecoveryPanel from './OfficeRecoveryPanel.tsx';
 import {useEffect,useId,useRef,useState} from 'react';
 import type {ReactNode} from 'react';
 import type {DocumentView} from './api.ts';
@@ -47,6 +48,7 @@ export default function OfficeWorkspace({view,csrf,children,onSessionLost}:{view
    {editor?.exportAllowed&&<button type="button" disabled={closing||paused} onClick={()=>void connection.current?.exportCurrent()}>{t.copy}</button>}
   </>}<button type="button" aria-pressed={full} onClick={()=>setFull(value=>!value)}>{full?t.restore:t.fullscreen}</button></div>
   {warning&&<p className="notice" role="alert">{warning}</p>}
+  <OfficeRecoveryPanel documentId={view.document.id} csrf={csrf} onSessionLost={onSessionLost} autoOpen={state.phase==='open'&&(editor?.phase==='conflict'||editor?.phase==='failed')}/>
   <div className="office-stage">
    <div className="office-preview" hidden={loaded}>{children}</div>
    {state.bootstrap&&<>

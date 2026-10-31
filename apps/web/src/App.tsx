@@ -7,6 +7,7 @@ import {startChangeFeed,publishChanges,subscribeChanges} from './live-updates.ts
 import { requestNavigation,hasUnsavedChanges } from './navigation-guard.ts';
 import { labels,languageFor } from './i18n.ts';
 import type { Labels } from './i18n.ts';
+const OfficeRecoveryPanel=lazy(()=>import('./OfficeRecoveryPanel.tsx'));
 const OfficeWorkspace=lazy(()=>import('./OfficeWorkspace.tsx'));
 const PdfWorkspace=lazy(()=>import('./PdfWorkspace.tsx'));
 const Presentation=lazy(()=>import('./Presentation.tsx'));
@@ -86,6 +87,7 @@ function DocumentPage({id,onSessionLost,csrf}:{id:string;onSessionLost:()=>void;
   const office=officeMounted.current;
   return <main id="content" className="document-page"><div className="document-toolbar"><Link href="/" className="back">← {t.back}</Link><div className="document-name"><h1>{view?.document.title??t.preview}</h1>{view&&<span className="muted">{view.document.format.toUpperCase()} · {t.read}</span>}</div>{view?.document.capabilities.export&&view.manifest.kind!=='pdf'&&<a className="button" href={`/api/documents/${encodeURIComponent(id)}/content`} download>{t.download}</a>}</div>
     {error?<ErrorBox error={error} retry={!view?()=>setAttempt(x=>x+1):undefined}/>:null}
+    {!office&&view?.document.capabilities.office===true&&<Suspense fallback={null}><OfficeRecoveryPanel documentId={id} csrf={csrf} onSessionLost={onSessionLost}/></Suspense>}
     {!view?!error&&<p className="loading" role="status">{t.loading}</p>:office?<Suspense fallback={preview}><OfficeWorkspace view={view} csrf={csrf} onSessionLost={onSessionLost}>{preview}</OfficeWorkspace></Suspense>:preview}
   </main>;
 }

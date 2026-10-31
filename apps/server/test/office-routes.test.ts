@@ -238,3 +238,6 @@ test('same-origin bearer-only revocation remains available after cookie expiry a
  assert.equal((await f.app.inject({method:'POST',url,headers:{origin},payload:{...payload,padding:'x'.repeat(3000)}})).statusCode,413);
  assert.equal((await f.app.inject({method:'POST',url,headers:{origin},payload:{sessionId:b.sessionId,accessToken:b.token}})).statusCode,204);assert.throws(()=>f.office.authorize(b.sessionId,b.token),/INVALID_OFFICE_TOKEN/);
 });
+test('recovery listings expose the persisted creation time for distinguishing separate snapshots',async t=>{
+ const f=await fixture(t),{receipt}=await pending(f);const created=(f.db.prepare('SELECT created_at FROM office_ingress WHERE id=?').get(receipt.id) as {created_at:number}).created_at;const response=await f.app.inject({url:`/api/documents/${f.doc.documentId}/office-recovery`,headers:f.headers()});assert.equal(response.json().items[0].createdAt,created);assert.ok(created>0);
+});

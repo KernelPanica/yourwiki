@@ -1,4 +1,7 @@
 /** Synthetic loopback-only PDF browser fixture. Never use against production data. */
+import {OfficeSessions} from '../../src/office/sessions.ts';
+import {OfficeIngress} from '../../src/office/ingress.ts';
+import {createSession,revokeSession} from '../../src/auth/sessions.ts';
 import {createInterface} from 'node:readline';
 import {PdfLayerService} from '../../src/pdf-layers.ts';
 import { createReadStream } from 'node:fs';
@@ -23,7 +26,7 @@ const notes=process.env.YOURWIKI_BROWSER_CONTROL==='1'?await docs.create({userId
 const worker=new PreviewWorker(db,store);while(await worker.runOnce()!=='idle'){}
 const port=Number(process.env.YOURWIKI_BROWSER_PORT??39077);
 if(!Number.isSafeInteger(port)||port<1024||port>65535)throw new Error('Invalid test port');
-const app=buildApp({database:db,storage:store,webRoot:fileURLToPath(new URL('../../../web/dist',import.meta.url)),publicUrl:`http://127.0.0.1:${port}`});
+const app=buildApp({database:db,storage:store,webRoot:fileURLToPath(new URL('../../../web/dist',import.meta.url)),publicUrl:`http://127.0.0.1:${port}`,...(process.env.YOURWIKI_BROWSER_OFFICE==='1'?{office:{publicUrl:`http://127.0.0.1:${port}/collabora`}}:{})});
 await app.listen({port,host:'127.0.0.1'});console.log(`Synthetic PDF test server: http://127.0.0.1:${port}`);
 // Test-only stdin control: no HTTP control surface is registered.
 if(process.env.YOURWIKI_BROWSER_CONTROL==='1'){
@@ -31,7 +34,15 @@ if(process.env.YOURWIKI_BROWSER_CONTROL==='1'){
  input.on('line',line=>{chain=chain.then(async()=>{
   try{
    const command=JSON.parse(line) as {action:string;title?:string};
-   if(command.action==='create'){
+   if(command.action==='recoveries'){
+    if(!notes||process.env.YOURWIKI_BROWSER_OFFICE!=='1')throw new Error('Office fixture required');
+    const browser=createSession(db,'qa'),office=new OfficeSessions(db),opened=office.open(browser.token,notes.documentId),ingress=new OfficeIngress(db,store);office.lock(opened.sessionId,opened.token,'LOCK','fixture-lock');
+    try{for(let index=0;index<52;index++){const payload=Buffer.from('durable recovery copy '+index);await ingress.receive({sessionId:opened.sessionId,token:opened.token,lock:'fixture-lock',declaredSize:payload.length},(async function*(){yield payload;})());}}finally{await ingress.close();revokeSession(db,browser.token);}
+   }else if(command.action==='export-deny-notes'){
+    if(!notes)throw new Error('Notes fixture required');db.prepare("UPDATE users SET admin_role='member' WHERE id='qa'").run();db.prepare('UPDATE resources SET export_disabled=1 WHERE id=?').run(notes.documentId);
+   }else if(command.action==='readonly-notes'){
+    if(!notes)throw new Error('Notes fixture required');db.prepare('UPDATE resources SET user_policies=? WHERE id=?').run(JSON.stringify({qa:{read:true,write:false}}),notes.documentId);
+   }else if(command.action==='create'){
     await docs.create({userId:'qa',title:command.title??'Live PDF',format:'pdf',groupId:'qa',parentId:null},createReadStream(fixture));
     while(await worker.runOnce()!=='idle'){}
    }else if(command.action==='layer'){
