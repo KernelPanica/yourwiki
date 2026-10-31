@@ -81,3 +81,25 @@ test('PDF size bounds do not publish a partial annotation layer', async t => {
   await assert.rejects(layers.save(input, bytes('x'.repeat(1001))), /size limit/);
   assert.equal((db.prepare('SELECT COUNT(*) AS n FROM pdf_layer_versions').get() as any).n, 0);
 });
+test('prepared PDF commit reuses verified immutable bytes and joins its caller transaction', async t => {
+  const {db,store,layers,input}=await setup(t);
+  const blob=await store.put(bytes('%PDF-1.7 archived'),{maxBytes:1000});
+  db.exec('BEGIN IMMEDIATE');
+  const saved=layers.commitPreparedSave(input,blob);
+  assert.equal(saved.layerRevision,1);assert.equal(saved.digest,blob.digest);
+  db.exec('ROLLBACK');
+  assert.equal(layers.state(input.userId,input.documentId)!.layerRevision,0);
+  assert.equal((db.prepare('SELECT COUNT(*) AS n FROM events WHERE kind=?').get('pdf.layer.saved') as any).n,0);
+  assert.equal(layers.commitPreparedSave(input,blob).layerRevision,1);
+  assert.throws(()=>layers.commitPreparedSave(input,blob),/CONFLICT/);
+});
+test('prepared PDF commit rejects malformed references and revoked or aborted commits', async t=>{
+  const {db,store,layers,input}=await setup(t),blob=await store.put(bytes('%PDF-1.7 archived'),{maxBytes:1000});
+  for(const invalid of [{...blob,digest:'bad'},{...blob,size:1001},{...blob,size:-1},{...blob,size:1.5}])assert.throws(()=>layers.commitPreparedSave(input,invalid),/INVALID_REQUEST/);
+  assert.throws(()=>layers.commitPreparedSave({...input,layerRevision:-1},blob),/INVALID_REQUEST/);
+  const controller=new AbortController();controller.abort();
+  assert.throws(()=>layers.commitPreparedSave({...input,signal:controller.signal},blob),/abort/i);
+  db.prepare('UPDATE resources SET inherit_permissions=0,user_policies=? WHERE id=?').run(JSON.stringify({owner:{read:true,write:false}}),input.documentId);
+  assert.throws(()=>layers.commitPreparedSave(input,blob),/ACCESS_DENIED/);
+  assert.equal((db.prepare('SELECT COUNT(*) AS n FROM pdf_layer_versions').get() as any).n,0);
+});

@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { AccessService } from './access.ts';
 import { transaction, type Database } from './database.ts';
 import { DocumentService, DocumentError } from './documents.ts';
-import type { BlobStore } from './storage/blobs.ts';
+import type { BlobStore, BlobRef } from './storage/blobs.ts';
 
 type Layer = { revision: number; base_revision: number; digest: string; size: number };
 type Input = { userId: string; documentId: string; baseRevision: number; layerRevision: number; replaceStaleLayer?: boolean; signal?: AbortSignal };
@@ -36,25 +36,35 @@ export class PdfLayerService {
     if (!this.access.allows(input.userId, input.documentId, 'write')) throw new DocumentError('ACCESS_DENIED');
     return state;
   }
+  /** Internal only: caller must durably store and verify this immutable reference first.
+   * Joins a caller transaction so a restore receipt and PDF layer commit are atomic. */
+  commitPreparedSave(input: Input, blob: BlobRef) {
+    this.validateInput(input);
+    if (!/^[a-f0-9]{64}$/.test(blob.digest) || !Number.isSafeInteger(blob.size) || blob.size < 0 || blob.size > this.maxBytes) throw new DocumentError('INVALID_REQUEST');
+    return transaction(this.db, () => {
+      input.signal?.throwIfAborted();
+      const state = this.writable(input);
+      if (state.baseRevision !== input.baseRevision || state.layerRevision !== input.layerRevision || (state.state === 'conflict' && !input.replaceStaleLayer)) throw new DocumentError('CONFLICT');
+      const layerRevision = state.layerRevision + 1;
+      capturePdfHistory(this.db,input.documentId,input.userId,blob.digest,Date.now());
+      this.db.prepare('INSERT INTO pdf_layer_versions(document_id,revision,base_revision,digest,size,author_id,created_at) VALUES(?,?,?,?,?,?,?)')
+        .run(input.documentId, layerRevision, input.baseRevision, blob.digest, blob.size, input.userId, Date.now());
+      this.db.prepare('INSERT INTO events(kind,document_id,payload,created_at) VALUES(?,?,?,?)')
+        .run('pdf.layer.saved', input.documentId, JSON.stringify({ baseRevision: input.baseRevision, layerRevision }), Date.now());
+      return { ...blob, baseRevision: input.baseRevision, layerRevision };
+    });
+  }
+  private validateInput(input: Input) {
+    if (!Number.isSafeInteger(input.baseRevision) || input.baseRevision < 1 || !Number.isSafeInteger(input.layerRevision) || input.layerRevision < 0) throw new DocumentError('INVALID_REQUEST');
+  }
   async save(input: Input, source: AsyncIterable<Uint8Array>) {
     input = { ...input }; // Pin identity and optimistic revisions across streamed I/O.
-    if (!Number.isSafeInteger(input.baseRevision) || input.baseRevision < 1 || !Number.isSafeInteger(input.layerRevision) || input.layerRevision < 0) throw new DocumentError('INVALID_REQUEST');
+    this.validateInput(input);
     this.writable(input);
     // Keep fully received conflict copies, even when the client's version was stale before upload.
     const blob = await this.store.put(source, { maxBytes: this.maxBytes, signal: input.signal });
     try {
-      return transaction(this.db, () => {
-        input.signal?.throwIfAborted();
-        const state = this.writable(input);
-        if (state.baseRevision !== input.baseRevision || state.layerRevision !== input.layerRevision || (state.state === 'conflict' && !input.replaceStaleLayer)) throw new DocumentError('CONFLICT');
-        const layerRevision = state.layerRevision + 1;
-        capturePdfHistory(this.db,input.documentId,input.userId,blob.digest,Date.now());
-        this.db.prepare('INSERT INTO pdf_layer_versions(document_id,revision,base_revision,digest,size,author_id,created_at) VALUES(?,?,?,?,?,?,?)')
-          .run(input.documentId, layerRevision, input.baseRevision, blob.digest, blob.size, input.userId, Date.now());
-        this.db.prepare('INSERT INTO events(kind,document_id,payload,created_at) VALUES(?,?,?,?)')
-          .run('pdf.layer.saved', input.documentId, JSON.stringify({ baseRevision: input.baseRevision, layerRevision }), Date.now());
-        return { ...blob, baseRevision: input.baseRevision, layerRevision };
-      });
+      return this.commitPreparedSave(input, blob);
     } catch (error) {
       const recoveryId = randomUUID(), reason = error instanceof DocumentError ? error.code : 'SAVE_FAILED';
       this.db.prepare('INSERT INTO recovery_copies(id,document_id,intended_document_id,author_id,digest,size,reason,created_at) VALUES(?,?,?,?,?,?,?,?)')
