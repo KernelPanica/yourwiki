@@ -6,7 +6,7 @@ import {blockSession,resumeSession} from '../src/session-fence.ts';
 const opened={sessionId:'room-1234',accessToken:'a'.repeat(43),expiresAt:Date.now()+60000,write:true,export:true,actionUrl:'https://office.example/browser/editor.html?WOPISrc=https%3A%2F%2Fwiki.example%2Fwopi%2Ffiles%2Froom-1234'};
 const status={sessionId:opened.sessionId,documentId:'doc',expired:false,changed:false,errorCode:null,write:true,export:true,recovery:false};
 function deferred(){let resolve!:(v:any)=>void;const promise=new Promise<any>(r=>resolve=r);return {promise,resolve};}
-function setup(t:any,request:(url:string,init?:RequestInit)=>Promise<unknown>){resumeSession();const connection=new OfficeConnection({documentId:'doc',csrf:'csrf',language:'ru',format:'docx',request,statusMs:60000});t.after(()=>connection.dispose());const sent:any[]=[],frame={postMessage:(raw:string)=>sent.push(JSON.parse(raw))};return {connection,frame,sent};}
+function setup(t:any,request:(url:string,init?:RequestInit)=>Promise<unknown>,readinessMs=30000){resumeSession();const connection=new OfficeConnection({documentId:'doc',csrf:'csrf',language:'ru',format:'docx',request,statusMs:60000,readinessMs});t.after(()=>connection.dispose());const sent:any[]=[],frame={postMessage:(raw:string)=>sent.push(JSON.parse(raw))};return {connection,frame,sent};}
 function loaded(f:ReturnType<typeof setup>){f.connection.receive({origin:'https://office.example',source:f.frame,data:{MessageId:'App_LoadingStatus',Values:{Status:'Document_Loaded'}}});}
 test('bootstrap rejects malformed permissions, secret-bearing actions and mismatched document bindings',()=>{
  assert.equal(parseOfficeBootstrap(opened).actionUrl,opened.actionUrl);
@@ -64,4 +64,15 @@ test('revocation requires an empty acknowledgement and disposed views cannot acc
 });
 test('a missing release route during an update is not evidence that a live capability was revoked',async t=>{
  const calls:string[]=[];const f=setup(t,async url=>{calls.push(url);if(url.endsWith('/office'))return opened;throw new ApiError('NOT_FOUND');});await f.connection.open();const bridge=f.connection.attach(f.frame);assert.equal(await f.connection.close(),false);assert.equal(f.connection.bridge,bridge);assert.equal(f.connection.snapshot().errorCode,'OFFICE_RELEASE_UNCERTAIN');assert.ok(calls.includes('/api/auth/office-revoke'));
+});
+test('readiness delay includes bootstrap work and a late trusted engine can become ready in the same frame',async t=>{
+ const response=deferred();let opens=0;const f=setup(t,async url=>{if(url.endsWith('/office')){opens++;return response.promise;}return status;},10);const opening=f.connection.open();await new Promise(r=>setTimeout(r,25));assert.equal(f.connection.snapshot().readiness,'delayed');assert.equal(f.connection.snapshot().phase,'opening');response.resolve(opened);await opening;const bridge=f.connection.attach(f.frame);assert.equal(f.connection.snapshot().readiness,'delayed');f.connection.receive({origin:'https://wrong.example',source:f.frame,data:{MessageId:'App_LoadingStatus',Values:{Status:'Document_Loaded'}}});assert.equal(f.connection.snapshot().readiness,'delayed');loaded(f);assert.equal(f.connection.snapshot().readiness,'ready');assert.equal(f.connection.bridge,bridge);assert.equal(opens,1);assert.equal(f.sent.some(x=>x.MessageId==='Action_Save'),false);
+});
+test('status refreshes cannot hide an engine readiness delay or clear a conflict when the engine finally loads',async t=>{
+ let changed=false;const f=setup(t,async url=>url.endsWith('/office')?opened:{...status,changed},10);await f.connection.open();const bridge=f.connection.attach(f.frame);await new Promise(r=>setTimeout(r,25));assert.equal(f.connection.snapshot().readiness,'delayed');await f.connection.check();assert.equal(f.connection.snapshot().readiness,'delayed');changed=true;await f.connection.check();loaded(f);assert.equal(f.connection.snapshot().readiness,'ready');assert.equal(bridge.snapshot().phase,'conflict');assert.equal(bridge.snapshot().errorCode,'CONFLICT');
+});
+test('readiness deadlines cannot revive closed, paused or disposed editors',async t=>{
+ const f=setup(t,async url=>url.endsWith('/office')?opened:undefined,10);await f.connection.open();f.connection.attach(f.frame);await f.connection.close();await new Promise(r=>setTimeout(r,25));assert.equal(f.connection.snapshot().phase,'closed');assert.notEqual(f.connection.snapshot().readiness,'delayed');
+ const g=setup(t,async()=>opened,10);await g.connection.open();g.connection.attach(g.frame);blockSession();await new Promise(r=>setTimeout(r,25));assert.equal(g.connection.snapshot().phase,'paused');assert.notEqual(g.connection.snapshot().readiness,'delayed');
+ const h=setup(t,async()=>opened,10);await h.connection.open();h.connection.attach(h.frame);let updates=0;h.connection.subscribe(()=>updates++);h.connection.dispose();await new Promise(r=>setTimeout(r,25));assert.equal(updates,0);
 });

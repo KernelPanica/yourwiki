@@ -13,7 +13,7 @@ const language=languageFor(navigator.language),t=officeLabels[language];
 export default function OfficeWorkspace({view,csrf,children,onSessionLost}:{view:DocumentView;csrf:string;children:ReactNode;onSessionLost:()=>void}){
  const frame=useRef<HTMLIFrameElement>(null),form=useRef<HTMLFormElement>(null),connection=useRef<OfficeConnection|null>(null);
  const name='yourwiki-office-'+useId().replace(/[^a-z0-9_-]/gi,'');
- const [state,setState]=useState<OfficeConnectionSnapshot>({phase:'idle',bootstrap:null,errorCode:null}),[editor,setEditor]=useState<OfficeSnapshot|null>(null),[full,setFull]=useState(false);
+ const [state,setState]=useState<OfficeConnectionSnapshot>({phase:'idle',bootstrap:null,errorCode:null,readiness:'waiting'}),[editor,setEditor]=useState<OfficeSnapshot|null>(null),[full,setFull]=useState(false);
  useEffect(()=>{
   const client=new OfficeConnection({documentId:view.document.id,csrf,language,format:view.manifest.kind==='table'?'xlsx':view.manifest.kind==='presentation'?'pptx':'docx',onSessionLost});connection.current=client;
   const remove=client.subscribe(()=>setState(client.snapshot()));
@@ -38,10 +38,10 @@ export default function OfficeWorkspace({view,csrf,children,onSessionLost}:{view
  },[state.bootstrap?.sessionId]);
  useEffect(()=>{if(!editor?.leaveRequested)return;connection.current?.bridge?.cancelLeave();window.dispatchEvent(new CustomEvent('yourwiki:navigate',{detail:'/'}));},[editor?.leaveRequested]);
  const loaded=!!editor?.loaded,paused=editor?.phase==='paused'||state.phase==='paused',closing=state.phase==='closing';
- const warning=state.errorCode==='OFFICE_RELEASE_UNCERTAIN'?t.release:paused?t.paused:editor?.phase==='conflict'?t.conflict:editor?.phase==='failed'?t.uncertain:state.errorCode?t.unavailable:'';
- const status=state.phase==='failed'&&!state.bootstrap?t.preview:closing?t.closing:!loaded?t.loading:editor?.saving?t.saving:editor?.phase==='saved'?t.saved:editor?.needsRecovery?t.modified:t.ready;
+ const warning=state.errorCode==='OFFICE_RELEASE_UNCERTAIN'?t.release:paused?t.paused:editor?.phase==='conflict'?t.conflict:editor?.phase==='failed'?t.uncertain:state.errorCode?t.unavailable:state.readiness==='delayed'?t.delayed:'';
+ const status=!loaded&&(state.readiness==='delayed'||state.phase==='failed')?t.preview:closing?t.closing:!loaded?t.loading:editor?.saving?t.saving:editor?.phase==='saved'?t.saved:editor?.needsRecovery?t.modified:t.ready;
  useEffect(()=>{if(!full)return;const escape=(e:KeyboardEvent)=>{if(e.key==='Escape')setFull(false);};window.addEventListener('keydown',escape);return()=>window.removeEventListener('keydown',escape);},[full]);
- return <section className={'office-workspace'+(full?' office-fullscreen':'')} data-loaded={loaded} aria-label={view.document.title}>
+ return <section className={'office-workspace'+(full?' office-fullscreen':'')} data-loaded={loaded} data-readiness={state.readiness} aria-label={view.document.title}>
   <div className="office-toolbar"><p role="status" aria-live="polite">{status}</p>{loaded&&<>
    <button type="button" disabled={!editor?.write||closing||paused||!editor.needsRecovery||['failed','conflict'].includes(editor.phase)} onClick={()=>void connection.current?.save?.saveNow()}>{t.save}</button>
    {connection.current?.bridge?.pendingSave()&&<button type="button" disabled={closing||paused||editor?.phase==='conflict'} onClick={()=>void connection.current?.save?.checkNow()}>{t.check}</button>}

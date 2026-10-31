@@ -10,7 +10,7 @@ async def main():
   assert b'Synthetic PDF' in await asyncio.wait_for(server.stdout.readline(),15)
   async with async_playwright() as p:
    browser=await p.chromium.launch(executable_path=os.environ['PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH'],headless=True,args=['--no-sandbox']);context=await browser.new_context(locale='ru-RU');page=await context.new_page();errors=[];calls=[];changed=False;revoked=False;proof_saved=False;available=True;release_entered=asyncio.Event();release_gate=asyncio.Event()
-   page.on('pageerror',lambda e:errors.append(str(e)))
+   await page.clock.install();page.on('pageerror',lambda e:errors.append(str(e)))
    async def view(route):
     response=await route.fetch();value=await response.json();value['document']['capabilities']['office']=True;value['document']['capabilities']['write']=not revoked;await route.fulfill(response=response,json=value)
    await page.route('**/api/documents/*/view',view)
@@ -22,13 +22,15 @@ async def main():
    await page.route('**/api/documents/*/office',office)
    async def engine(route):
     calls.append(('engine',route.request.method));assert 'access_token=' in route.request.post_data;assert 'access_token=' not in route.request.url
-    await route.fulfill(content_type='text/html',body='''<html><body><label>Test editor<textarea aria-label="Test editor"></textarea></label><button id="close">Close test editor</button><script>
+    manual=sum(c[0]=='engine' for c in calls)==1
+    await route.fulfill(content_type='text/html',body='''<html><body><label>Test editor<textarea aria-label="Test editor"></textarea></label><button id="close">Close test editor</button><button id="ready">Ready test editor</button><script>
 const send=(MessageId,Values)=>parent.postMessage({MessageId,Values},location.origin);
 window.addEventListener('message',e=>{if(e.source!==parent)return;const v=JSON.parse(e.data);if(v.MessageId==='Action_Save'){send('Doc_ModifiedStatus',{Modified:false});}});
 document.querySelector('#close').onclick=()=>send('UI_Close',{});
 document.querySelector('textarea').oninput=()=>send('Doc_ModifiedStatus',{Modified:true});
-setTimeout(()=>send('App_LoadingStatus',{Status:'Document_Loaded'}),700);
-</script></body></html>''')
+document.querySelector('#ready').onclick=()=>send('App_LoadingStatus',{Status:'Document_Loaded'});
+if(!__MANUAL__)setTimeout(()=>send('App_LoadingStatus',{Status:'Document_Loaded'}),700);
+</script></body></html>'''.replace('__MANUAL__','true' if manual else 'false'))
    await page.route('**/test-office?*',engine)
    async def status(route):
     await route.fulfill(json={'sessionId':'browser-room','documentId':docid,'changed':changed,'expired':False,'write':not revoked,'export':True,'errorCode':None,'recovery':False})
@@ -44,7 +46,9 @@ setTimeout(()=>send('App_LoadingStatus',{Status:'Document_Loaded'}),700);
    await page.route('**/api/office/browser-room/save-intents/*',proof)
    await page.goto('http://127.0.0.1:39082/');await page.locator('input[name=username]').fill('qa');await page.locator('input[name=password]').fill('yourwiki-qa');await page.get_by_role('button',name='Войти',exact=True).click();await page.get_by_role('link',name='MD Live notes').click();docid=page.url.split('/')[-1]
    preview=page.locator('.office-preview');await preview.wait_for();assert await preview.is_visible()
-   frame=page.frame_locator('iframe.office-frame');field=frame.get_by_role('textbox',name='Test editor');await field.wait_for();await page.locator('.office-workspace[data-loaded="true"]').wait_for();assert not await preview.is_visible()
+   frame=page.frame_locator('iframe.office-frame');field=frame.get_by_role('textbox',name='Test editor');await field.wait_for(state='attached');await page.clock.fast_forward(30010);await page.get_by_role('alert').filter(has_text='Редактор открывается дольше обычного').wait_for();assert await preview.is_visible();assert sum(c[0]=='engine' for c in calls)==1
+   delayed_artifact=ROOT/'output'/'playwright'/'office-delayed.png';delayed_artifact.parent.mkdir(parents=True,exist_ok=True);await page.screenshot(path=str(delayed_artifact))
+   await frame.get_by_role('button',name='Ready test editor').evaluate('(button)=>button.click()');await page.locator('.office-workspace[data-loaded="true"]').wait_for();assert not await preview.is_visible();assert await page.get_by_role('alert').filter(has_text='Редактор открывается дольше обычного').count()==0;assert sum(c[0]=='engine' for c in calls)==1
    await field.fill('Retain these edits');changed=True;revoked=True
    server.stdin.write(b'{"action":"notes"}\n');await server.stdin.drain();assert json.loads(await asyncio.wait_for(server.stdout.readline(),10))['ok']
    await page.get_by_role('alert').filter(has_text='Оригинал изменён').wait_for();assert await field.input_value()=='Retain these edits';assert sum(c[0]=='engine' for c in calls)==1
@@ -72,7 +76,7 @@ setTimeout(()=>send('App_LoadingStatus',{Status:'Document_Loaded'}),700);
    page.once('dialog',lambda d:d.dismiss());await page.get_by_role('button',name='Войти',exact=True).click();assert await field.input_value()=='Retained after expiry';assert not revocation_entered.is_set()
    page.once('dialog',lambda d:d.accept());await page.get_by_role('button',name='Войти',exact=True).click();await asyncio.wait_for(revocation_entered.wait(),5);assert await field.input_value()=='Retained after expiry';assert sum(c[0]=='save' for c in calls)==writes_before
    revocation_gate.set();await page.locator('input[name=username]').wait_for();assert await page.locator('iframe.office-frame').count()==0;assert not errors,errors
-   print(json.dumps({'syntheticOffice':'passed','framePosts':sum(c[0]=='engine' for c in calls),'saveOnLeave':False,'errors':errors}));await browser.close()
+   print(json.dumps({'syntheticOffice':'passed','framePosts':sum(c[0]=='engine' for c in calls),'lateReadinessRetainsFrame':True,'saveOnLeave':False,'errors':errors}));await browser.close()
  finally:
   server.terminate();await asyncio.wait_for(server.wait(),15)
 asyncio.run(main())
