@@ -90,6 +90,14 @@ export class OfficeSessions {
   });
  }
 
+ /** Internal opening receipt: revoke only its exact token and issuing browser binding. */
+ revokeOpening(sessionId:string,capabilityHash:string,parentHash:string){
+  transaction(this.db,()=>{
+   const removed=this.db.prepare('DELETE FROM office_tokens WHERE token_hash=? AND office_session_id=? AND browser_session_hash=?').run(capabilityHash,sessionId,parentHash);
+   if(removed.changes)this.retireUnused(sessionId,this.clock());
+  });
+ }
+
  lock(sessionId:string,token:string,operation:string,value='',old?:string):{status:number;lock?:string}{
   const result=transaction(this.db,()=>{
    const actor=this.authorize(sessionId,token),row=actor.session;

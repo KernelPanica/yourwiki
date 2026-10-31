@@ -1,0 +1,49 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {mkdtemp,rm} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {openDatabase} from '../src/database.ts';
+import {BlobStore} from '../src/storage/blobs.ts';
+import {DocumentService} from '../src/documents.ts';
+import {OfficeSessions} from '../src/office/sessions.ts';
+import {OfficeOpenings} from '../src/office/openings.ts';
+import {createSession,revokeSession,tokenHash} from '../src/auth/sessions.ts';
+const nonce='opening-1234567890';
+async function fixture(t:any){const root=await mkdtemp(join(tmpdir(),'yourwiki-openings-')),db=openDatabase(join(root,'db'));t.after(async()=>{db.close();await rm(root,{recursive:true,force:true});});db.exec("INSERT INTO users(id,username,display_name,password_hash) VALUES('one','one','One','!'),('two','two','Two','!');INSERT INTO groups VALUES('g','Group');INSERT INTO memberships VALUES('one','g'),('two','g')");const store=await BlobStore.open(join(root,'store')),docs=new DocumentService(db,store),doc=await docs.create({userId:'one',groupId:'g',parentId:null,title:'Office',format:'md'},(async function*(){yield Buffer.from('original');})());db.prepare('UPDATE documents SET published_revision=1 WHERE id=?').run(doc.documentId);const one=createSession(db,'one'),two=createSession(db,'two'),office=new OfficeSessions(db),openings=new OfficeOpenings(db);t.after(()=>openings.close());return {db,doc,one,two,office,openings};}
+test('cancellation before bootstrap is a durable parent-scoped tombstone and creates no access',async t=>{
+ const f=await fixture(t);f.openings.cancel(f.one.csrf,nonce);assert.throws(()=>f.openings.begin(f.one.token,nonce,f.doc.documentId),/OFFICE_OPEN_CANCELLED/);assert.equal((f.db.prepare('SELECT COUNT(*) AS n FROM office_tokens').get() as {n:number}).n,0);const other=f.openings.begin(f.two.token,nonce,f.doc.documentId);assert.equal(other,tokenHash(f.two.token));assert.doesNotThrow(()=>f.openings.assertActive(other,nonce));
+});
+test('allocation and binding are atomic; cancellation revokes just the issued capability and prevents replay',async t=>{
+ const f=await fixture(t),parent=f.openings.begin(f.one.token,nonce,f.doc.documentId),a=f.openings.allocate(f.one.token,nonce,f.doc.documentId,false),b=f.office.open(f.two.token,f.doc.documentId,false);f.openings.finish(parent,nonce);f.openings.cancel(f.one.csrf,nonce);assert.throws(()=>f.office.authorize(a.sessionId,a.token),/INVALID_OFFICE_TOKEN/);assert.equal(f.office.authorize(b.sessionId,b.token).userId,'two');assert.throws(()=>f.openings.begin(f.one.token,nonce,f.doc.documentId),/OFFICE_OPEN_CANCELLED/);assert.throws(()=>f.openings.allocate(f.one.token,nonce,f.doc.documentId,false),/OFFICE_OPEN_CANCELLED/);f.openings.cancel(f.one.csrf,nonce);
+});
+test('a cancelled opening cannot publish ready and raw access tokens are never persisted in its receipt',async t=>{
+ const f=await fixture(t),parent=f.openings.begin(f.one.token,nonce,f.doc.documentId),a=f.openings.allocate(f.one.token,nonce,f.doc.documentId,false);assert.equal(JSON.stringify(f.db.prepare('SELECT * FROM office_openings').all()).includes(a.token),false);f.openings.cancel(f.one.csrf,nonce);assert.throws(()=>f.openings.finish(parent,nonce),/OFFICE_OPEN_CANCELLED/);assert.throws(()=>f.openings.begin(f.two.token,nonce+'2',f.doc.documentId+'missing'),/NOT_FOUND/);
+});
+test('another connection observes cancellation and a watcher aborts pending asynchronous preparation',async t=>{
+ const f=await fixture(t),parent=f.openings.begin(f.one.token,nonce,f.doc.documentId),watch=f.openings.watch(parent,nonce,10);const other=openDatabase(f.db.name);t.after(()=>other.close());new OfficeOpenings(other).cancel(f.one.csrf,nonce);await new Promise(r=>setTimeout(r,30));assert.equal(watch.signal.aborted,true);assert.match(String(watch.signal.reason),/OFFICE_OPEN_CANCELLED/);watch.stop();
+});
+test('invalidated parents cannot later allocate and cancellation needs no valid ambient cookie',async t=>{
+ const f=await fixture(t);f.openings.begin(f.one.token,nonce,f.doc.documentId);revokeSession(f.db,f.one.token);f.openings.cancel(f.one.csrf,nonce);assert.throws(()=>f.openings.allocate(f.one.token,nonce,f.doc.documentId,false),/SESSION_REQUIRED/);assert.equal((f.db.prepare('SELECT COUNT(*) AS n FROM office_openings').get() as {n:number}).n,0);f.openings.cancel('z'.repeat(43),nonce);assert.equal((f.db.prepare('SELECT COUNT(*) AS n FROM office_openings').get() as {n:number}).n,0);
+});
+test('quotas bound retained cancellation receipts and expired-parent pruning cannot resurrect an old request',async t=>{
+ const f=await fixture(t),limited=new OfficeOpenings(f.db,{maxPerParent:2,maxTotal:3});limited.cancel(f.one.csrf,nonce);limited.cancel(f.one.csrf,nonce+'2');assert.throws(()=>limited.cancel(f.one.csrf,nonce+'3'),/OFFICE_OPEN_LIMIT/);f.db.prepare('UPDATE sessions SET expires_at=1 WHERE token_hash=?').run(tokenHash(f.one.token));limited.begin(f.two.token,nonce,f.doc.documentId);assert.equal(f.db.prepare('SELECT 1 FROM sessions WHERE token_hash=?').get(tokenHash(f.one.token)),undefined);assert.throws(()=>limited.begin(f.one.token,nonce,f.doc.documentId),/SESSION_REQUIRED/);
+});
+test('ready or in-flight identifiers cannot be reused for another allocation; shutdown cancels watchers',async t=>{
+ const f=await fixture(t),parent=f.openings.begin(f.one.token,nonce,f.doc.documentId);assert.throws(()=>f.openings.begin(f.one.token,nonce,f.doc.documentId),/OFFICE_OPEN_REUSED/);const watch=f.openings.watch(parent,nonce);f.openings.close();assert.equal(watch.signal.aborted,true);assert.throws(()=>f.openings.begin(f.one.token,nonce+'new',f.doc.documentId),/OFFICE_CLOSED/);watch.stop();
+});
+test('a crashed pending opening expires without reviving its identifier or retaining an orphan token',async t=>{
+ const f=await fixture(t);let now=Date.now();const bounded=new OfficeOpenings(f.db,{clock:()=>now,maxPending:1}),parent=bounded.begin(f.one.token,nonce,f.doc.documentId),a=bounded.allocate(f.one.token,nonce,f.doc.documentId,false);assert.throws(()=>bounded.begin(f.two.token,nonce+'other',f.doc.documentId),/OFFICE_OPEN_LIMIT/);now+=180001;bounded.cleanup();assert.throws(()=>f.office.authorize(a.sessionId,a.token),/INVALID_OFFICE_TOKEN/);assert.throws(()=>bounded.assertActive(parent,nonce),/OFFICE_OPEN_CANCELLED/);assert.throws(()=>bounded.begin(f.one.token,nonce,f.doc.documentId),/OFFICE_OPEN_CANCELLED/);assert.doesNotThrow(()=>bounded.begin(f.two.token,nonce+'other',f.doc.documentId));
+});
+test('an unknown cancellation proof cannot trigger global session pruning or allocate a tombstone',async t=>{
+ const f=await fixture(t);f.openings.begin(f.one.token,nonce,f.doc.documentId);f.db.prepare('UPDATE sessions SET expires_at=1 WHERE token_hash=?').run(tokenHash(f.one.token));f.openings.cancel('z'.repeat(43),nonce+'unknown');assert.ok(f.db.prepare('SELECT 1 FROM sessions WHERE token_hash=?').get(tokenHash(f.one.token)));assert.equal((f.db.prepare('SELECT COUNT(*) AS n FROM office_openings').get() as any).n,1);
+});
+test('a second browser for the same user has an independent cancellation scope',async t=>{
+ const f=await fixture(t),second=createSession(f.db,'one');f.openings.begin(f.one.token,nonce,f.doc.documentId);const a=f.openings.allocate(f.one.token,nonce,f.doc.documentId,false);f.openings.begin(second.token,nonce,f.doc.documentId);const b=f.openings.allocate(second.token,nonce,f.doc.documentId,false);f.openings.cancel(f.one.csrf,nonce);assert.throws(()=>f.office.authorize(a.sessionId,a.token),/INVALID_OFFICE_TOKEN/);assert.equal(f.office.authorize(b.sessionId,b.token).userId,'one');
+});
+test('failure to bind an allocated token rolls back both the token and newly created room',async t=>{
+ const f=await fixture(t);f.openings.begin(f.one.token,nonce,f.doc.documentId);f.db.exec("CREATE TRIGGER fail_open_binding BEFORE UPDATE OF capability_hash ON office_openings BEGIN SELECT RAISE(ABORT,'bind failure'); END");assert.throws(()=>f.openings.allocate(f.one.token,nonce,f.doc.documentId,false),/bind failure/);assert.equal((f.db.prepare('SELECT COUNT(*) AS n FROM office_tokens').get() as any).n,0);assert.equal((f.db.prepare('SELECT COUNT(*) AS n FROM office_sessions').get() as any).n,0);
+});
+test('cancelling with an expired parent proof permanently retires that parent instead of relying on wall-clock expiry',async t=>{
+ const f=await fixture(t);f.openings.begin(f.one.token,nonce,f.doc.documentId);f.db.prepare('UPDATE sessions SET expires_at=1 WHERE token_hash=?').run(tokenHash(f.one.token));f.openings.cancel(f.one.csrf,nonce);assert.equal(f.db.prepare('SELECT 1 FROM sessions WHERE token_hash=?').get(tokenHash(f.one.token)),undefined);const backwards=new OfficeOpenings(f.db,{clock:()=>0});assert.throws(()=>backwards.begin(f.one.token,nonce,f.doc.documentId),/SESSION_REQUIRED/);
+});

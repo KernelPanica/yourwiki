@@ -19,7 +19,8 @@ async def main():
     if not available:
      await route.fulfill(status=503,json={'code':'OFFICE_NOT_READY'});return
     await route.fulfill(json={'sessionId':'browser-room','accessToken':'a'*43,'expiresAt':9999999999999,'write':True,'export':True,'actionUrl':'http://127.0.0.1:39082/test-office?WOPISrc=http%3A%2F%2F127.0.0.1%3A39082%2Fwopi%2Ffiles%2Fbrowser-room'})
-   await page.route('**/api/documents/*/office',office)
+   await page.route('**/api/documents/*/office-opening',office)
+   await page.route('**/api/auth/office-opening-cancel',lambda route:route.fulfill(status=204))
    async def engine(route):
     calls.append(('engine',route.request.method));assert 'access_token=' in route.request.post_data;assert 'access_token=' not in route.request.url
     manual=sum(c[0]=='engine' for c in calls)==1

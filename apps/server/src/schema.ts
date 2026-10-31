@@ -220,5 +220,17 @@ ALTER TABLE office_ingress ADD COLUMN client_tag TEXT;
 ALTER TABLE office_ingress ADD COLUMN committed_revision INTEGER CHECK(committed_revision>=1);
 CREATE INDEX office_ingress_client_tag ON office_ingress(office_session_id,client_tag) WHERE client_tag IS NOT NULL;
 `;
-export const migrations = [core + epochTriggers, authInvalidation, authSettings, jobs, documents, workerSlots, uploads, pdfLayers, saveJournal, officeSessions, officeIngress, officeCleanup, officeRecovery, officePrepared, officePreparedBindings, officeSaveIntents] as const;
+const officeOpenings = `
+CREATE TABLE office_openings (
+ browser_session_hash TEXT NOT NULL REFERENCES sessions(token_hash) ON DELETE CASCADE,
+ open_id TEXT NOT NULL, document_id TEXT REFERENCES documents(id) ON DELETE SET NULL,
+ state TEXT NOT NULL CHECK(state IN ('pending','ready','cancelled')),
+ office_session_id TEXT REFERENCES office_sessions(id) ON DELETE SET NULL,
+ capability_hash TEXT, created_at INTEGER NOT NULL,
+ PRIMARY KEY(browser_session_hash,open_id)
+);
+CREATE INDEX sessions_csrf_lookup ON sessions(csrf_hash);
+CREATE INDEX office_openings_pending ON office_openings(created_at) WHERE state='pending';
+`;
+export const migrations = [core + epochTriggers, authInvalidation, authSettings, jobs, documents, workerSlots, uploads, pdfLayers, saveJournal, officeSessions, officeIngress, officeCleanup, officeRecovery, officePrepared, officePreparedBindings, officeSaveIntents, officeOpenings] as const;
 export const applicationId = 0x5957494b; // YWIK; legacy Django uses no marker.

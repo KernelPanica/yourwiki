@@ -26,15 +26,18 @@ const notes=process.env.YOURWIKI_BROWSER_CONTROL==='1'?await docs.create({userId
 const worker=new PreviewWorker(db,store);while(await worker.runOnce()!=='idle'){}
 const port=Number(process.env.YOURWIKI_BROWSER_PORT??39077);
 if(!Number.isSafeInteger(port)||port<1024||port>65535)throw new Error('Invalid test port');
-const app=buildApp({database:db,storage:store,webRoot:fileURLToPath(new URL('../../../web/dist',import.meta.url)),publicUrl:`http://127.0.0.1:${port}`,...(process.env.YOURWIKI_BROWSER_OFFICE==='1'?{office:{publicUrl:`http://127.0.0.1:${port}/collabora`}}:{})});
+let releaseDiscovery=()=>{};const discoveryGate=process.env.YOURWIKI_BROWSER_HOLD_OFFICE==='1'?new Promise<void>(resolve=>{releaseDiscovery=resolve;}):Promise.resolve();
+const app=buildApp({database:db,storage:store,webRoot:fileURLToPath(new URL('../../../web/dist',import.meta.url)),publicUrl:`http://127.0.0.1:${port}`,...(process.env.YOURWIKI_BROWSER_OFFICE==='1'?{office:{publicUrl:`http://127.0.0.1:${port}/collabora`,fetch:async()=>{await discoveryGate;return new Response('<wopi-discovery><action ext="md" name="edit" urlsrc="https://ignored/collabora/browser/build/cool.html?"/></wopi-discovery>');}}}:{})});
 await app.listen({port,host:'127.0.0.1'});console.log(`Synthetic PDF test server: http://127.0.0.1:${port}`);
 // Test-only stdin control: no HTTP control surface is registered.
 if(process.env.YOURWIKI_BROWSER_CONTROL==='1'){
  const input=createInterface({input:process.stdin});let chain=Promise.resolve();
  input.on('line',line=>{chain=chain.then(async()=>{
   try{
-   const command=JSON.parse(line) as {action:string;title?:string};
-   if(command.action==='recoveries'){
+   const command=JSON.parse(line) as {action:string;title?:string};let result:Record<string,unknown>={};
+   if(command.action==='release-discovery'){releaseDiscovery();}
+   else if(command.action==='opening-state'){result={openings:db.prepare('SELECT open_id,state FROM office_openings').all(),tokens:(db.prepare('SELECT COUNT(*) AS n FROM office_tokens').get() as {n:number}).n};}
+   else if(command.action==='recoveries'){
     if(!notes||process.env.YOURWIKI_BROWSER_OFFICE!=='1')throw new Error('Office fixture required');
     const browser=createSession(db,'qa'),office=new OfficeSessions(db),opened=office.open(browser.token,notes.documentId),ingress=new OfficeIngress(db,store);office.lock(opened.sessionId,opened.token,'LOCK','fixture-lock');
     try{for(let index=0;index<52;index++){const payload=Buffer.from('durable recovery copy '+index);await ingress.receive({sessionId:opened.sessionId,token:opened.token,lock:'fixture-lock',declaredSize:payload.length},(async function*(){yield payload;})());}}finally{await ingress.close();revokeSession(db,browser.token);}
@@ -59,7 +62,7 @@ if(process.env.YOURWIKI_BROWSER_CONTROL==='1'){
     db.prepare('UPDATE resources SET user_policies=? WHERE id=?').run(JSON.stringify({qa:{read:true,write:false}}),initial.documentId);
    }else if(command.action==='expire')db.prepare("DELETE FROM sessions WHERE user_id='qa'").run();
    else throw new Error('Unknown fixture command');
-   console.log(JSON.stringify({ok:true,action:command.action}));
+   console.log(JSON.stringify({ok:true,action:command.action,...result}));
   }catch(error){console.log(JSON.stringify({ok:false,error:String(error)}));}
  });});
 }

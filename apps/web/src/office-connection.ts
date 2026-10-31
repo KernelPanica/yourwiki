@@ -18,6 +18,7 @@ export function parseOfficeBootstrap(value:unknown):OfficeBootstrap {
 }
 /** Owns one iframe capability. Call close() and await true before unmounting a live frame. */
 export class OfficeConnection {
+ private openId=Array.from(crypto.getRandomValues(new Uint8Array(16)),value=>value.toString(16).padStart(2,'0')).join('');private cancellingOpening=false;private explicitlyDeclined=false;
  private options:Options;private request:NonNullable<Options['request']>;private generation:number;private lifetime=new AbortController();private disposed=false;private revocation:AbortController|undefined;
  private state:OfficeConnectionSnapshot={phase:'idle',bootstrap:null,errorCode:null,readiness:'waiting'};private listeners=new Set<()=>void>();private opening:Promise<void>|undefined;private closing:Promise<boolean>|undefined;
  private readinessTimer:ReturnType<typeof setTimeout>|undefined;private statusTimer:ReturnType<typeof setTimeout>|undefined;private checking=false;private frame:Frame|undefined;private removeFence:()=>void;
@@ -46,9 +47,9 @@ export class OfficeConnection {
  open(){
   if(this.opening)return this.opening;if(!this.current()||this.state.phase!=='idle')return Promise.resolve();this.update({phase:'opening',errorCode:null});this.startReadiness();
   this.opening=(async()=>{try{
-   const value=await this.request(`/api/documents/${encodeURIComponent(this.options.documentId)}/office`,{method:'POST',signal:this.lifetime.signal,headers:{'content-type':'application/json','x-csrf-token':this.options.csrf},body:JSON.stringify({language:this.options.language})});
-   if(!this.current()||this.state.phase!=='opening')return;const bootstrap=parseOfficeBootstrap(value);if(bootstrap.expiresAt<=(this.options.now??Date.now)())throw new ApiError('OFFICE_EXPIRED');this.update({phase:'open',bootstrap});
-  }catch(error){this.failed(error);}})();return this.opening;
+   const value=await this.request(`/api/documents/${encodeURIComponent(this.options.documentId)}/office-opening`,{method:'POST',signal:this.lifetime.signal,headers:{'content-type':'application/json','x-csrf-token':this.options.csrf,'x-yourwiki-office-open':this.openId},body:JSON.stringify({language:this.options.language})});
+   if(!this.current()||this.state.phase==='closed')return;const bootstrap=parseOfficeBootstrap(value);if(bootstrap.expiresAt<=(this.options.now??Date.now)())throw new ApiError('OFFICE_EXPIRED');if(this.state.phase==='opening')this.update({phase:'open',bootstrap});else if(this.cancellingOpening)this.update({bootstrap});
+  }catch(error){if(error instanceof ApiError&&['OFFICE_NOT_READY','NOT_FOUND'].includes(error.code))this.explicitlyDeclined=true;if(!this.cancellingOpening)this.failed(error);}})();return this.opening;
  }
  attach(frame:Frame){
   if(!this.current()||this.state.phase!=='open'||!this.state.bootstrap)throw new Error('OFFICE_NOT_OPEN');
@@ -78,10 +79,19 @@ export class OfficeConnection {
   if(response!==undefined)throw new ApiError('INVALID_REVOCATION_ACK');
  }
  private closed(){if(this.disposed)return false;this.bridge?.dispose();this.update({phase:'closed',errorCode:null});return true;}
+ private cancelOpening(){
+  this.cancellingOpening=true;this.stopReadiness();this.stopStatus();this.update({phase:'closing',errorCode:null});this.revocation=new AbortController();const signal=this.revocation.signal;
+  const closing=(async()=>{try{
+   const response=await this.request('/api/auth/office-opening-cancel',{method:'POST',signal,headers:{'content-type':'application/json'},body:JSON.stringify({openId:this.openId,csrfToken:this.options.csrf})});
+   if(response!==undefined)throw new ApiError('INVALID_REVOCATION_ACK');if(this.disposed)return false;this.lifetime.abort();return this.closed();
+  }catch{if(!this.disposed&&this.explicitlyDeclined){this.lifetime.abort();return this.closed();}if(!this.disposed)this.update({phase:'failed',errorCode:'OFFICE_RELEASE_UNCERTAIN'});return false;}})();
+  this.closing=closing;void closing.finally(()=>{if(this.closing===closing){this.closing=undefined;this.revocation=undefined;}});return closing;
+ }
+
  close(){
   if(this.closing)return this.closing;if(this.state.phase==='closed')return Promise.resolve(true);if(this.disposed)return Promise.resolve(false);const detached=!this.current();
-  // A pending bootstrap may still create a capability. Do not claim it is safe to unmount.
-  if(!this.state.bootstrap)return Promise.resolve(this.state.phase!=='opening');
+  // A scoped cancellation tombstone fences allocation even if bootstrap has no reply yet.
+  if(!this.state.bootstrap)return this.opening&&!this.explicitlyDeclined?this.cancelOpening():Promise.resolve(this.closed());
   this.stopReadiness();this.stopStatus();this.save?.dispose();this.bridge?.saveFailed('OFFICE_CLOSING');this.update({phase:'closing',errorCode:null});const opened=this.state.bootstrap;
   const closing=(async()=>{try{
    if(detached){this.revocation=new AbortController();await this.revoke(opened,this.revocation.signal);}
