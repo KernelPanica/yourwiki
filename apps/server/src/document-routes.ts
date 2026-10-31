@@ -1,4 +1,5 @@
 import {officeFormats} from './office/formats.ts';
+import {RecentDocuments} from './recent.ts';
 import {byteRange} from './http/byte-range.ts';
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import type { Readable } from 'node:stream';
@@ -20,6 +21,7 @@ const idSchema = { type: 'object', required: ['id'], properties: { id: { type: '
 export function registerDocuments(app: FastifyInstance, db: Database, store: BlobStore, publicUrl: string, maxBytes = 4 * 1024 ** 3, officeConfigured = false): void {
   if (!Number.isSafeInteger(maxBytes) || maxBytes < 1) throw new Error('Invalid file size limit');
   const service = new DocumentService(db, store, { maxBytes });
+  const recent = new RecentDocuments(db, service);
   const access = new AccessService(db);
   const pdfLayers = new PdfLayerService(db, store, { maxBytes });
   const origin = new URL(publicUrl).origin;
@@ -47,6 +49,16 @@ export function registerDocuments(app: FastifyInstance, db: Database, store: Blo
     const document = service.getPublished(userId, id);
     return document ? { ...document, capabilities: { office: officeConfigured && officeFormats.has(document.format), write: access.allows(userId, id, 'write'), export: access.allows(userId, id, 'export') } } : null;
   }
+  app.get<{Querystring:{after?:string;limit?:string}}>('/api/recent', (request,reply)=>{
+    const actor=identity(request,reply);if(!actor)return;
+    const query=request.query;
+    if(Object.keys(query).some(key=>!['after','limit'].includes(key))||query.after!==undefined&&typeof query.after!=='string'||query.limit!==undefined&&(typeof query.limit!=='string'||!/^[1-9][0-9]{0,2}$/.test(query.limit)))return reply.code(400).send(errorEnvelope('INVALID_REQUEST',request.id));
+    try{const page=recent.list(actor.userId,{after:query.after,limit:query.limit===undefined?undefined:Number(query.limit)});return {...page,items:page.items.map(document=>({...document,capabilities:{office:officeConfigured&&officeFormats.has(document.format),write:access.allows(actor.userId,document.id,'write'),export:access.allows(actor.userId,document.id,'export')}}))};}catch(error){return fail(error,request,reply);}
+  });
+  app.post<{Params:{id:string}}>('/api/documents/:id/visit',{schema:{params:idSchema}},(request,reply)=>{
+    const actor=identity(request,reply,true);if(!actor)return;
+    try{recent.record(actor.userId,request.params.id);return reply.code(204).send();}catch(error){return fail(error,request,reply);}
+  });
   app.get<{ Querystring: { after?: string; limit?: number } }>('/api/documents', { schema: { querystring: {
     type: 'object', additionalProperties: false, properties: { after: { type: 'string', maxLength: 128 }, limit: { type: 'integer', minimum: 1, maximum: 200, default: 50 } },
   } } }, async (request, reply) => {
