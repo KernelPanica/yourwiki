@@ -4,6 +4,7 @@ import {randomUUID} from 'node:crypto';
 import {OfficeSessions,OfficeError} from './sessions.ts';
 import {AccessService} from '../access.ts';
 import {transaction,type Database} from '../database.ts';
+import {DocumentError} from '../document-errors.ts';
 import {BlobStore,BlobTooLargeError,type BlobRef} from '../storage/blobs.ts';
 export class OfficeWriteError extends OfficeError {currentLock?:string;writeId?:string;constructor(code:string,currentLock?:string,writeId?:string){super(code);this.currentLock=currentLock;this.writeId=writeId;}}
 type Input={clientTag?:string;sessionId:string;token:string;lock:string;declaredSize:number|null;signal?:AbortSignal};
@@ -72,7 +73,7 @@ export class OfficeIngress {
     })});
    if(!committed)throw new OfficeWriteError('OFFICE_NOT_COMMITTED',undefined,input.id);return result;
   }catch(error){
-   if(!committed)this.db.prepare("UPDATE office_ingress SET error_code=? WHERE id=? AND lease_token=? AND state='prepared'").run(error instanceof OfficeError?error.code:'OFFICE_SAVE_INTERRUPTED',input.id,token);
+   if(!committed)this.db.prepare("UPDATE office_ingress SET error_code=? WHERE id=? AND lease_token=? AND state='prepared'").run(error instanceof OfficeError||error instanceof DocumentError?error.code:'OFFICE_SAVE_INTERRUPTED',input.id,token);
    throw error;
   }finally{if(this.active.get(input.id)===controller)this.active.delete(input.id);clearInterval(heartbeat);clearTimeout(deadline);}
  }

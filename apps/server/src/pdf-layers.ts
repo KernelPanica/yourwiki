@@ -1,3 +1,4 @@
+import {capturePdfHistory} from './history-capture.ts';
 import { randomUUID } from 'node:crypto';
 import { AccessService } from './access.ts';
 import { transaction, type Database } from './database.ts';
@@ -47,6 +48,7 @@ export class PdfLayerService {
         const state = this.writable(input);
         if (state.baseRevision !== input.baseRevision || state.layerRevision !== input.layerRevision || (state.state === 'conflict' && !input.replaceStaleLayer)) throw new DocumentError('CONFLICT');
         const layerRevision = state.layerRevision + 1;
+        capturePdfHistory(this.db,input.documentId,input.userId,blob.digest,Date.now());
         this.db.prepare('INSERT INTO pdf_layer_versions(document_id,revision,base_revision,digest,size,author_id,created_at) VALUES(?,?,?,?,?,?,?)')
           .run(input.documentId, layerRevision, input.baseRevision, blob.digest, blob.size, input.userId, Date.now());
         this.db.prepare('INSERT INTO events(kind,document_id,payload,created_at) VALUES(?,?,?,?)')

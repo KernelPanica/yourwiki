@@ -36,12 +36,13 @@ export function registerUploads(app: FastifyInstance, db: Database, store: BlobS
       if (!(error instanceof UploadError) && !(error instanceof DocumentError)) throw error;
       const statuses: Record<string, number> = { NOT_FOUND: 404, ACCESS_DENIED: 403, INVALID_REQUEST: 400, EMPTY_CHUNK: 400, CHUNK_SIZE_MISMATCH: 400, TOO_MANY_CHUNKS: 400,
         UPLOAD_INTERRUPTED: 408, UPLOAD_EXPIRED: 410, UPLOAD_CLOSED: 409, UPLOAD_BUSY: 423, OFFSET_MISMATCH: 409, CHUNK_CONFLICT: 409,
-        UPLOAD_INCOMPLETE: 409, CONFLICT: 409, OFFICE_ACTIVE: 409, UPLOAD_QUOTA_EXCEEDED: 429, UPLOAD_CORRUPT: 422, UNSUPPORTED_MEDIA_TYPE: 415 };
+        UPLOAD_INCOMPLETE: 409, CONFLICT: 409, OFFICE_ACTIVE: 409, HISTORY_LIMIT: 409, UPLOAD_QUOTA_EXCEEDED: 429, UPLOAD_CORRUPT: 422, UNSUPPORTED_MEDIA_TYPE: 415 };
       const httpStatus = statuses[error.code] ?? 500;
       const value = errorEnvelope(httpStatus === 500 ? 'INTERNAL_ERROR' : error.code, request.id);
       value.operationId = (request.params as { id?: string })?.id ?? null;
       if (httpStatus === 408 || httpStatus === 409 || httpStatus === 423) value.recoveryActions = ['check_upload_status', 'resume_upload'];
       if (error.code === 'CONFLICT') value.recoveryActions = ['copy_changes', 'download_changes', 'reload'];
+      if (error.code === 'HISTORY_LIMIT') value.recoveryActions = ['check_upload_status', 'download_history', 'disable_history'];
       if (error.code === 'OFFICE_ACTIVE') value.recoveryActions = ['open_office', 'copy_changes', 'download_changes'];
       if (httpStatus === 429 || httpStatus === 423) reply.header('retry-after', 5);
       return reply.code(httpStatus).send(value);

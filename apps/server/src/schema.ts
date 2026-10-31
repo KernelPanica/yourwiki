@@ -248,5 +248,45 @@ CREATE TABLE document_visits (
 );
 CREATE INDEX document_visits_recent ON document_visits(user_id,opened_at DESC,document_id DESC);
 `;
-export const migrations = [core + epochTriggers, authInvalidation, authSettings, jobs, documents, workerSlots, uploads, pdfLayers, saveJournal, officeSessions, officeIngress, officeCleanup, officeRecovery, officePrepared, officePreparedBindings, officeSaveIntents, officeOpenings, officeHandoff, documentVisits] as const;
+const versionHistory = `
+ALTER TABLE app_state ADD COLUMN history_enabled INTEGER NOT NULL DEFAULT 0 CHECK(history_enabled IN (0,1));
+ALTER TABLE app_state ADD COLUMN history_settings_revision INTEGER NOT NULL DEFAULT 0 CHECK(history_settings_revision>=0);
+ALTER TABLE app_state ADD COLUMN history_byte_limit INTEGER NOT NULL DEFAULT 42949672960 CHECK(history_byte_limit>0 AND history_byte_limit<=9007199254740991);
+ALTER TABLE app_state ADD COLUMN history_entry_limit INTEGER NOT NULL DEFAULT 100000 CHECK(history_entry_limit>0 AND history_entry_limit<=100000);
+CREATE TABLE history_entries (
+ id INTEGER PRIMARY KEY AUTOINCREMENT,
+ document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE RESTRICT,
+ kind TEXT NOT NULL CHECK(kind IN ('source','pdf-layer')),
+ source_revision INTEGER NOT NULL CHECK(source_revision>=1),
+ layer_revision INTEGER,
+ digest TEXT NOT NULL, size INTEGER NOT NULL CHECK(size>=0),
+ title TEXT NOT NULL, format TEXT NOT NULL,
+ captured_by TEXT REFERENCES users(id) ON DELETE SET NULL, captured_by_name TEXT NOT NULL,
+ created_at INTEGER NOT NULL,
+ CHECK((kind='source' AND layer_revision IS NULL) OR (kind='pdf-layer' AND layer_revision IS NOT NULL AND layer_revision>=0))
+);
+CREATE INDEX history_entries_document ON history_entries(document_id,id DESC);
+CREATE TRIGGER history_entries_immutable BEFORE UPDATE OF document_id,kind,source_revision,layer_revision,digest,size,title,format,captured_by_name,created_at ON history_entries BEGIN
+ SELECT RAISE(ABORT,'History entries are immutable');
+END;
+CREATE TABLE history_usage (
+ document_id TEXT PRIMARY KEY REFERENCES documents(id) ON DELETE CASCADE,
+ total_bytes INTEGER NOT NULL CHECK(total_bytes>=0), entry_count INTEGER NOT NULL CHECK(entry_count>=0)
+);
+CREATE TRIGGER history_usage_insert AFTER INSERT ON history_entries BEGIN
+ INSERT INTO history_usage(document_id,total_bytes,entry_count) VALUES(NEW.document_id,NEW.size,1)
+ ON CONFLICT(document_id) DO UPDATE SET total_bytes=total_bytes+NEW.size,entry_count=entry_count+1;
+END;
+CREATE TRIGGER history_usage_delete AFTER DELETE ON history_entries BEGIN
+ UPDATE history_usage SET total_bytes=total_bytes-OLD.size,entry_count=entry_count-1 WHERE document_id=OLD.document_id;
+ DELETE FROM history_usage WHERE document_id=OLD.document_id AND entry_count=0;
+END;
+CREATE TABLE history_settings_changes (
+ id INTEGER PRIMARY KEY AUTOINCREMENT, revision INTEGER NOT NULL UNIQUE,
+ enabled INTEGER NOT NULL CHECK(enabled IN (0,1)),
+ author_id TEXT REFERENCES users(id) ON DELETE SET NULL, author_name TEXT NOT NULL,
+ created_at INTEGER NOT NULL
+);
+`;
+export const migrations = [core + epochTriggers, authInvalidation, authSettings, jobs, documents, workerSlots, uploads, pdfLayers, saveJournal, officeSessions, officeIngress, officeCleanup, officeRecovery, officePrepared, officePreparedBindings, officeSaveIntents, officeOpenings, officeHandoff, documentVisits, versionHistory] as const;
 export const applicationId = 0x5957494b; // YWIK; legacy Django uses no marker.

@@ -1,3 +1,5 @@
+import {DocumentError} from './document-errors.ts';
+import {captureSourceHistory} from './history-capture.ts';
 import {officeWriteAllowed} from './office/fence.ts';
 import { randomUUID } from 'node:crypto';
 import { AccessService } from './access.ts';
@@ -13,10 +15,7 @@ export interface PreviewManifest {
   converterVersion: string; kind: 'document' | 'table' | 'presentation' | 'pdf' | 'canvas' | 'drawio' | 'file';
   primary: string; artifacts: PreviewArtifact[];
 }
-export class DocumentError extends Error {
-  code: string; recoveryId: string | null;
-  constructor(code: string, recoveryId: string | null = null) { super(code); this.code = code; this.recoveryId = recoveryId; }
-}
+export {DocumentError} from './document-errors.ts';
 type Doc = { id: string; title: string; format: string; local_revision: number; published_revision: number | null; provider_revision: number | null };
 type Actor = { active: number; admin_role: string };
 type CreateInput = { userId: string; parentId: string | null; groupId?: string; title: string; format: string; signal?: AbortSignal };
@@ -68,6 +67,7 @@ export class DocumentService {
     // even when saves share one millisecond or the system clock moves back.
     const previous = this.db.prepare('SELECT created_at FROM document_versions WHERE document_id=? ORDER BY revision DESC LIMIT 1').get(id) as {created_at:number} | undefined;
     const now = previous ? Math.max(this.clock(), previous.created_at + 1) : this.clock();
+    captureSourceHistory(this.db,id,userId,blob.digest,now);
     this.db.prepare('INSERT INTO document_versions(document_id,revision,digest,size,author_id,created_at) VALUES(?,?,?,?,?,?)')
       .run(id, revision, blob.digest, blob.size, userId, now);
     this.db.prepare('UPDATE documents SET local_revision=? WHERE id=?').run(revision, id);

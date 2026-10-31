@@ -1,3 +1,4 @@
+import {registerHistorySettings} from './history-settings-routes.ts';
 import {registerOffice,type OfficeOptions} from './office/routes.ts';
 import { randomUUID } from 'node:crypto';
 import Fastify from 'fastify';
@@ -56,6 +57,7 @@ export function buildApp(options: AppOptions = {}) {
     return reply.code(500).send(errorEnvelope('INTERNAL_ERROR', request.id));
   });
   if (options.database) registerAuth(app, options.database, options.publicUrl ?? 'http://localhost:3100');
+  if (options.database) registerHistorySettings(app,options.database,options.publicUrl??'http://localhost:3100');
   if (options.database) registerChanges(app, options.database, options.publicUrl ?? 'http://localhost:3100', options.changesPollMs);
   if (options.database && options.storage) registerDocuments(app, options.database, options.storage, options.publicUrl ?? 'http://localhost:3100', options.maxFileBytes, !!options.office);
   if (options.database && options.storage) registerUploads(app, options.database, options.storage, options.publicUrl ?? 'http://localhost:3100', { maxFileBytes: options.maxFileBytes, maxPendingBytes: options.maxPendingUploadBytes, chunkBytes: options.uploadChunkBytes });
