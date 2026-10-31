@@ -1,3 +1,4 @@
+import {HistoryPreviews} from '../history-previews.ts';
 import { randomUUID } from 'node:crypto';
 import { transaction } from '../database.ts';
 import type { Database } from '../database.ts';
@@ -12,9 +13,10 @@ export interface WorkerOptions extends ConversionOptions { leaseMs?: number }
 /** A dedicated process executes one conversion at a time. */
 export class PreviewWorker {
   private db: Database; private store: BlobStore; private queue: JobQueue; private documents: DocumentService;
+  private historical: HistoryPreviews;
   private options: WorkerOptions; private busy = false;
   constructor(db: Database, store: BlobStore, options: WorkerOptions = {}) {
-    this.db = db; this.store = store; this.queue = new JobQueue(db); this.documents = new DocumentService(db, store);
+    this.db = db; this.store = store; this.queue = new JobQueue(db); this.documents = new DocumentService(db, store);this.historical=new HistoryPreviews(db,store);
     for (const key of ['textLimit','outputLimit','timeoutMs','leaseMs'] as const) {
       const value = options[key];
       if (value !== undefined && (!Number.isSafeInteger(value) || value < 1)) throw new Error('Invalid worker option: ' + key);
@@ -31,7 +33,7 @@ export class PreviewWorker {
       const now = Date.now();
       const occupied = this.db.prepare("SELECT 1 FROM worker_slots WHERE name='preview' AND lease_until>?").get(now);
       if (occupied) return null;
-      const job = this.queue.claim(now, leaseMs, 'preview.prepare');
+      const job = this.queue.claim(now, leaseMs, ['preview.prepare','history.preview']);
       if (!job) return null;
       this.db.prepare("INSERT INTO worker_slots(name,token,lease_until) VALUES('preview',?,?) ON CONFLICT(name) DO UPDATE SET token=excluded.token,lease_until=excluded.lease_until").run(slotToken, now + leaseMs);
       return job;
@@ -53,6 +55,7 @@ export class PreviewWorker {
       } catch { abort(); }
     }, Math.floor(leaseMs / 3));
     try {
+      if(claim.kind==='history.preview')return await this.historical.prepare(claim,controller.signal,this.options,()=>{if(!this.queue.owns(claim)||!this.db.prepare("SELECT 1 FROM worker_slots WHERE name='preview' AND token=? AND lease_until>?").get(slotToken,Date.now()))throw new DocumentError('HISTORY_PREVIEW_LEASE_LOST');});
       const { documentId, revision, converterVersion } = claim.payload;
       if (typeof documentId !== 'string' || !Number.isSafeInteger(revision) || (revision as number) < 1) throw new ConversionError('INVALID_PREVIEW_JOB');
       if (converterVersion !== 'preview-v1'&&converterVersion !== 'preview-v2') throw new ConversionError('CONVERTER_UNAVAILABLE');
@@ -71,6 +74,7 @@ export class PreviewWorker {
         this.queue.fail(claim, 'CONVERSION_INTERRUPTED', Date.now(), 0);
         return 'interrupted';
       }
+      if(claim.kind==='history.preview'&&error instanceof DocumentError){this.queue.reject(claim,error.code);return 'failed';}
       if (error instanceof ConversionError && error.terminal) this.queue.reject(claim, error.code);
       else this.queue.fail(claim, error instanceof ConversionError ? error.code : 'CONVERSION_FAILED', Date.now(), Math.min(300_000, 1000 * 2 ** claim.attempts));
       return 'failed';

@@ -288,5 +288,35 @@ CREATE TABLE history_settings_changes (
  created_at INTEGER NOT NULL
 );
 `;
-export const migrations = [core + epochTriggers, authInvalidation, authSettings, jobs, documents, workerSlots, uploads, pdfLayers, saveJournal, officeSessions, officeIngress, officeCleanup, officeRecovery, officePrepared, officePreparedBindings, officeSaveIntents, officeOpenings, officeHandoff, documentVisits, versionHistory] as const;
+const historyPreviews = `
+CREATE TABLE history_preview_generations (
+ entry_id INTEGER NOT NULL REFERENCES history_entries(id) ON DELETE CASCADE,
+ converter_version TEXT NOT NULL, generation INTEGER NOT NULL CHECK(generation>=1),
+ PRIMARY KEY(entry_id,converter_version)
+);
+CREATE TABLE history_previews (
+ id TEXT PRIMARY KEY,
+ entry_id INTEGER NOT NULL REFERENCES history_entries(id) ON DELETE RESTRICT,
+ document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE RESTRICT,
+ converter_version TEXT NOT NULL, generation INTEGER NOT NULL CHECK(generation>=1),
+ source_digest TEXT NOT NULL, source_size INTEGER NOT NULL CHECK(source_size>=0), format TEXT NOT NULL,
+ requested_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+ job_id TEXT UNIQUE REFERENCES jobs(id) ON DELETE RESTRICT,
+ state TEXT NOT NULL CHECK(state IN ('queued','creating','ready','failed','deleting')),
+ lease_token TEXT, lease_until INTEGER NOT NULL DEFAULT 0,
+ manifest_digest TEXT, manifest_size INTEGER,
+ reserved_bytes INTEGER NOT NULL CHECK(reserved_bytes>=0),
+ error_code TEXT, created_at INTEGER NOT NULL, last_access_at INTEGER NOT NULL,
+ UNIQUE(entry_id,converter_version,generation)
+);
+CREATE INDEX history_previews_latest ON history_previews(entry_id,converter_version,generation DESC);
+CREATE INDEX history_previews_charged ON history_previews(reserved_bytes) WHERE reserved_bytes>0;
+CREATE INDEX history_previews_requester ON history_previews(requested_by,state) WHERE state IN ('queued','creating');
+CREATE INDEX history_previews_expiry ON history_previews(state,lease_until);
+CREATE INDEX history_previews_idle ON history_previews(state,last_access_at);
+CREATE TRIGGER history_previews_binding BEFORE UPDATE OF entry_id,document_id,converter_version,generation,source_digest,source_size,format ON history_previews BEGIN
+ SELECT RAISE(ABORT,'Historical preview binding is immutable');
+END;
+`;
+export const migrations = [core + epochTriggers, authInvalidation, authSettings, jobs, documents, workerSlots, uploads, pdfLayers, saveJournal, officeSessions, officeIngress, officeCleanup, officeRecovery, officePrepared, officePreparedBindings, officeSaveIntents, officeOpenings, officeHandoff, documentVisits, versionHistory, historyPreviews] as const;
 export const applicationId = 0x5957494b; // YWIK; legacy Django uses no marker.

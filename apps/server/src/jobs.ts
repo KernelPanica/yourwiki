@@ -7,7 +7,7 @@ export interface ClaimedJob {
   id: string; kind: string; payload: Record<string, unknown>; token: string;
   attempts: number; reclaimed: boolean;
 }
-type JobRow = { id: string; kind: string; payload: string; state: string; lease_token: string; attempts: number; max_attempts: number };
+type JobRow = { id: string; kind: string; payload: string; state: string; lease_token: string; attempts: number; max_attempts: number; error_code: string | null };
 function time(value: number) { if (!Number.isSafeInteger(value) || value < 0) throw new Error('Invalid job time'); }
 function lease(value: number) { if (!Number.isSafeInteger(value) || value < 1 || value > 3600_000) throw new Error('Invalid job lease'); }
 
