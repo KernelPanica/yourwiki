@@ -25,8 +25,8 @@ async def main():
     calls.append(('engine',route.request.method));assert 'access_token=' in route.request.post_data;assert 'access_token=' not in route.request.url
     manual=sum(c[0]=='engine' for c in calls)==1
     await route.fulfill(content_type='text/html',body='''<html><body><label>Test editor<textarea aria-label="Test editor"></textarea></label><button id="close">Close test editor</button><button id="ready">Ready test editor</button><script>
-const send=(MessageId,Values)=>parent.postMessage({MessageId,Values},location.origin);
-window.addEventListener('message',e=>{if(e.source!==parent)return;const v=JSON.parse(e.data);if(v.MessageId==='Action_Save'){send('Doc_ModifiedStatus',{Modified:false});}});
+window.fixtureSaveCount=0;const send=(MessageId,Values)=>parent.postMessage({MessageId,Values},location.origin);
+window.addEventListener('message',e=>{if(e.source!==parent)return;const v=JSON.parse(e.data);if(v.MessageId==='Action_Save'){window.fixtureSaveCount++;send('Doc_ModifiedStatus',{Modified:false});}});
 document.querySelector('#close').onclick=()=>send('UI_Close',{});
 document.querySelector('textarea').oninput=()=>send('Doc_ModifiedStatus',{Modified:true});
 document.querySelector('#ready').onclick=()=>send('App_LoadingStatus',{Status:'Document_Loaded'});
@@ -53,17 +53,17 @@ if(!__MANUAL__)setTimeout(()=>send('App_LoadingStatus',{Status:'Document_Loaded'
    await field.fill('Retain these edits');changed=True;revoked=True
    server.stdin.write(b'{"action":"notes"}\n');await server.stdin.drain();assert json.loads(await asyncio.wait_for(server.stdout.readline(),10))['ok']
    await page.get_by_role('alert').filter(has_text='Оригинал изменён').wait_for();assert await field.input_value()=='Retain these edits';assert sum(c[0]=='engine' for c in calls)==1
-   document_url=page.url;dialogs=[]
+   saves_before_leaving=await field.evaluate('()=>window.fixtureSaveCount');document_url=page.url;dialogs=[]
    async def dismiss(d):
     dialogs.append(d.message);await d.dismiss()
    page.once('dialog',dismiss);await frame.get_by_role('button',name='Close test editor').click();await asyncio.sleep(.1);assert len(dialogs)==1,'UI_Close did not request guarded navigation';assert page.url==document_url;assert not release_entered.is_set()
    page.once('dialog',dismiss);await page.evaluate('()=>history.back()');await asyncio.sleep(.2);assert len(dialogs)==2;assert page.url==document_url;assert await field.input_value()=='Retain these edits'
    page.once('dialog',lambda d:d.dismiss());await page.get_by_role('link',name='Аккаунт',exact=True).click();await asyncio.sleep(.1);assert page.url==document_url;assert not release_entered.is_set()
-   page.once('dialog',lambda d:d.accept());await page.get_by_role('link',name='Аккаунт',exact=True).click();await asyncio.wait_for(release_entered.wait(),5);assert page.url==document_url;assert await field.input_value()=='Retain these edits';assert not any(c[0]=='save' for c in calls),calls
+   page.once('dialog',lambda d:d.accept());await page.get_by_role('link',name='Аккаунт',exact=True).click();await asyncio.wait_for(release_entered.wait(),5);assert page.url==document_url;assert await field.input_value()=='Retain these edits';assert await field.evaluate('()=>window.fixtureSaveCount')==saves_before_leaving
    await page.get_by_role('link',name='Аккаунт',exact=True).click();assert sum(c[0]=='release' for c in calls)==1
    release_gate.set();await page.wait_for_url('**/account');await page.get_by_role('heading',name='Аккаунт',exact=True).wait_for();assert not errors,errors
    changed=False;revoked=False;proof_saved=True
-   await page.get_by_role('link',name='Yourwiki·',exact=True).click();await page.get_by_role('link',name='MD Live notes').click();await page.locator('.office-workspace[data-loaded="true"]').wait_for();await field.fill('Save through the mounted editor');await page.get_by_role('status').filter(has_text='Сохранено в YourWiki').wait_for();assert sum(c[0]=='save' for c in calls)==1,calls
+   await page.get_by_role('link',name='Yourwiki·',exact=True).click();await page.get_by_role('link',name='MD Live notes').click();await page.locator('.office-workspace[data-loaded="true"]').wait_for();await field.fill('Save through the mounted editor');await page.get_by_role('status').filter(has_text='Сохранено в YourWiki').wait_for();assert await field.evaluate('()=>window.fixtureSaveCount')==1
    await page.set_viewport_size({'width':393,'height':852});await page.get_by_role('button',name='На весь экран',exact=True).click();await page.locator('.office-fullscreen').wait_for();geometry=await page.evaluate('()=>({width:innerWidth,scroll:document.documentElement.scrollWidth})');assert geometry['width']==geometry['scroll'],geometry
    artifact=ROOT/'output'/'playwright'/'office-mobile.png';artifact.parent.mkdir(parents=True,exist_ok=True);await page.screenshot(path=str(artifact));await page.get_by_role('button',name='Выйти из полного экрана',exact=True).click()
    await page.get_by_role('link',name='Аккаунт',exact=True).click();await page.wait_for_url('**/account');available=False;await page.get_by_role('link',name='Yourwiki·',exact=True).click();await page.get_by_role('link',name='MD Live notes').click();await page.get_by_role('alert').filter(has_text='Редактор пока недоступен').wait_for();assert await preview.is_visible();assert await page.locator('iframe.office-frame').count()==0;assert not errors,errors
@@ -73,11 +73,14 @@ if(!__MANUAL__)setTimeout(()=>send('App_LoadingStatus',{Status:'Document_Loaded'
     body=json.loads(route.request.post_data);assert body=={'sessionId':'browser-room','accessToken':'a'*43};calls.append(('revoke',route.request.method));revocation_entered.set();await revocation_gate.wait();await route.fulfill(status=204)
    await page.route('**/api/auth/office-revoke',revoke_capability)
    server.stdin.write(b'{"action":"expire"}\n');await server.stdin.drain();assert json.loads(await asyncio.wait_for(server.stdout.readline(),10))['ok']
-   await page.get_by_role('alert').filter(has_text='Сохранение остановлено').wait_for();assert await field.input_value()=='Retained after expiry';writes_before=sum(c[0]=='save' for c in calls)
+   await page.get_by_role('alert').filter(has_text='Сохранение остановлено').wait_for();assert await field.input_value()=='Retained after expiry';writes_before=await field.evaluate('()=>window.fixtureSaveCount')
    page.once('dialog',lambda d:d.dismiss());await page.get_by_role('button',name='Войти',exact=True).click();assert await field.input_value()=='Retained after expiry';assert not revocation_entered.is_set()
-   page.once('dialog',lambda d:d.accept());await page.get_by_role('button',name='Войти',exact=True).click();await asyncio.wait_for(revocation_entered.wait(),5);assert await field.input_value()=='Retained after expiry';assert sum(c[0]=='save' for c in calls)==writes_before
+   page.once('dialog',lambda d:d.accept());await page.get_by_role('button',name='Войти',exact=True).click();await asyncio.wait_for(revocation_entered.wait(),5);assert await field.input_value()=='Retained after expiry';assert await field.evaluate('()=>window.fixtureSaveCount')==writes_before
    revocation_gate.set();await page.locator('input[name=username]').wait_for();assert await page.locator('iframe.office-frame').count()==0;assert not errors,errors
-   print(json.dumps({'syntheticOffice':'passed','framePosts':sum(c[0]=='engine' for c in calls),'lateReadinessRetainsFrame':True,'saveOnLeave':False,'errors':errors}));await browser.close()
+   print(json.dumps({'syntheticOffice':'passed','framePosts':sum(c[0]=='engine' for c in calls),'lateReadinessRetainsFrame':True,'saveOnLeave':False,'errors':errors}));await page.unroute_all(behavior='wait');await browser.close()
  finally:
-  server.terminate();await asyncio.wait_for(server.wait(),15)
+  if server.returncode is None:server.terminate()
+  try:await asyncio.wait_for(server.wait(),15)
+  except asyncio.TimeoutError:
+   server.kill();await server.wait()
 asyncio.run(main())

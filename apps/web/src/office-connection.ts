@@ -47,7 +47,7 @@ export class OfficeConnection {
  open(){
   if(this.opening)return this.opening;if(!this.current()||this.state.phase!=='idle')return Promise.resolve();this.update({phase:'opening',errorCode:null});this.startReadiness();
   this.opening=(async()=>{try{
-   const value=await this.request(`/api/documents/${encodeURIComponent(this.options.documentId)}/office-opening`,{method:'POST',signal:this.lifetime.signal,headers:{'content-type':'application/json','x-csrf-token':this.options.csrf,'x-yourwiki-office-open':this.openId},body:JSON.stringify({language:this.options.language})});
+   const value=await this.request(`/api/documents/${encodeURIComponent(this.options.documentId)}/office-opening`,{method:'POST',signal:this.lifetime.signal,headers:{'content-type':'application/json','x-csrf-token':this.options.csrf,'x-yourwiki-office-open':this.openId,'x-yourwiki-office-handoff':'check-file-info-v1'},body:JSON.stringify({language:this.options.language})});
    if(!this.current()||this.state.phase==='closed')return;const bootstrap=parseOfficeBootstrap(value);if(bootstrap.expiresAt<=(this.options.now??Date.now)())throw new ApiError('OFFICE_EXPIRED');if(this.state.phase==='opening')this.update({phase:'open',bootstrap});else if(this.cancellingOpening)this.update({bootstrap});
   }catch(error){if(error instanceof ApiError&&['OFFICE_NOT_READY','NOT_FOUND'].includes(error.code))this.explicitlyDeclined=true;if(!this.cancellingOpening)this.failed(error);}})();return this.opening;
  }
@@ -67,7 +67,7 @@ export class OfficeConnection {
   if(!this.current()||this.checking||this.state.phase!=='open'||!this.state.bootstrap||!this.bridge)return false;
   this.stopStatus();if(this.expire())return false;this.checking=true;const id=this.state.bootstrap.sessionId;
   try{
-   const value=await this.request(`/api/office/${encodeURIComponent(id)}/status`,{method:'POST',signal:this.lifetime.signal,headers:{'x-csrf-token':this.options.csrf}});
+   const value=await this.request(`/api/office/${encodeURIComponent(id)}/status`,{method:'POST',signal:this.lifetime.signal,headers:{'x-csrf-token':this.options.csrf,'content-type':'application/json'},body:JSON.stringify({accessToken:this.state.bootstrap.accessToken})});
    if(!this.current()||this.state.phase!=='open')return false;
    if(!record(value)||value.sessionId!==id||value.documentId!==this.options.documentId||typeof value.recovery!=='boolean'||!this.bridge.status(value))throw new ApiError('INVALID_OFFICE_STATUS');
    this.update({errorCode:this.bridge.snapshot().errorCode});return true;

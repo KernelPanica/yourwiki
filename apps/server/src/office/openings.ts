@@ -2,8 +2,8 @@ import {transaction,type Database} from '../database.ts';
 import {authenticateSession,tokenHash} from '../auth/sessions.ts';
 import {AccessService} from '../access.ts';
 import {OfficeSessions,OfficeError} from './sessions.ts';
-type Row={created_at:number;browser_session_hash:string;open_id:string;document_id:string|null;state:'pending'|'ready'|'cancelled';office_session_id:string|null;capability_hash:string|null};
-const openingLeaseMs=180000;
+type Row={handoff_deadline:number|null;claimed_at:number|null;created_at:number;browser_session_hash:string;open_id:string;document_id:string|null;state:'pending'|'ready'|'cancelled';office_session_id:string|null;capability_hash:string|null};
+const openingLeaseMs=180000,handoffLeaseMs=180000;
 const validId=(v:string)=>typeof v==='string'&&/^[A-Za-z0-9_-]{16,128}$/.test(v);
 /** Cancellation receipts live as long as their issuing parent; they are never time-reused. */
 export class OfficeOpenings {
@@ -34,15 +34,24 @@ export class OfficeOpenings {
  allocate(browserToken:string,id:string,documentId:string,writable:boolean){
   return transaction(this.db,()=>{
    const actor=authenticateSession(this.db,browserToken,this.clock());if(!actor)throw new OfficeError('SESSION_REQUIRED');const row=this.assertActive(actor.tokenHash,id);if(row.state!=='pending'||row.capability_hash!==null||row.document_id!==documentId)throw new OfficeError('OFFICE_OPEN_REUSED');
-   const opened=this.office.open(browserToken,documentId,writable);this.db.prepare('UPDATE office_openings SET office_session_id=?,capability_hash=? WHERE browser_session_hash=? AND open_id=?').run(opened.sessionId,tokenHash(opened.token),actor.tokenHash,id);return opened;
+   this.reapUnused(actor.tokenHash);const opened=this.office.open(browserToken,documentId,writable);this.db.prepare('UPDATE office_openings SET office_session_id=?,capability_hash=? WHERE browser_session_hash=? AND open_id=?').run(opened.sessionId,tokenHash(opened.token),actor.tokenHash,id);return opened;
   });
  }
- finish(parent:string,id:string){
-  transaction(this.db,()=>{
-   const row=this.assertActive(parent,id);if(row.state!=='pending'||!row.capability_hash||!this.db.prepare('SELECT 1 FROM office_tokens WHERE token_hash=? AND office_session_id=? AND browser_session_hash=? AND expires_at>?').get(row.capability_hash,row.office_session_id,parent,this.clock()))throw new OfficeError('OFFICE_OPEN_CANCELLED');
-   this.db.prepare("UPDATE office_openings SET state='ready' WHERE browser_session_hash=? AND open_id=?").run(parent,id);
+ finish(parent:string,id:string,requireHandoff=false){
+  return transaction(this.db,()=>{
+   const row=this.assertActive(parent,id),capability=row.capability_hash?this.db.prepare('SELECT expires_at FROM office_tokens WHERE token_hash=? AND office_session_id=? AND browser_session_hash=? AND expires_at>?').get(row.capability_hash,row.office_session_id,parent,this.clock()) as {expires_at:number}|undefined:undefined;if(row.state!=='pending'||!capability)throw new OfficeError('OFFICE_OPEN_CANCELLED');
+   const now=this.clock(),deadline=requireHandoff?Math.min(now+handoffLeaseMs,capability.expires_at):null;this.db.prepare("UPDATE office_openings SET state='ready',handoff_deadline=?,claimed_at=? WHERE browser_session_hash=? AND open_id=?").run(deadline,requireHandoff?null:now,parent,id);return deadline;
   });
  }
+ /** Claim only after the caller has validated the complete CheckFileInfo metadata. */
+ claim<T>(sessionId:string,token:string,accepted:(actor:ReturnType<OfficeSessions['authorize']>)=>T):T{
+  const result=transaction(this.db,()=>{try{
+   const actor=this.office.authorize(sessionId,token),hash=tokenHash(token),row=this.db.prepare('SELECT state FROM office_openings WHERE capability_hash=? AND office_session_id=?').get(hash,sessionId) as {state:string}|undefined;if(row?.state==='pending')throw new OfficeError('OFFICE_PREPARING');
+   const value=accepted(actor);if(value instanceof OfficeError)return value;
+   this.db.prepare("UPDATE office_openings SET claimed_at=COALESCE(claimed_at,?) WHERE capability_hash=? AND office_session_id=? AND state='ready' AND claimed_at IS NULL AND EXISTS(SELECT 1 FROM office_tokens t WHERE t.token_hash=office_openings.capability_hash AND t.office_session_id=office_openings.office_session_id AND t.browser_session_hash=office_openings.browser_session_hash)").run(this.clock(),hash,sessionId);return value;
+  }catch(error){if(error instanceof OfficeError)return error;throw error;}});if(result instanceof OfficeError)throw result;return result;
+ }
+
  private cancelRow(parent:string,id:string){
   const row=this.row(parent,id);if(!row)return false;if(row.office_session_id&&row.capability_hash)this.office.revokeOpening(row.office_session_id,row.capability_hash,parent);this.db.prepare("UPDATE office_openings SET state='cancelled' WHERE browser_session_hash=? AND open_id=?").run(parent,id);return true;
  }
@@ -58,8 +67,12 @@ export class OfficeOpenings {
    if(this.cancelRow(actor.token_hash,id))return;this.quota(actor.token_hash);this.db.prepare("INSERT INTO office_openings(browser_session_hash,open_id,state,created_at) VALUES(?,?,'cancelled',?)").run(actor.token_hash,id,this.clock());
   });
  }
+ private reapUnused(parent:string|null=null){
+  const rows=this.db.prepare("SELECT browser_session_hash,open_id FROM office_openings WHERE state='ready' AND claimed_at IS NULL AND handoff_deadline IS NOT NULL AND handoff_deadline<=? AND (? IS NULL OR browser_session_hash=?) LIMIT 256").all(this.clock(),parent,parent) as Row[];for(const row of rows)this.cancelRow(row.browser_session_hash,row.open_id);
+ }
+
  cleanup(){
-  if(this.stopped)return;transaction(this.db,()=>{this.prune();const expired=this.db.prepare("SELECT browser_session_hash,open_id FROM office_openings WHERE state='pending' AND created_at<=? LIMIT 256").all(this.clock()-openingLeaseMs) as Row[];for(const row of expired)this.cancelRow(row.browser_session_hash,row.open_id);});
+  if(this.stopped)return;transaction(this.db,()=>{this.prune();const expired=this.db.prepare("SELECT browser_session_hash,open_id FROM office_openings WHERE state='pending' AND created_at<=? LIMIT 256").all(this.clock()-openingLeaseMs) as Row[];for(const row of expired)this.cancelRow(row.browser_session_hash,row.open_id);this.reapUnused();});
  }
 
  watch(parent:string,id:string,intervalMs=250){

@@ -232,5 +232,12 @@ CREATE TABLE office_openings (
 CREATE INDEX sessions_csrf_lookup ON sessions(csrf_hash);
 CREATE INDEX office_openings_pending ON office_openings(created_at) WHERE state='pending';
 `;
-export const migrations = [core + epochTriggers, authInvalidation, authSettings, jobs, documents, workerSlots, uploads, pdfLayers, saveJournal, officeSessions, officeIngress, officeCleanup, officeRecovery, officePrepared, officePreparedBindings, officeSaveIntents, officeOpenings] as const;
+const officeHandoff = `
+ALTER TABLE office_openings ADD COLUMN handoff_deadline INTEGER;
+ALTER TABLE office_openings ADD COLUMN claimed_at INTEGER;
+UPDATE office_openings SET claimed_at=created_at WHERE state='ready';
+CREATE INDEX office_openings_capability ON office_openings(capability_hash,office_session_id,browser_session_hash) WHERE capability_hash IS NOT NULL;
+CREATE INDEX office_openings_handoff ON office_openings(handoff_deadline) WHERE state='ready' AND claimed_at IS NULL AND handoff_deadline IS NOT NULL;
+`;
+export const migrations = [core + epochTriggers, authInvalidation, authSettings, jobs, documents, workerSlots, uploads, pdfLayers, saveJournal, officeSessions, officeIngress, officeCleanup, officeRecovery, officePrepared, officePreparedBindings, officeSaveIntents, officeOpenings, officeHandoff] as const;
 export const applicationId = 0x5957494b; // YWIK; legacy Django uses no marker.

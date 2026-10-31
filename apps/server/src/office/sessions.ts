@@ -42,11 +42,16 @@ export class OfficeSessions {
    return {sessionId:row.id,token,expiresAt,write};
   });
  }
+ private capability(sessionId:string,token:string,now:number,parent:string|null=null){
+  return this.db.prepare(`SELECT t.user_id,t.writable FROM office_tokens t JOIN sessions s ON s.token_hash=t.browser_session_hash AND s.user_id=t.user_id JOIN users u ON u.id=t.user_id
+    WHERE t.token_hash=? AND t.office_session_id=? AND t.expires_at>? AND s.expires_at>? AND s.auth_version=u.auth_version AND u.active=1 AND (? IS NULL OR t.browser_session_hash=?)
+    AND NOT EXISTS(SELECT 1 FROM office_openings o WHERE o.capability_hash=t.token_hash AND o.office_session_id=t.office_session_id AND o.browser_session_hash=t.browser_session_hash
+     AND (o.state='cancelled' OR (o.state='ready' AND o.claimed_at IS NULL AND o.handoff_deadline<=?)))`).get(tokenHash(token),sessionId,now,now,parent,parent,now) as {user_id:string;writable:number}|undefined;
+ }
  authorize(sessionId:string,token:string){
   return transaction(this.db,()=>{
    const now=this.clock();if(typeof token!=='string'||!(/^[A-Za-z0-9_-]{43}$/).test(token))throw new OfficeError('INVALID_OFFICE_TOKEN');
-   const capability=this.db.prepare(`SELECT t.user_id,t.writable FROM office_tokens t JOIN sessions s ON s.token_hash=t.browser_session_hash AND s.user_id=t.user_id JOIN users u ON u.id=t.user_id
-    WHERE t.token_hash=? AND t.office_session_id=? AND t.expires_at>? AND s.expires_at>? AND s.auth_version=u.auth_version AND u.active=1`).get(tokenHash(token),sessionId,now,now) as {user_id:string;writable:number}|undefined;
+   const capability=this.capability(sessionId,token,now);
    if(!capability)throw new OfficeError('INVALID_OFFICE_TOKEN');
    let row=this.row(sessionId);if(!row)throw new OfficeError('INVALID_OFFICE_TOKEN');
    if(row.expires_at<=now)throw new OfficeError('OFFICE_EXPIRED');
@@ -55,16 +60,17 @@ export class OfficeSessions {
    return {session:row,userId:capability.user_id,write:capability.writable===1&&this.access.allows(capability.user_id,row.document_id,'write'),export:this.access.allows(capability.user_id,row.document_id,'export')};
   });
  }
- status(browserToken:string,sessionId:string){
+ status(browserToken:string,sessionId:string,token?:string){
   return transaction(this.db,()=>{
    const now=this.clock(),actor=authenticateSession(this.db,browserToken,now);if(!actor)throw new OfficeError('SESSION_REQUIRED');
    let row=this.row(sessionId);if(!row||!this.access.allows(actor.userId,row.document_id,'read'))throw new OfficeError('NOT_FOUND');
-   row=this.refresh(row);const expired=row.expires_at<=now;
+   if(token!==undefined&&(typeof token!=='string'||!/^[A-Za-z0-9_-]{43}$/.test(token)))throw new OfficeError('INVALID_OFFICE_TOKEN');
+   const scoped=token===undefined?undefined:this.capability(sessionId,token,now,actor.tokenHash),ownExpired=token!==undefined&&!scoped;row=this.refresh(row);const expired=row.expires_at<=now||ownExpired;
    if(!expired)this.db.prepare('UPDATE office_sessions SET expires_at=? WHERE id=?').run(now+lease,row.id);
    const canExport=this.access.allows(actor.userId,row.document_id,'export');
    const pending=row.pending_operation_id?this.db.prepare('SELECT author_id FROM save_operations WHERE id=? AND document_id=? AND office_session_id=?').get(row.pending_operation_id,row.document_id,row.id) as {author_id:string}|undefined:undefined;
-   return {sessionId:row.id,documentId:row.document_id,expired,changed:row.superseded===1,errorCode:row.error_code,
-    write:!expired&&!row.superseded&&this.access.allows(actor.userId,row.document_id,'write'),export:canExport,
+   return {sessionId:row.id,documentId:row.document_id,expired,changed:row.superseded===1,errorCode:row.error_code??(ownExpired?'OFFICE_EXPIRED':null),
+    write:!expired&&!row.superseded&&(token===undefined||scoped?.writable===1)&&this.access.allows(actor.userId,row.document_id,'write'),export:canExport,
     recovery:canExport&&!!pending&&(pending.author_id===actor.userId||actor.adminRole==='giga')};
   });
  }

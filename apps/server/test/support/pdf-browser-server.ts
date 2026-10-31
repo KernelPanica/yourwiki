@@ -1,4 +1,5 @@
 /** Synthetic loopback-only PDF browser fixture. Never use against production data. */
+import {OfficeOpenings} from '../../src/office/openings.ts';
 import {OfficeSessions} from '../../src/office/sessions.ts';
 import {OfficeIngress} from '../../src/office/ingress.ts';
 import {createSession,revokeSession} from '../../src/auth/sessions.ts';
@@ -36,7 +37,8 @@ if(process.env.YOURWIKI_BROWSER_CONTROL==='1'){
   try{
    const command=JSON.parse(line) as {action:string;title?:string};let result:Record<string,unknown>={};
    if(command.action==='release-discovery'){releaseDiscovery();}
-   else if(command.action==='opening-state'){result={openings:db.prepare('SELECT open_id,state FROM office_openings').all(),tokens:(db.prepare('SELECT COUNT(*) AS n FROM office_tokens').get() as {n:number}).n};}
+   else if(command.action==='opening-state'){result={openings:db.prepare('SELECT open_id,state,handoff_deadline,claimed_at FROM office_openings').all(),tokens:(db.prepare('SELECT COUNT(*) AS n FROM office_tokens').get() as {n:number}).n};}
+   else if(command.action==='expire-handoffs'){db.prepare('UPDATE office_openings SET handoff_deadline=1 WHERE handoff_deadline IS NOT NULL').run();new OfficeOpenings(db).cleanup();}
    else if(command.action==='recoveries'){
     if(!notes||process.env.YOURWIKI_BROWSER_OFFICE!=='1')throw new Error('Office fixture required');
     const browser=createSession(db,'qa'),office=new OfficeSessions(db),opened=office.open(browser.token,notes.documentId),ingress=new OfficeIngress(db,store);office.lock(opened.sessionId,opened.token,'LOCK','fixture-lock');

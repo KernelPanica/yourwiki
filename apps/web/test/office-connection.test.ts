@@ -91,3 +91,6 @@ test('an explicit disabled-editor rejection cannot trap preview navigation on an
 test('a missing versioned opening route declines allocation instead of trapping preview navigation during rollout',async t=>{
  let calls=0;const f=setup(t,async()=>{calls++;throw new ApiError('NOT_FOUND');});await f.connection.open();assert.equal(await f.connection.close(),true);assert.equal(calls,1);
 });
+test('handoff-aware clients negotiate expiry and check their own capability rather than just the shared room',async t=>{
+ const calls:any[]=[];const f=setup(t,async(url,init)=>{calls.push({url,init});return url.endsWith('/office-opening')?opened:status;});await f.connection.open();f.connection.attach(f.frame);await f.connection.check();assert.equal(calls[0].init.headers['x-yourwiki-office-handoff'],'check-file-info-v1');assert.deepEqual(JSON.parse(calls[1].init.body),{accessToken:opened.accessToken});
+});
