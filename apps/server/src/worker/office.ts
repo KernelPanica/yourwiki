@@ -65,7 +65,7 @@ export async function readOfficeArchive(store: BlobStore, source: Readable, sign
 
 const profile = '<?xml version="1.0" encoding="UTF-8"?><oor:items xmlns:oor="http://openoffice.org/2001/registry"><item oor:path="/org.openoffice.Office.Common/Security/Scripting"><prop oor:name="MacroSecurityLevel" oor:op="fuse"><value>3</value></prop><prop oor:name="DisableMacrosExecution" oor:op="fuse"><value>true</value></prop></item></oor:items>';
 
-export async function convertOffice(store: BlobStore, source: BlobRef, format: string, signal: AbortSignal, options: OfficeOptions = {}): Promise<ConversionResult> {
+export async function convertOffice(store: BlobStore, source: BlobRef, format: string, signal: AbortSignal, options: OfficeOptions = {}, target: BlobStore = store): Promise<ConversionResult> {
   if (process.platform !== 'linux' || !officeFormats.has(format)) throw new ConversionError('PREVIEW_UNSUPPORTED');
   signal.throwIfAborted();
   const root = options.officeRoot ?? '/usr/lib/libreoffice', bwrap = options.bwrap ?? '/usr/bin/bwrap', prlimit = options.prlimit ?? '/usr/bin/prlimit';
@@ -112,7 +112,7 @@ rm /out/input.pdf
     if (signal.aborted) kill();
     const timeout = setTimeout(() => { timedOut = true; kill(); }, options.timeoutMs ?? 120_000);
     try {
-      const output = readOfficeArchive(store, child.stdout, signal, limit).catch(error => { kill(); throw error; });
+      const output = readOfficeArchive(target, child.stdout, signal, limit).catch(error => { kill(); throw error; });
       const [outputResult, exitResult] = await Promise.allSettled([output, exit]);
       signal.throwIfAborted();
       if (timedOut) throw new ConversionError('CONVERSION_TIMEOUT', false);
@@ -128,14 +128,14 @@ rm /out/input.pdf
         const slides = artifacts.filter(item => /^slide-\d+\.png$/.test(item.name)).sort((a,b) => Number(a.name.match(/\d+/)![0])-Number(b.name.match(/\d+/)![0]));
         if (!slides.length || slides.length > slidesLimit || slides.some((item,index) => item.name !== `slide-${index+1}.png` || !artifacts.some(thumb => thumb.name === `thumb-${index+1}.png`))) throw new ConversionError('INVALID_CONVERTER_OUTPUT');
         const index = { schemaVersion: 1, slides: slides.map((item,i) => ({ index: i+1, image: item.name, thumbnail: `thumb-${i+1}.png` })) };
-        const ref = await store.put(bytes(JSON.stringify(index)), { maxBytes: limit, signal });
+        const ref = await target.put(bytes(JSON.stringify(index)), { maxBytes: limit, signal });
         return { kind: 'presentation', primary: 'content', artifacts: [{ ...ref, name: 'content', mimeType: 'application/json' }, ...artifacts] };
       }
       const html = artifacts.find(item => item.name === 'input.html');
       if (!html || html.size > Math.min(limit,16*1024**2)) throw new ConversionError('PREVIEW_TOO_COMPLEX');
       const images = new Map(artifacts.filter(item => item.mimeType.startsWith('image/')).map(item => [item.name,item.name]));
-      const clean = sanitizeOfficeHtml((await buffer(await store.read(html.digest))).toString(), images);
-      const ref = await store.put(bytes('<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'+clean), { maxBytes: limit, signal });
+      const clean = sanitizeOfficeHtml((await buffer(await target.read(html.digest))).toString(), images);
+      const ref = await target.put(bytes('<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'+clean), { maxBytes: limit, signal });
       return { kind: table ? 'table' : 'document', primary: 'content', artifacts: [{ ...ref, name: 'content', mimeType: 'text/html' }, ...artifacts.filter(item => images.has(item.name))] };
     } finally { clearTimeout(timeout); signal.removeEventListener('abort',kill); if (child.exitCode === null && child.signalCode === null) kill(); }
   } finally { await rm(work,{ recursive: true, force: true }); }

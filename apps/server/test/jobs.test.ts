@@ -61,3 +61,6 @@ test('work remains claimable after reopening the database', t => {
   db = openDatabase(path); t.after(() => db.close());
   assert.equal(new JobQueue(db).claim(1001)!.kind, 'preview.prepare');
 });
+test('bounded multi-kind claim keeps source/history preview order without taking provider jobs',t=>{
+ const queue=fixture(t);const foreign=queue.enqueue({kind:'provider.deliver',key:'provider',payload:{}},1000),history=queue.enqueue({kind:'history.preview',key:'old',payload:{}},1001),source=queue.enqueue({kind:'preview.prepare',key:'new',payload:{}},1002);const first=queue.claim(1003,100,['preview.prepare','history.preview'])!;assert.equal(first.id,history);assert.ok(queue.complete(first,1004));assert.equal(queue.claim(1005,100,['preview.prepare','history.preview'])!.id,source);assert.equal(queue.status(foreign)!.state,'queued');for(const value of [[],['bad kind'],Array(17).fill('preview.prepare'),['preview.prepare','preview.prepare']])assert.throws(()=>queue.claim(1006,100,value),/Invalid job/);
+});

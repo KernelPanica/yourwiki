@@ -34,11 +34,11 @@ export class JobQueue {
     });
   }
 
-  claim(now = Date.now(), leaseMs = 30_000, kind?: string): ClaimedJob | null {
+  claim(now = Date.now(), leaseMs = 30_000, kind?: string | readonly string[]): ClaimedJob | null {
     time(now); lease(leaseMs);
-    if (kind !== undefined && !/^[a-z][a-z0-9_.-]{0,63}$/.test(kind)) throw new Error('Invalid job kind');
-    const filter = kind === undefined ? '' : ' AND kind=?';
-    const args = kind === undefined ? [] : [kind];
+    const args = kind === undefined ? [] : typeof kind === 'string' ? [kind] : [...kind];
+    if (kind !== undefined && (!args.length || args.length > 16 || new Set(args).size !== args.length || args.some(value => typeof value !== 'string' || !/^[a-z][a-z0-9_.-]{0,63}$/.test(value)))) throw new Error('Invalid job kind');
+    const filter = kind === undefined ? '' : ' AND kind IN (' + args.map(() => '?').join(',') + ')';
     return transaction(this.db, () => {
       this.db.prepare(`UPDATE jobs SET state='failed',lease_token=NULL,lease_until=NULL,error_code='RETRY_EXHAUSTED'
         WHERE attempts>=max_attempts AND (state='queued' OR (state='running' AND lease_until<=?))${filter}`).run(now, ...args);

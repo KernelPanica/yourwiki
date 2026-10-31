@@ -14,9 +14,9 @@ import type { OfficeOptions } from './office.ts';
 export interface ConversionOptions { nativeMarkdown?: boolean; textLimit?: number; outputLimit?: number; timeoutMs?: number; office?: OfficeOptions }
 export type ConversionResult = { kind: PreviewManifest['kind']; primary: string; artifacts: PreviewArtifact[] };
 
-export async function convert(store: BlobStore, source: BlobRef, format: string, signal: AbortSignal, options: ConversionOptions = {}): Promise<ConversionResult> {
+export async function convert(store: BlobStore, source: BlobRef, format: string, signal: AbortSignal, options: ConversionOptions = {}, target: BlobStore = store): Promise<ConversionResult> {
   signal.throwIfAborted();
-  if (officeFormats.has(format)) return convertOffice(store, source, format, signal, options.office);
+  if (officeFormats.has(format)) return convertOffice(store, source, format, signal, options.office, target);
   if (format === 'pdf') {
     const prefix = source.size ? (await buffer(await store.read(source.digest, { start: 0, end: Math.min(1023, source.size - 1) }))).toString('latin1') : '';
     if (!prefix.includes('%PDF-')) throw new ConversionError('INVALID_PDF');
@@ -36,7 +36,7 @@ export async function convert(store: BlobStore, source: BlobRef, format: string,
   const timeout = setTimeout(() => { timedOut = true; abort(); }, options.timeoutMs ?? 30_000);
   try {
     const input = (async () => { await pipeline(await store.read(source.digest), child.stdin); })().catch(error => { abort(); throw error; });
-    const output = store.put(child.stdout, { maxBytes: options.outputLimit ?? 64 * 1024 ** 2, signal }).catch(error => { abort(); throw error; });
+    const output = target.put(child.stdout, { maxBytes: options.outputLimit ?? 64 * 1024 ** 2, signal }).catch(error => { abort(); throw error; });
     const [inputResult, outputResult, exitResult] = await Promise.allSettled([input, output, exit]);
     signal.throwIfAborted();
     if (timedOut) throw new ConversionError('CONVERSION_TIMEOUT', false);
