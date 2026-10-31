@@ -36,7 +36,9 @@ if(process.env.YOURWIKI_BROWSER_CONTROL==='1'){
  input.on('line',line=>{chain=chain.then(async()=>{
   try{
    const command=JSON.parse(line) as {action:string;title?:string};let result:Record<string,unknown>={};
-   if(command.action==='release-discovery'){releaseDiscovery();}
+   if(command.action==='recent-state'){result={visits:db.prepare('SELECT * FROM document_visits ORDER BY user_id,document_id').all()};}
+   else if(command.action==='deny-notes'){if(!notes)throw new Error('Notes fixture required');db.prepare("UPDATE users SET admin_role='member' WHERE id='qa'").run();db.prepare('UPDATE resources SET user_policies=? WHERE id=?').run(JSON.stringify({qa:{read:false}}),notes.documentId);}
+   else if(command.action==='release-discovery'){releaseDiscovery();}
    else if(command.action==='opening-state'){result={openings:db.prepare('SELECT open_id,state,handoff_deadline,claimed_at FROM office_openings').all(),tokens:(db.prepare('SELECT COUNT(*) AS n FROM office_tokens').get() as {n:number}).n};}
    else if(command.action==='expire-handoffs'){db.prepare('UPDATE office_openings SET handoff_deadline=1 WHERE handoff_deadline IS NOT NULL').run();new OfficeOpenings(db).cleanup();}
    else if(command.action==='recoveries'){

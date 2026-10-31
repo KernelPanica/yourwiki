@@ -2,7 +2,9 @@ import { Component,lazy,Suspense,useEffect,useRef,useState } from 'react';
 import type { ErrorInfo,FormEvent,ReactNode } from 'react';
 import { api,ApiError,assetUrl,isAborted } from './api.ts';
 import type { Account,DocumentInfo,DocumentView } from './api.ts';
-import { blockSession,resumeSession,sessionSnapshot } from './session-fence.ts';
+import {DocumentVisit} from './document-visit.ts';
+import {subscribeRecentActivity,publishRecentActivity} from './recent-activity.ts';
+import { blockSession,resumeSession,sessionSnapshot,onSessionBlocked } from './session-fence.ts';
 import {startChangeFeed,publishChanges,subscribeChanges} from './live-updates.ts';
 import { requestNavigation,hasUnsavedChanges } from './navigation-guard.ts';
 import { labels,languageFor } from './i18n.ts';
@@ -45,29 +47,33 @@ function Login({onLogin,notice}:{onLogin:(account:Account)=>void;notice?:unknown
   }
   return <main id="content" className="login"><Link href="/" className="brand">Yourwiki<span>·</span></Link><h1>{t.signIn}</h1><p className="muted">{t.welcome}</p><form onSubmit={submit}><label>{t.username}<input name="username" autoComplete="username" required maxLength={150}/></label><label>{t.password}<input name="password" type="password" autoComplete="current-password" required maxLength={1024}/></label>{error?<ErrorBox error={error}/>:null}<button className="primary" disabled={pending}>{pending?t.loading:t.signIn}</button></form></main>;
 }
-function Library({onSessionLost,active}:{onSessionLost:()=>void;active:boolean}) {
-  const [items,setItems]=useState<DocumentInfo[]>([]),[cursor,setCursor]=useState<string|null>(null),[pending,setPending]=useState(true),[error,setError]=useState<unknown>(null),[filter,setFilter]=useState('');
-  const lifetime=useRef<AbortController|null>(null),request=useRef<AbortController|null>(null);
-  useEffect(()=>{const controller=new AbortController();lifetime.current=controller;void load();const remove=subscribeChanges(()=>void load());return()=>{controller.abort();request.current?.abort();remove();};},[]);
+function Library({onSessionLost,active,recent=false}:{onSessionLost:()=>void;active:boolean;recent?:boolean}) {
+  const [items,setItems]=useState<(DocumentInfo&{openedAt?:number})[]>([]),[cursor,setCursor]=useState<string|null>(null),[pending,setPending]=useState(true),[error,setError]=useState<unknown>(null),[filter,setFilter]=useState('');
+  const lifetime=useRef<AbortController|null>(null),request=useRef<AbortController|null>(null),activeRef=useRef(active);activeRef.current=active;
+  useEffect(()=>{const controller=new AbortController();lifetime.current=controller;const clear=()=>{request.current?.abort();setItems([]);setCursor(null);setError(null);};const remove=subscribeChanges(event=>{if(event.type==='all')clear();else request.current?.abort();if(activeRef.current)void load();});const unblock=onSessionBlocked(clear),unrecent=subscribeRecentActivity(()=>{if(recent&&activeRef.current)void load();});return()=>{controller.abort();request.current?.abort();remove();unblock();unrecent();};},[]);
+  useEffect(()=>{if(active)void load();},[active]);
   async function load(after?:string){
     if(lifetime.current?.signal.aborted||sessionSnapshot().blocked)return;
     request.current?.abort();const controller=new AbortController();request.current=controller;const signal=controller.signal;
     setPending(true);setError(null);
-    try{const page=await api<{items:DocumentInfo[];nextCursor:string|null}>('/api/documents'+(after?'?after='+encodeURIComponent(after):''),{signal});if(signal.aborted||request.current!==controller)return;setItems(old=>after?[...old,...page.items.filter(item=>!old.some(previous=>previous.id===item.id))]:page.items);setCursor(page.nextCursor);}
-    catch(error){if(signal.aborted||isAborted(error))return;if(error instanceof ApiError&&error.code==='SESSION_REQUIRED'){if(!sessionSnapshot().blocked)onSessionLost();}else setError(error);}
+    try{const page=await api<{items:(DocumentInfo&{openedAt?:number})[];nextCursor:string|null}>((recent?'/api/recent':'/api/documents')+(after?'?after='+encodeURIComponent(after):''),{signal});if(signal.aborted||request.current!==controller)return;setItems(old=>after?[...old,...page.items.filter(item=>!old.some(previous=>previous.id===item.id))]:page.items);setCursor(page.nextCursor);}
+    catch(error){if(signal.aborted||isAborted(error))return;setItems([]);setCursor(null);if(error instanceof ApiError&&error.code==='SESSION_REQUIRED'){if(!sessionSnapshot().blocked)onSessionLost();}else setError(error);}
     finally{if(!signal.aborted&&request.current===controller)setPending(false);}
   }
   const shown=items.filter(item=>item.title.toLocaleLowerCase().includes(filter.toLocaleLowerCase()));
-  return <main id={active?"content":undefined} className="library"><div className="page-heading"><div><p className="eyebrow">Yourwiki</p><h1>{t.files}</h1></div><label className="search"><span className="sr-only">{t.search}</span><input type="search" placeholder={t.search} value={filter} onChange={e=>setFilter(e.target.value)}/></label></div>
+  return <main id={active?"content":undefined} className="library" aria-busy={pending}><div className="page-heading"><div><p className="eyebrow">Yourwiki</p><h1>{recent?t.recent:t.files}</h1></div><label className="search"><span className="sr-only">{t.search}</span><input type="search" placeholder={t.search} value={filter} onChange={e=>setFilter(e.target.value)}/></label></div>
     {error?<ErrorBox error={error} retry={()=>void load()}/>:null}
-    <ul className="file-list">{shown.map(item=><li key={item.id}><Link href={'/documents/'+encodeURIComponent(item.id)}><span className="file-format">{item.format.toUpperCase()}</span><span className="file-title">{item.title}</span><span className="file-open" aria-hidden="true">↗</span></Link></li>)}</ul>
-    {pending?<p role="status">{t.loading}</p>:shown.length===0&&!error?<p className="empty">{t.empty}</p>:null}
+    <ul className="file-list">{shown.map(item=><li key={item.id}><Link href={'/documents/'+encodeURIComponent(item.id)}><span className="file-format">{item.format.toUpperCase()}</span><span className="file-title">{item.title}{recent&&item.openedAt!==undefined&&<time className="file-opened" dateTime={new Date(item.openedAt).toISOString()}>{new Date(item.openedAt).toLocaleString(document.documentElement.lang,{dateStyle:"medium",timeStyle:"short"})}</time>}</span><span className="file-open" aria-hidden="true">↗</span></Link></li>)}</ul>
+    {pending?<p role="status">{t.loading}</p>:shown.length===0&&!error?<p className="empty">{filter?t.noMatches:recent?t.recentEmpty:t.empty}</p>:null}
     {cursor&&<button type="button" disabled={pending} onClick={()=>void load(cursor)}>{t.more}</button>}
   </main>;
 }
 function DocumentPage({id,onSessionLost,csrf}:{id:string;onSessionLost:()=>void;csrf:string}) {
   const [view,setView]=useState<DocumentView|null>(null),[error,setError]=useState<unknown>(null),[attempt,setAttempt]=useState(0);
-  const currentView=useRef<DocumentView|null>(null),officeMounted=useRef(false);
+  const currentView=useRef<DocumentView|null>(null),officeMounted=useRef(false),visit=useRef<DocumentVisit|null>(null);
+  const [visitFailed,setVisitFailed]=useState(false);
+  useEffect(()=>{const tracker=new DocumentVisit({documentId:id,csrf,recorded:publishRecentActivity,changed:state=>{setVisitFailed(state.phase==='error');if(state.error instanceof ApiError&&state.error.code==='SESSION_REQUIRED'&&!sessionSnapshot().blocked)onSessionLost();}});visit.current=tracker;return()=>{tracker.dispose();visit.current=null;};},[id,csrf]);
+  useEffect(()=>{if(view)void visit.current?.opened();},[view,csrf]);
   useEffect(()=>{
     let request:AbortController|undefined,closed=false;setView(null);currentView.current=null;setError(null);
     function load(){
@@ -86,6 +92,7 @@ function DocumentPage({id,onSessionLost,csrf}:{id:string;onSessionLost:()=>void;
   if(view?.document.capabilities.office===true&&view.document.capabilities.write&&['document','table','presentation'].includes(view.manifest.kind))officeMounted.current=true;
   const office=officeMounted.current;
   return <main id="content" className="document-page"><div className="document-toolbar"><Link href="/" className="back">← {t.back}</Link><div className="document-name"><h1>{view?.document.title??t.preview}</h1>{view&&<span className="muted">{view.document.format.toUpperCase()} · {t.read}</span>}</div>{view?.document.capabilities.export&&view.manifest.kind!=='pdf'&&<a className="button" href={`/api/documents/${encodeURIComponent(id)}/content`} download>{t.download}</a>}</div>
+    {visitFailed&&<p className="visit-notice" role="status">{t.visitFailed} <button type="button" onClick={()=>void visit.current?.retry()}>{t.retry}</button></p>}
     {error?<ErrorBox error={error} retry={!view?()=>setAttempt(x=>x+1):undefined}/>:null}
     {!office&&view?.document.capabilities.office===true&&<Suspense fallback={null}><OfficeRecoveryPanel documentId={id} csrf={csrf} onSessionLost={onSessionLost}/></Suspense>}
     {!view?!error&&<p className="loading" role="status">{t.loading}</p>:office?<Suspense fallback={preview}><OfficeWorkspace view={view} csrf={csrf} onSessionLost={onSessionLost}>{preview}</OfficeWorkspace></Suspense>:preview}
@@ -96,7 +103,7 @@ export default function App() {
   const [authPaused,setAuthPaused]=useState(false);
   const [authEpoch,setAuthEpoch]=useState(0);
   useEffect(()=>{if(!authChannel)return;const changed=()=>{blockSession();setError(new ApiError('SESSION_REQUIRED'));if(hasUnsavedChanges()){setAuthPaused(true);return;}setAccount(undefined);setAuthEpoch(value=>value+1);};authChannel.addEventListener('message',changed);return()=>authChannel.removeEventListener('message',changed);},[]);
-  const [libraryVisited,setLibraryVisited]=useState(location.pathname==='/');
+  const [libraryVisited,setLibraryVisited]=useState(location.pathname==='/'),[recentVisited,setRecentVisited]=useState(location.pathname==='/recent');
   useEffect(()=>{const update=()=>{if(location.pathname==='/')setLibraryVisited(true);};window.addEventListener('popstate',update);return()=>window.removeEventListener('popstate',update);},[]);
   const [account,setAccount]=useState<Account|null|undefined>(undefined),[path,setPath]=useState(location.pathname),[error,setError]=useState<unknown>(null);
   useEffect(()=>{const generation=sessionSnapshot().generation,controller=new AbortController();void api<Account>('/api/account',{signal:controller.signal}).then(value=>{if(!controller.signal.aborted){resumeSession();setAuthPaused(false);setAccount(value);}}).catch(error=>{if(!controller.signal.aborted&&generation===sessionSnapshot().generation&&!isAborted(error)){if(!(error instanceof ApiError&&error.code==='SESSION_REQUIRED'))setError(error);setAccount(null);}});return()=>controller.abort();},[authEpoch]);
@@ -104,9 +111,9 @@ export default function App() {
     let previousPath=location.pathname,moving=false,live=true;let requested:string|null=null;
     const move=(next:string)=>{
       if(next===previousPath&&!moving)return;requested=next;if(moving)return;moving=true;
-      void requestNavigation(()=>{if(!live||requested===null)return;if(location.pathname!==requested)history.pushState(null,'',requested);previousPath=requested;setPath(requested);if(requested==='/')setLibraryVisited(true);}).then(allowed=>{if(!allowed&&live&&location.pathname!==previousPath)history.pushState(null,'',previousPath);}).finally(()=>{moving=false;requested=null;});
+      void requestNavigation(()=>{if(!live||requested===null)return;if(location.pathname!==requested)history.pushState(null,'',requested);previousPath=requested;setPath(requested);if(requested==='/')setLibraryVisited(true);if(requested==='/recent')setRecentVisited(true);}).then(allowed=>{if(!allowed&&live&&location.pathname!==previousPath)history.pushState(null,'',previousPath);}).finally(()=>{moving=false;requested=null;});
     };
-    const pop=()=>move(location.pathname),link=(event:Event)=>{const next=(event as CustomEvent<unknown>).detail;if(typeof next==='string'&&/^\/(?:$|account$|documents\/[^?#]+$)/.test(next))move(next);};
+    const pop=()=>move(location.pathname),link=(event:Event)=>{const next=(event as CustomEvent<unknown>).detail;if(typeof next==='string'&&/^\/(?:$|account$|recent$|documents\/[^?#]+$)/.test(next))move(next);};
     window.addEventListener('popstate',pop);window.addEventListener('yourwiki:navigate',link);return()=>{live=false;window.removeEventListener('popstate',pop);window.removeEventListener('yourwiki:navigate',link);};
   },[]);
   useEffect(()=>{
@@ -125,5 +132,5 @@ export default function App() {
   if(account===undefined)return <main id="content" className="loading" role="status">{t.loading}</main>;
   if(!account)return <Login onLogin={value=>{resumeSession();setAuthPaused(false);setError(null);setAccount(value);authChannel?.postMessage('changed');}} notice={error}/>;
   let id='';try{if(path.startsWith('/documents/'))id=decodeURIComponent(path.slice('/documents/'.length));}catch{/* invalid URL handled below */}
-  return <><a className="skip" href="#content">{t.skip}</a><header className="site-header"><Link href="/" className="brand">Yourwiki<span>·</span></Link><nav aria-label="Yourwiki"><Link href="/" aria-current={path==='/'?'page':undefined}>{t.files}</Link><Link href="/account" aria-current={path==='/account'?'page':undefined}>{t.account}</Link></nav><button type="button" className="sign-out" onClick={()=>authPaused?recoverSession():void signOut()}>{authPaused?t.signIn:t.signOut}</button></header>{error?<ErrorBox error={error}/>:null}{libraryVisited&&<div className="library-route" hidden={path!=='/'}><Library onSessionLost={sessionLost} active={path==='/'}/></div>}{id?<DocumentPage key={id} id={id} onSessionLost={sessionLost} csrf={account.csrf}/>:path==='/account'?<AccountPage account={account}/>:null}</>;
+  return <><a className="skip" href="#content">{t.skip}</a><header className="site-header"><Link href="/" className="brand">Yourwiki<span>·</span></Link><nav aria-label="Yourwiki"><Link href="/" aria-current={path==='/'?'page':undefined}>{t.files}</Link><Link href="/recent" aria-current={path==='/recent'?'page':undefined}>{t.recent}</Link><Link href="/account" aria-current={path==='/account'?'page':undefined}>{t.account}</Link></nav><button type="button" className="sign-out" onClick={()=>authPaused?recoverSession():void signOut()}>{authPaused?t.signIn:t.signOut}</button></header>{error?<ErrorBox error={error}/>:null}{libraryVisited&&<div className="library-route" hidden={path!=='/'}><Library key={account.user.id+account.csrf} onSessionLost={sessionLost} active={path==='/'}/></div>}{recentVisited&&<div className="library-route" hidden={path!=='/recent'}><Library key={account.user.id+account.csrf} recent onSessionLost={sessionLost} active={path==='/recent'}/></div>}{id?<DocumentPage key={id} id={id} onSessionLost={sessionLost} csrf={account.csrf}/>:path==='/account'?<AccountPage account={account}/>:null}</>;
 }
