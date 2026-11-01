@@ -63,10 +63,10 @@ Ruling: public history identity must be independent of provisional physical row 
 
 **Interfaces:** preview generations/jobs and restore FK rows use storageId internally. Prepared manifests, HTTP paths, operation status and receipt JSON retain publicId. Persist a public binding where a durable receipt needs it; schema24 values backfill exactly. No private reference enters a client snapshot or asset URL.
 
-- [ ] Write RED tests with intentionally different public/storage IDs: prepare/view/assets/retry, native reuse, saved/staged/discarded restore, source/layer conflict, private-ID guessing, cross-document/account denial and SIGKILL/restart. Include already-issued schema24 ready preview manifests and staged restore operations.
-- [ ] Run targeted preview/restore suites to observe reference failures.
-- [ ] Resolve references explicitly at service boundaries, retain public IDs in immutable prepared manifests/receipt JSON, and keep their validation/account/session/lease checks. Existing prepared namespaces and engine-version pinning remain usable; no automatic source save/replay is introduced.
-- [ ] Verify focused native suites plus real client HTTP test/TypeScript/diff gates and commit.
+- [x] Write RED tests with intentionally different public/storage IDs: prepare/view/assets/retry, native reuse, saved/staged/discarded restore, source/layer conflict, private-ID guessing, cross-document/account denial and SIGKILL/restart. Include already-issued schema24 ready preview manifests and staged restore operations.
+- [x] Run targeted preview/restore suites to observe reference failures.
+- [x] Resolve references explicitly at service boundaries, retain public IDs in immutable prepared manifests/receipt JSON, and keep their validation/account/session/lease checks. Existing prepared namespaces and engine-version pinning remain usable; no automatic source save/replay is introduced.
+- [x] Verify focused native suites plus real client HTTP test/TypeScript/diff gates and commit.
 
 ## Task4: Build canonical private records before short publication
 

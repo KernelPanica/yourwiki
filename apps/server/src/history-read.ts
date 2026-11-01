@@ -37,6 +37,10 @@ export class HistoryRead{
  entry(userId:string,documentId:string,id:number){return readTransaction(this.db,()=>({...this.context(userId,documentId),item:this.row(documentId,id)}));}
  /** Internal reference only; never return this object from an HTTP metadata handler. */
  reference(userId:string,documentId:string,id:number){return readTransaction(this.db,()=>{this.context(userId,documentId);const row=this.record(documentId,id);metadata(row);return {documentId,publicId:row.publicId,storageId:row.storageId};});}
+ /** Internal service boundary: the reference must not be spread into an HTTP DTO. */
+ resolvedEntry(userId:string,documentId:string,id:number){return readTransaction(this.db,()=>{const context=this.context(userId,documentId),row=this.record(documentId,id);return {...context,item:metadata(row),reference:{documentId,publicId:row.publicId,storageId:row.storageId}};});}
+ /** Resolve persisted foreign keys only through committed, currently readable history. */
+ storageEntry(userId:string,documentId:string,storageId:number){return readTransaction(this.db,()=>{const context=this.context(userId,documentId);entryId(storageId);const row=this.catalogue.byStorageId(documentId,storageId);if(!row)throw new DocumentError('NOT_FOUND');return {...context,item:metadata(row),reference:{documentId,publicId:row.publicId,storageId:row.storageId}};});}
  authorizeExport(userId:string,documentId:string){return readTransaction(this.db,()=>{if(!this.context(userId,documentId).document.export)throw new DocumentError('ACCESS_DENIED');});}
  exportSnapshot(userId:string,documentId:string){return readTransaction(this.db,()=>{this.authorizeExport(userId,documentId);return this.catalogue.snapshot(documentId);});}
  exportIds(userId:string,documentId:string,after:number,high:number){return readTransaction(this.db,()=>{this.authorizeExport(userId,documentId);return this.catalogue.ascending(documentId,{after,high,limit:50});});}
