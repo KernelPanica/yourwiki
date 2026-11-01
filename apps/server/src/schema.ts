@@ -632,7 +632,10 @@ CREATE TRIGGER provider_attempt_delete BEFORE DELETE ON provider_delivery_attemp
  SELECT RAISE(ABORT,'Provider attempt is retained');
 END;
 `;
+const providerDeliveryRecoveryIndex = `
+CREATE INDEX provider_delivery_recovery ON provider_delivery_attempts(lease_until,created_at,id) WHERE state IN ('prepared','writing','unknown');
+`;
 /** Parent-table rebuilds run atomically with FK actions suspended, checked before commit, then enforced again. */
 export const migrationForeignKeyRebuilds:readonly number[]=[23];
-export const migrations = [core + epochTriggers, authInvalidation, authSettings, jobs, documents, workerSlots, uploads, pdfLayers, saveJournal, officeSessions, officeIngress, officeCleanup, officeRecovery, officePrepared, officePreparedBindings, officeSaveIntents, officeOpenings, officeHandoff, documentVisits, versionHistory, historyPreviews, historyRestores, legacyHistory, historyImports, historyCatalogue, providerConnections, providerSourceRequests, providerDeliveryAttempts] as const;
+export const migrations = [core + epochTriggers, authInvalidation, authSettings, jobs, documents, workerSlots, uploads, pdfLayers, saveJournal, officeSessions, officeIngress, officeCleanup, officeRecovery, officePrepared, officePreparedBindings, officeSaveIntents, officeOpenings, officeHandoff, documentVisits, versionHistory, historyPreviews, historyRestores, legacyHistory, historyImports, historyCatalogue, providerConnections, providerSourceRequests, providerDeliveryAttempts, providerDeliveryRecoveryIndex] as const;
 export const applicationId = 0x5957494b; // YWIK; legacy Django uses no marker.

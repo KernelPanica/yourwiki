@@ -9,7 +9,8 @@
     "test": "node --test test/*.test.ts",
     "typecheck": "tsc --noEmit",
     "start": "node src/main.ts",
-    "worker": "node --max-old-space-size=384 src/worker/main.ts"
+    "worker": "node --max-old-space-size=384 src/worker/main.ts",
+    "provider-worker": "node --max-old-space-size=128 src/providers/worker-main.ts"
   },
   "dependencies": {
     "better-sqlite3": "13.0.3",

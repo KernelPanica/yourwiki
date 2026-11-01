@@ -30,10 +30,11 @@ export class DeliveryAttempts {
  /** Pin the latest request; reclaiming any writing owner can only lead to read-back. */
  acquire(job:ClaimedJob,now=Date.now()):DeliveryAttempt|null{
   validTime(now);return transaction(this.db,()=>{
-   if(job.kind!=='provider.deliver'||!this.queue.owns(job,now))fail('LEASE_LOST');
+   if(!['provider.deliver','provider.reconcile'].includes(job.kind)||!this.queue.owns(job,now))fail('LEASE_LOST');
    const documentId=job.payload.documentId,revision=job.payload.requestedRevision;
-   if(typeof documentId!=='string'||!Number.isSafeInteger(revision)||Number(revision)<1||Object.keys(job.payload).length!==2)fail('INVALID_REQUEST');
+   if(typeof documentId!=='string'||!Number.isSafeInteger(revision)||Number(revision)<1||Object.keys(job.payload).length!==(job.kind==='provider.reconcile'?3:2)||job.kind==='provider.reconcile'&&typeof job.payload.operationId!=='string')fail('INVALID_REQUEST');
    let row=this.db.prepare("SELECT * FROM provider_delivery_attempts WHERE document_id=? AND state NOT IN ('confirmed','retired')").get(documentId) as AttemptRow|undefined;
+   if(job.kind==='provider.reconcile'&&(!row||row.id!==job.payload.operationId||!['writing','unknown'].includes(row.state))){if(!this.queue.complete(job,now))fail('LEASE_LOST');return null;}
    if(row){
     if(row.lease_until>now&&(row.lease_job_id!==job.id||row.lease_token!==job.token))fail('PROVIDER_BUSY');
     if(['conflict','retryable','blocked'].includes(row.state))fail('CONFLICT');
@@ -43,6 +44,7 @@ export class DeliveryAttempts {
     // Never turn a reclaimed writing lease back into a write permission.
     const state=row.state==='writing'?'unknown':row.state;
     this.db.prepare('UPDATE provider_delivery_attempts SET state=?,lease_job_id=?,lease_token=?,lease_until=?,updated_at=? WHERE id=?').run(state,job.id,job.token,now+leaseMs,now,row.id);
+    if(state!==row.state)this.db.prepare("INSERT INTO events(kind,document_id,payload,created_at) VALUES('provider.source-delivery',?,'{}',?)").run(row.document_id,now);
     row=this.db.prepare('SELECT * FROM provider_delivery_attempts WHERE id=?').get(row.id) as AttemptRow;
    }else{
     const source=this.db.prepare(`SELECT r.requested_revision,v.author_id,v.digest,v.size,b.fingerprint,b.confirmed_revision,b.generation,c.revision AS connection_revision FROM provider_delivery_requests r JOIN provider_source_bindings b ON b.document_id=r.document_id JOIN provider_connections c ON c.id=b.connection_id JOIN document_versions v ON v.document_id=r.document_id AND v.revision=r.requested_revision WHERE r.document_id=?`).get(documentId) as any;
@@ -55,12 +57,36 @@ export class DeliveryAttempts {
    return decode(row,job);
   });
  }
+ /** Exhausting queue write retries never erases an unacknowledged dispatch.
+  * One bounded, operation-bound read-only recovery job is allowed per attempt. */
+ recoverExhausted(now=Date.now()):void{
+  validTime(now);transaction(this.db,()=>{
+   const row=this.db.prepare("SELECT a.* FROM provider_delivery_attempts a JOIN jobs j ON j.id=a.lease_job_id WHERE a.state IN ('prepared','writing','unknown') AND NOT EXISTS(SELECT 1 FROM jobs recovery WHERE recovery.kind='provider.reconcile' AND recovery.dedupe_key=a.id) AND a.lease_until<=? AND j.attempts>=j.max_attempts AND (j.state='failed' OR j.state='queued' OR (j.state='running' AND j.lease_until<=?)) ORDER BY a.lease_until,a.created_at,a.id LIMIT 1").get(now,now) as AttemptRow|undefined;if(!row)return;
+   if(row.state==='prepared'){this.db.prepare("UPDATE provider_delivery_attempts SET state='blocked',error_code='PROVIDER_UNAVAILABLE',updated_at=? WHERE id=?").run(now,row.id);}
+   else{
+    if(row.state==='writing')this.db.prepare("UPDATE provider_delivery_attempts SET state='unknown',error_code='PROVIDER_UNKNOWN',updated_at=? WHERE id=?").run(now,row.id);
+    this.queue.enqueue({kind:'provider.reconcile',key:row.id,payload:{documentId:row.document_id,requestedRevision:row.revision,operationId:row.id}},now);
+   }
+   if(row.state!=='unknown')this.db.prepare("INSERT INTO events(kind,document_id,payload,created_at) VALUES('provider.source-delivery',?,'{}',?)").run(row.document_id,now);
+  });
+ }
  check(attempt:DeliveryAttempt,now=Date.now()):void{const row=this.owned(attempt,now);if(!['prepared','writing','unknown'].includes(row.state))fail('CONFLICT');this.scope(row);}
  renew(attempt:DeliveryAttempt,now=Date.now()):void{transaction(this.db,()=>{this.check(attempt,now);if(!this.queue.renew(attempt.job,now,leaseMs))fail('LEASE_LOST');this.db.prepare('UPDATE provider_delivery_attempts SET lease_until=?,updated_at=? WHERE id=?').run(now+leaseMs,now,attempt.id);});}
- markWriting(attempt:DeliveryAttempt,now=Date.now()):void{transaction(this.db,()=>{const row=this.owned(attempt,now);this.scope(row);if(row.state!=='prepared')fail('CONFLICT');this.db.prepare("UPDATE provider_delivery_attempts SET state='writing',updated_at=? WHERE id=?").run(now,row.id);});}
+ markWriting(attempt:DeliveryAttempt,now=Date.now()):void{transaction(this.db,()=>{const row=this.owned(attempt,now);this.scope(row);if(row.state!=='prepared')fail('CONFLICT');this.db.prepare("UPDATE provider_delivery_attempts SET state='writing',updated_at=? WHERE id=?").run(now,row.id);this.db.prepare("INSERT INTO events(kind,document_id,payload,created_at) VALUES('provider.source-delivery',?,'{}',?)").run(row.document_id,now);});}
  recordOutcome(attempt:DeliveryAttempt,state:'unknown'|'retryable'|'conflict'|'blocked',code:string,now=Date.now()):void{
   if(!['unknown','retryable','conflict','blocked'].includes(state)||!['PROVIDER_UNKNOWN','PROVIDER_CONFLICT','PROVIDER_UNAVAILABLE','ACCESS_DENIED','PROVIDER_CONFIG_CHANGED','PROVIDER_SOURCE_CHANGED'].includes(code))fail('INVALID_REQUEST');
   transaction(this.db,()=>{const row=this.owned(attempt,now);if(!['prepared','writing','unknown'].includes(row.state))fail('CONFLICT');if(row.state==='prepared'&&['unknown','retryable'].includes(state))fail('CONFLICT');this.db.prepare('UPDATE provider_delivery_attempts SET state=?,error_code=?,updated_at=? WHERE id=?').run(state,code,now,row.id);});
+ }
+ /** Atomically release processing authority with its durable outcome/backoff. */
+ settle(attempt:DeliveryAttempt,state:'unknown'|'retryable'|'conflict'|'blocked',code:string,now=Date.now()):void{
+  transaction(this.db,()=>{this.recordOutcome(attempt,state,code,now);
+   const changed=state==='unknown'?this.queue.fail(attempt.job,code,now,1000):this.queue.reject(attempt.job,code,now);if(!changed)fail('LEASE_LOST');
+   this.db.prepare('UPDATE provider_delivery_attempts SET lease_until=?,updated_at=? WHERE id=?').run(now,now,attempt.id);
+   this.db.prepare("INSERT INTO events(kind,document_id,payload,created_at) VALUES('provider.source-delivery',?,'{}',?)").run(attempt.documentId,now);
+  });
+ }
+ reschedulePrepared(attempt:DeliveryAttempt,now=Date.now()):void{
+  transaction(this.db,()=>{const row=this.owned(attempt,now);if(row.state!=='prepared')fail('CONFLICT');if(!this.queue.fail(attempt.job,'PROVIDER_UNAVAILABLE',now,Math.min(300000,1000*2**attempt.job.attempts)))fail('LEASE_LOST');this.db.prepare('UPDATE provider_delivery_attempts SET lease_until=?,updated_at=? WHERE id=?').run(now,now,attempt.id);});
  }
  confirm(attempt:DeliveryAttempt,receipt:{fingerprint:string;digest:string;size:number},now=Date.now()):void{
   if(typeof receipt.fingerprint!=='string'||!receipt.fingerprint||receipt.fingerprint.length>1024||/[\x00-\x1f\x7f]/.test(receipt.fingerprint))fail('INVALID_REQUEST');
