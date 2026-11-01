@@ -49,12 +49,12 @@
 
 ## Task2: Read-only existing installation key loading
 
-**Interfaces:** `loadSecretCodec(path:string):Promise<FernetCodec>`. Explicit path only. Open O_RDONLY|O_NOFOLLOW, require regular file and no group/world mode bits, read at most129 bytes to enforce128-byte file bound, support surrounding ASCII whitespace/newline around a valid32-byte URL-safe key, close fd on every path. Missing/unsafe file => SECRET_KEY_UNAVAILABLE; malformed existing content => INVALID_SECRET_KEY. No input-derived error detail.
+**Interfaces:** `loadSecretCodec(path:string):Promise<FernetCodec>`. Explicit path only. Open O_RDONLY|O_NOFOLLOW|O_NONBLOCK, require regular file and no group/world mode bits, read at most129 bytes to enforce128-byte file bound, support surrounding ASCII whitespace/newline around a valid32-byte URL-safe key, close fd on every path. Missing/unsafe file => SECRET_KEY_UNAVAILABLE; malformed existing content => INVALID_SECRET_KEY. No input-derived error detail.
 
-- [ ] Write tests using private temp files: valid0600/newline; missing; malformed; directory; symlink to another dummy key;0644;129 bytes; fd cleanup; source inode/content/mode/mtime unchanged; no file created on failure; sentinel path/key omitted from errors.
-- [ ] Run `node --test apps/server/test/provider-secret-key.test.ts`; observe missing-loader failures.
-- [ ] Implement bounded loader and reuse Task1 codec; clear loader-owned temporary buffers on exit. No automatic startup integration, environment fallback or installer mutation.
-- [ ] Run focused tests/full relevant tests and TypeScript, diff gates and commit.
+- [x] Write tests using private temp files: valid0600/newline; missing; malformed; directory; symlink to another dummy key;0644;129 bytes; fd cleanup; source inode/content/mode/mtime unchanged; no file created on failure; sentinel path/key omitted from errors.
+- [x] Run `node --test apps/server/test/provider-secret-key.test.ts`; observe missing-loader failures.
+- [x] Implement bounded loader and reuse Task1 codec; clear loader-owned temporary buffers on exit. No automatic startup integration, environment fallback or installer mutation.
+- [x] Run focused tests/full relevant tests and TypeScript, diff gates and commit.
 
 ## Task3: Configuration JSON and migration preflight boundary
 
