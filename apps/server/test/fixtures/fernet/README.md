@@ -1,0 +1,5 @@
+# Public/synthetic Fernet interoperability data
+
+`key` and `officialToken` are published interoperability data from [the official Fernet generate vector](https://github.com/fernet/spec/blob/master/generate.json), checked2026-11-01. They are public test values, never installation credentials. Only functional protocol data is reproduced; no specification text is copied. No separate license file was found at that repository root during this check.
+
+The Python token was generated with cryptography50.0.2 using that public key, `Fernet(key).encrypt_at_time(json.dumps(value).encode(),1)`. `value` is the JSON object encoded in `pythonPlaintext`; its refresh token is explicitly synthetic. Generation uses a random IV; newly generated ciphertext differs while decryption must return the same bytes. The very old timestamp checks legacy decryption without TTL. Tests also perform live Python↔TS verification with `YOURWIKI_TEST_PYTHON` or `python3`; Python is test tooling, not a new server runtime dependency.

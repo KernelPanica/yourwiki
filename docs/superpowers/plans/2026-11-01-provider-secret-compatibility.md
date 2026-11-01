@@ -42,10 +42,10 @@
 
 **Interfaces:** `new FernetCodec(key:string|Uint8Array,{maxPlaintextBytes?:number}={})`; `encrypt(plaintext:Uint8Array):string`; `decrypt(token:string):Buffer`; `close():void`. Default max plaintext1048576; allowed override1..1048576. Token cap2097152. Static `SecretError.code` values include INVALID_SECRET_KEY,INVALID_SECRET_TOKEN,SECRET_TOO_LARGE,SECRET_CLOSED. Returned byte buffers are caller-owned. Random IV and current Unix seconds come from Node runtime; tests use official deterministic decrypt vectors and Python interoperability, not a production deterministic-IV option.
 
-- [ ] Write tests: official known vector decrypt; old-timestamp synthetic Python JSON; Python decrypts a new TS token; empty/Unicode/binary plaintext; two encryptions differ; wrong key; one-bit changes in every token field; invalid alphabet/base64/short token/version/block lengths/tag/padding; plaintext/token size limits; input key-buffer mutation; closed codec; error strings contain none of the sentinel key/token/plaintext.
-- [ ] Run `node --test apps/server/test/provider-fernet.test.ts`; observe missing-module failures.
-- [ ] Implement the exact version0x80 format with Node AES-128-CBC PKCS7, HMAC-SHA256 over version/time/IV/ciphertext and constant-time comparison before decryption. Copy key material, validate URL-safe encoding/decoded lengths, bound allocation before decoding/decrypting, and normalize all cryptographic errors to the stable type. No TTL check for stored configuration.
-- [ ] Run focused tests/TypeScript and inspect native Python interoperability output; diff gates and commit.
+- [x] Write tests: official known vector decrypt; old-timestamp synthetic Python JSON; Python decrypts a new TS token; empty/Unicode/binary plaintext; two encryptions differ; wrong key; one-bit changes in every token field; invalid alphabet/base64/short token/version/block lengths/tag/padding; plaintext/token size limits; input key-buffer mutation; closed codec; error strings contain none of the sentinel key/token/plaintext.
+- [x] Run `node --test apps/server/test/provider-fernet.test.ts`; observe missing-module failures.
+- [x] Implement the exact version0x80 format with Node AES-128-CBC PKCS7, HMAC-SHA256 over version/time/IV/ciphertext and constant-time comparison before decryption. Copy key material, validate URL-safe encoding/decoded lengths, bound allocation before decoding/decrypting, and normalize all cryptographic errors to the stable type. No TTL check for stored configuration.
+- [x] Run focused tests/TypeScript and inspect native Python interoperability output; diff gates and commit.
 
 ## Task2: Read-only existing installation key loading
 
