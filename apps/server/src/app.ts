@@ -1,3 +1,4 @@
+import {registerHistoryRestore} from './history-restore-routes.ts';
 import {registerHistoryPreviews} from './history-preview-routes.ts';
 import {registerHistory} from './history-routes.ts';
 import {registerHistorySettings} from './history-settings-routes.ts';
@@ -63,6 +64,7 @@ export function buildApp(options: AppOptions = {}) {
   if (options.database) registerChanges(app, options.database, options.publicUrl ?? 'http://localhost:3100', options.changesPollMs);
   if (options.database && options.storage) registerDocuments(app, options.database, options.storage, options.publicUrl ?? 'http://localhost:3100', options.maxFileBytes, !!options.office);
   if (options.database && options.storage) registerHistory(app,options.database,options.storage);
+  if (options.database && options.storage) registerHistoryRestore(app,options.database,options.storage,options.publicUrl??'http://localhost:3100',options.maxFileBytes);
   if (options.database && options.storage) registerHistoryPreviews(app,options.database,options.storage,options.publicUrl??'http://localhost:3100');
   if (options.database && options.storage) registerUploads(app, options.database, options.storage, options.publicUrl ?? 'http://localhost:3100', { maxFileBytes: options.maxFileBytes, maxPendingBytes: options.maxPendingUploadBytes, chunkBytes: options.uploadChunkBytes });
   if(options.database&&options.storage&&options.office)registerOffice(app,options.database,options.storage,options.publicUrl??'http://localhost:3100',options.office,{maxFileBytes:options.maxFileBytes,maxPendingBytes:options.maxPendingUploadBytes});

@@ -318,5 +318,26 @@ CREATE TRIGGER history_previews_binding BEFORE UPDATE OF entry_id,document_id,co
  SELECT RAISE(ABORT,'Historical preview binding is immutable');
 END;
 `;
-export const migrations = [core + epochTriggers, authInvalidation, authSettings, jobs, documents, workerSlots, uploads, pdfLayers, saveJournal, officeSessions, officeIngress, officeCleanup, officeRecovery, officePrepared, officePreparedBindings, officeSaveIntents, officeOpenings, officeHandoff, documentVisits, versionHistory, historyPreviews] as const;
+const historyRestores = `
+CREATE TABLE history_restores (
+ id TEXT PRIMARY KEY, author_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+ document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE RESTRICT,
+ entry_id INTEGER NOT NULL REFERENCES history_entries(id) ON DELETE RESTRICT,
+ base_revision INTEGER NOT NULL CHECK(base_revision>=1), base_digest TEXT NOT NULL,
+ layer_revision INTEGER NOT NULL CHECK(layer_revision>=0), layer_digest TEXT,
+ target_digest TEXT NOT NULL, target_size INTEGER NOT NULL CHECK(target_size>=0),
+ format TEXT NOT NULL, kind TEXT NOT NULL CHECK(kind IN ('source','pdf-layer')),
+ state TEXT NOT NULL CHECK(state IN ('staged','saved','discarded')),
+ receipt TEXT, error_code TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+ CHECK((layer_revision=0 AND layer_digest IS NULL) OR (layer_revision>0 AND layer_digest IS NOT NULL)),
+ CHECK((state='saved' AND receipt IS NOT NULL) OR (state!='saved' AND receipt IS NULL))
+);
+CREATE INDEX history_restores_pending ON history_restores(state,author_id);
+CREATE INDEX save_operations_document_pending ON save_operations(document_id) WHERE state!='saved' AND cancelled_at IS NULL;
+CREATE INDEX uploads_document_pending ON uploads(json_extract(metadata,'$.documentId'),expires_at) WHERE state='active';
+CREATE TRIGGER history_restores_binding BEFORE UPDATE OF author_id,document_id,entry_id,base_revision,base_digest,layer_revision,layer_digest,target_digest,target_size,format,kind ON history_restores BEGIN
+ SELECT RAISE(ABORT,'Restore binding is immutable');
+END;
+`;
+export const migrations = [core + epochTriggers, authInvalidation, authSettings, jobs, documents, workerSlots, uploads, pdfLayers, saveJournal, officeSessions, officeIngress, officeCleanup, officeRecovery, officePrepared, officePreparedBindings, officeSaveIntents, officeOpenings, officeHandoff, documentVisits, versionHistory, historyPreviews, historyRestores] as const;
 export const applicationId = 0x5957494b; // YWIK; legacy Django uses no marker.
