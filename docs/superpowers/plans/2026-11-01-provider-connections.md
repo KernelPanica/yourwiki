@@ -30,7 +30,7 @@
 
 ## Files
 
-`apps/server/src/providers/connections.ts`: authorized repository/mount metadata/config CAS; `connection-types.ts`: provider/DTO/input types; reuse DocumentError codes INVALID_REQUEST,ACCESS_DENIED,NOT_FOUND,CONFLICT and add CONNECTION_EXISTS,CONNECTION_IDENTITY_IMMUTABLE,CONFIG_UNAVAILABLE,MIGRATION_MISMATCH (static messages only); `connection-import.ts`: trusted one-record legacy receipt boundary; `connection-routes.ts`: read-only administrative HTTP routes. Append schema.ts; register reads in app.ts only when an explicit configured repository is supplied. Tests: provider-connections.test.ts, provider-connection-import.test.ts, provider-connection-routes.test.ts; extend database.test.ts upgrade coverage.
+`apps/server/src/providers/connections.ts`: authorized repository/mount metadata/config CAS; `connection-types.ts`: provider/DTO/input types; reuse DocumentError codes INVALID_REQUEST,ACCESS_DENIED,NOT_FOUND,CONFLICT and add CONNECTION_EXISTS,CONNECTION_IDENTITY_IMMUTABLE,CONFIG_UNAVAILABLE,MIGRATION_MISMATCH (static messages only); `connection-records.ts`: shared bounded identity validation/atomic insert without user impersonation; `connection-import.ts`: trusted one-record legacy receipt boundary; `connection-routes.ts`: read-only administrative HTTP routes. Append schema.ts; register reads in app.ts only when an explicit configured repository is supplied. Tests: provider-connections.test.ts, provider-connection-import.test.ts, provider-connection-routes.test.ts; extend database.test.ts upgrade coverage.
 
 ## Task1: Encrypted connection/mount identity repository
 
@@ -46,10 +46,10 @@
 
 **Interfaces:** `importLegacyConnection(db,configs,{legacyKey,id,provider,label,path,folderId,encryptedConfig,now}):{legacyKey,connectionId,state:'imported'}`. No user HTTP entry point. legacyKey is explicit stable1..256 ASCII migration identity; caller operates on a stopped-source backup. Authenticate/decrypt original source token with the supplied existing key, preserve original ciphertext exactly on first insert (no silent re-encryption/JSON rewrite), retain all unknown fields and remote identity. An immutable receipt binds SHA256 of canonical ordered `{id,provider,label,path,folderId,tokenSha256}` source metadata; digest is internal and never exposed. Repeat same source returns receipt even after runtime edits; changed source under same key fails MIGRATION_MISMATCH. No reading of live legacy DB or whole-installation importer is implied.
 
-- [ ] Write RED tests: all6 synthetic legacy rows, exact ciphertext copied, Workspace root/Mountpoint identity supplied without inferred duplication, rollback on path/folder collision, wrong key/corrupt/oversize retains source and inserts nothing; replay/reopen after runtime credential update leaves it untouched; changed token/provider/path/id under same legacyKey rejected; source credentials absent from receipt/event/error.
-- [ ] Run focused import tests, observe missing importer failures.
-- [ ] Implement source validation before one short atomic insert+receipt transaction. Receipt schema in26 uses immutable metadata/digest and FK to retained connection. Do not invoke admin create via a fake user, regenerate keys, perform provider calls, scan all legacy rows or silently resolve colliding mounts.
-- [ ] Run migration/repository/import tests/TypeScript, diff gates and commit.
+- [x] Write RED tests: all6 synthetic legacy rows, exact ciphertext copied, Workspace root/Mountpoint identity supplied without inferred duplication, rollback on path/folder collision, wrong key/corrupt/oversize retains source and inserts nothing; replay/reopen after runtime credential update leaves it untouched; changed token/provider/path/id under same legacyKey rejected; source credentials absent from receipt/event/error.
+- [x] Run focused import tests, observe missing importer failures.
+- [x] Implement source validation before one short atomic insert+receipt transaction. Receipt schema in26 uses immutable metadata/digest and FK to retained connection. Do not invoke admin create via a fake user, regenerate keys, perform provider calls, scan all legacy rows or silently resolve colliding mounts.
+- [x] Run migration/repository/import tests/TypeScript, diff gates and commit.
 
 ## Task3: Safe read-only administrative HTTP metadata
 
