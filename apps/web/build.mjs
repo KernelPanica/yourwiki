@@ -14,10 +14,13 @@ const pdfDirectory='pdf-'+hash.digest('hex').slice(0,16);
 const pdfCss=await build({absWorkingDir:root,entryPoints:['src/pdf-workspace.css'],outdir:'dist/assets',bundle:true,minify:true,metafile:true,entryNames:'[name]-[hash]',loader:{'.svg':'dataurl','.gif':'dataurl','.png':'dataurl'}});
 const pdfStyle=Object.keys(pdfCss.metafile.outputs).find(name=>name.endsWith('.css'));
 if(!pdfStyle)throw new Error('Missing PDF styles');
-const result=await build({absWorkingDir:root,entryPoints:['src/main.tsx'],outdir:'dist/assets',bundle:true,minify:true,splitting:true,format:'esm',target:'es2022',jsx:'automatic',metafile:true,entryNames:'[name]-[hash]',chunkNames:'chunk-[hash]',assetNames:'[name]-[hash]',publicPath:'/assets',loader:{'.woff2':'file','.svg':'dataurl','.gif':'dataurl','.png':'dataurl'},define:{'process.env.NODE_ENV':'"production"',__PDF_ASSET_BASE__:JSON.stringify('/assets/'+pdfDirectory+'/'),__PDF_STYLESHEET__:JSON.stringify('/assets/'+basename(pdfStyle))}});
+const archiveWorker=await build({absWorkingDir:root,entryPoints:['src/archive-hash-worker.ts'],outdir:'dist/assets',bundle:true,minify:true,format:'esm',target:'es2022',metafile:true,entryNames:'archive-hash-[hash]'});
+const archiveWorkerPath=Object.keys(archiveWorker.metafile.outputs).find(name=>name.endsWith('.js'));
+if(!archiveWorkerPath)throw new Error('Missing archive hash worker');
+const result=await build({absWorkingDir:root,entryPoints:['src/main.tsx'],outdir:'dist/assets',bundle:true,minify:true,splitting:true,format:'esm',target:'es2022',jsx:'automatic',metafile:true,entryNames:'[name]-[hash]',chunkNames:'chunk-[hash]',assetNames:'[name]-[hash]',publicPath:'/assets',loader:{'.woff2':'file','.svg':'dataurl','.gif':'dataurl','.png':'dataurl'},define:{'process.env.NODE_ENV':'"production"',__PDF_ASSET_BASE__:JSON.stringify('/assets/'+pdfDirectory+'/'),__PDF_STYLESHEET__:JSON.stringify('/assets/'+basename(pdfStyle)),__ARCHIVE_HASH_WORKER__:JSON.stringify('/assets/'+basename(archiveWorkerPath))}});
 let previous={assets:{}};
 try{previous=JSON.parse(await readFile(resolve(dist,'manifest.json'),'utf8'));}catch(error){if(error.code!=='ENOENT')throw error;}
-Object.assign(result.metafile.outputs,pdfCss.metafile.outputs);
+Object.assign(result.metafile.outputs,pdfCss.metafile.outputs,archiveWorker.metafile.outputs);
 const assets={...previous.assets};
 let script='',css='',font='';
 for(const [name,meta] of Object.entries(result.metafile.outputs)) {

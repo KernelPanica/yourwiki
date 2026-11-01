@@ -3,3 +3,5 @@
 .history-pdf-zoom{display:flex;align-items:center;gap:8px;font-size:13px}.history-pdf-zoom select{font:inherit;min-height:44px;padding:8px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:inherit}
 
 .history-restore{margin-top:16px;padding:16px;border:1px solid var(--line);border-radius:8px;line-height:1.5}.history-restore h3{margin:0 0 8px;font-size:16px}.history-restore p{overflow-wrap:anywhere}.history-restore p:empty{display:none}
+
+.history-import{margin-top:16px;padding:16px;border:1px solid var(--line);border-radius:8px;line-height:1.5}.history-import summary{cursor:pointer;min-height:44px;font-weight:600}.history-import label{display:block}.history-import input{display:block;margin:8px 0;max-width:100%}.history-import p{overflow-wrap:anywhere}.history-import progress{width:100%}
