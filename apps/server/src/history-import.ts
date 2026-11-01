@@ -58,9 +58,28 @@ export class HistoryImport{
   try{work.check();this.budget(row);const target=await this.store.existingUploadStore(row.namespace_id);work.check();if(!target)throw new DocumentError('HISTORY_IMPORT_MISSING');this.db.prepare('UPDATE history_imports SET adoption_started=1 WHERE id=? AND lease_token=?').run(id,token);
    let after=-1,count=0,total=0;for(;;){const page=this.page(id,after);if(!page.length)break;for(const entry of page){work.check();await this.store.adopt(target,entry,{signal:work.signal});work.check();count++;total+=entry.size;after=entry.ordinal;}}
    if(count!==row.entry_count||total!==row.total_bytes)throw new DocumentError('HISTORY_ARCHIVE_CORRUPT');
-   return transaction(this.db,()=>{work.check();this.budget(row);let first:number|null=null,last:number|null=null,after=-1,count=0;
-    for(;;){const page=this.page(id,after);if(!page.length)break;for(const entry of page){work.check();if(!entry.metadata_json)throw new DocumentError('HISTORY_ARCHIVE_CORRUPT');const meta=validateLegacyHistoryMetadata(JSON.parse(entry.metadata_json),65536);if(meta.sha256!==entry.digest||entry.entry_id!==null)throw new DocumentError('HISTORY_ARCHIVE_CORRUPT');const inserted=this.db.prepare("INSERT INTO history_entries(document_id,kind,source_revision,digest,size,title,format,captured_by_name,created_at) VALUES(?,'source',?,?,?,?,?,?,?)").run(row.document_id,meta.revision,entry.digest,entry.size,meta.title,meta.file_format,meta.author?.name??'',Date.parse(meta.saved_at)),entryId=Number(inserted.lastInsertRowid);this.db.prepare('INSERT INTO history_legacy_metadata(entry_id,metadata_json) VALUES(?,?)').run(entryId,entry.metadata_json);this.db.prepare('UPDATE history_import_entries SET entry_id=? WHERE import_id=? AND ordinal=?').run(entryId,id,entry.ordinal);first??=entryId;last=entryId;after=entry.ordinal;count++;}}
-    if(count!==row.entry_count)throw new DocumentError('HISTORY_ARCHIVE_CORRUPT');const receipt:Receipt={entries:count,totalBytes:row.total_bytes,firstEntryId:first,lastEntryId:last,archiveSha256:row.archive_digest,archiveSize:row.archive_size};this.db.prepare("UPDATE history_imports SET state='committed',receipt=?,error_code=NULL,lease_token=NULL,lease_until=0,updated_at=? WHERE id=? AND lease_token=?").run(JSON.stringify(receipt),this.clock(),id,token);this.db.prepare("INSERT INTO events(kind,document_id,payload,created_at) VALUES('history.imported',?,?,?)").run(row.document_id,JSON.stringify({operationId:id,entries:count}),this.clock());return this.result(this.row(id)!);
+   return transaction(this.db,()=>{
+    work.check();this.budget(row);let first:number|null=null,last:number|null=null,after=-1,count=0;
+    const staged=this.db.prepare('SELECT ordinal,digest,size,metadata_json,entry_id FROM history_import_entries WHERE import_id=? AND ordinal>? ORDER BY ordinal LIMIT 50');
+    const insert=this.db.prepare("INSERT INTO history_entries(document_id,kind,source_revision,digest,size,title,format,captured_by_name,created_at) VALUES(?,'source',?,?,?,?,?,?,?)");
+    const legacy=this.db.prepare('INSERT INTO history_legacy_metadata(entry_id,metadata_json) VALUES(?,?)');
+    const bind=this.db.prepare('UPDATE history_import_entries SET entry_id=? WHERE import_id=? AND ordinal=?');
+    // This synchronous IMMEDIATE transaction excludes other writers. Reuse statements and
+    // recheck authority/lease at both boundaries instead of recompiling scope queries per row.
+    for(;;){
+     work.signal.throwIfAborted();const page=staged.all(id,after) as Entry[];if(!page.length)break;
+     for(const entry of page){
+      if(!entry.metadata_json)throw new DocumentError('HISTORY_ARCHIVE_CORRUPT');
+      const meta=validateLegacyHistoryMetadata(JSON.parse(entry.metadata_json),65536);
+      if(meta.sha256!==entry.digest||entry.entry_id!==null)throw new DocumentError('HISTORY_ARCHIVE_CORRUPT');
+      const inserted=insert.run(row.document_id,meta.revision,entry.digest,entry.size,meta.title,meta.file_format,meta.author?.name??'',Date.parse(meta.saved_at)),entryId=Number(inserted.lastInsertRowid);
+      legacy.run(entryId,entry.metadata_json);bind.run(entryId,id,entry.ordinal);first??=entryId;last=entryId;after=entry.ordinal;count++;
+     }
+    }
+    if(count!==row.entry_count)throw new DocumentError('HISTORY_ARCHIVE_CORRUPT');work.check();
+    const receipt:Receipt={entries:count,totalBytes:row.total_bytes,firstEntryId:first,lastEntryId:last,archiveSha256:row.archive_digest,archiveSize:row.archive_size};
+    this.db.prepare("UPDATE history_imports SET state='committed',receipt=?,error_code=NULL,lease_token=NULL,lease_until=0,updated_at=? WHERE id=? AND lease_token=?").run(JSON.stringify(receipt),this.clock(),id,token);
+    this.db.prepare("INSERT INTO events(kind,document_id,payload,created_at) VALUES('history.imported',?,?,?)").run(row.document_id,JSON.stringify({operationId:id,entries:count}),this.clock());return this.result(this.row(id)!);
    });
   }catch(error){this.db.prepare('UPDATE history_imports SET error_code=?,lease_token=NULL,lease_until=0,updated_at=? WHERE id=? AND lease_token=?').run(error instanceof DocumentError?error.code:'HISTORY_IMPORT_INTERRUPTED',this.clock(),id,token);throw error;}finally{work.finish();}
  }

@@ -10,8 +10,8 @@ import {HistorySettings} from '../../src/history-settings.ts';
 import {createSession} from '../../src/auth/sessions.ts';
 import {buildApp} from '../../src/app.ts';
 export async function* bytes(value:string|Uint8Array){yield typeof value==='string'?Buffer.from(value):value;}
-export async function historyFixture(t:any,options:{original?:Uint8Array}={}){
- const root=await mkdtemp(join(tmpdir(),'yourwiki-history-read-')),path=join(root,'db'),db=openDatabase(path),store=await BlobStore.open(join(root,'store')),docs=new DocumentService(db,store);
+export async function historyFixture(t:any,options:{original?:Uint8Array;parentDirectory?:string}={}){
+ const root=await mkdtemp(join(options.parentDirectory??tmpdir(),'yourwiki-history-read-')),path=join(root,'db'),db=openDatabase(path),store=await BlobStore.open(join(root,'store')),docs=new DocumentService(db,store);
  db.exec("INSERT INTO users(id,username,display_name,password_hash,admin_role) VALUES('writer','writer','Writer','!','member'),('reader','reader','Reader','!','member'),('foreign','foreign','Foreign','!','member'),('admin','admin','Admin','!','giga');INSERT INTO groups VALUES('g','Group');INSERT INTO memberships VALUES('writer','g'),('reader','g')");
  const first=await docs.create({userId:'writer',groupId:'g',parentId:null,title:'Guide',format:'md'},bytes(options.original??Buffer.from('original'))),other=await docs.create({userId:'writer',groupId:'g',parentId:null,title:'Other',format:'md'},bytes('other'));
  const queue=new JobQueue(db),artifact=await store.put(bytes('<p>Prepared</p>'),{maxBytes:100});

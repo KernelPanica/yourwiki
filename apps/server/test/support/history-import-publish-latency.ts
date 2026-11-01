@@ -1,0 +1,15 @@
+/** Manual SQL visibility-phase probe, NOT intake/integrity acceptance or a target-hardware SLA. */
+import assert from 'node:assert/strict';
+import {createHash} from 'node:crypto';
+import {setImmediate as turn} from 'node:timers/promises';
+import {performance} from 'node:perf_hooks';
+import {transaction} from '../../src/database.ts';
+import {HistoryImport} from '../../src/history-import.ts';
+import {historyFixture,bytes} from './history-fixture.ts';
+const count=Number(process.argv[2]??100000);assert.ok(Number.isSafeInteger(count)&&count>0&&count<=100000);const cleanups:(()=>unknown)[]=[];
+try{
+ const f=await historyFixture({after:(action:()=>unknown)=>cleanups.push(action)}),service=new HistoryImport(f.db,f.store);cleanups.push(()=>service.close());if(count>=10000)process.stderr.write(JSON.stringify({ownedFixtureRoot:f.root})+'\n');const doc=f.other.documentId,operation='publication-probe',digest=createHash('sha256').update('x').digest('hex'),meta={saved_at:'2026-11-01T00:00:00Z',revision:0,kind:'document',file_format:'md',title:'Probe',author:null,sha256:digest,state_reference:''},metadata=JSON.stringify(meta);
+ service.begin({operationId:operation,userId:'admin',documentId:doc,sourceKey:'publication-probe',archiveDigest:'0'.repeat(64),archiveSize:count*(metadata.length+16)});const ns=(f.db.prepare('SELECT namespace_id FROM history_imports WHERE id=?').get(operation) as {namespace_id:string}).namespace_id,target=await f.store.uploadStore(ns),blob=await target.put(bytes('x'),{maxBytes:1});await f.store.adopt(target,blob);
+ const insert=f.db.prepare('INSERT INTO history_import_entries(import_id,ordinal,digest,size,metadata_json) VALUES(?,?,?,?,?)');for(let start=0;start<count;start+=1000){transaction(f.db,()=>{for(let i=start;i<Math.min(count,start+1000);i++)insert.run(operation,i,digest,1,metadata);});await turn();}f.db.prepare("UPDATE history_imports SET state='prepared',entry_count=?,total_bytes=? WHERE id=?").run(count,count,operation);
+ let seen=0,lag:Promise<number>|undefined,measuring=false,preparationCount=0;const prepare=f.db.prepare.bind(f.db);f.db.prepare=((sql:string)=>{if(measuring)preparationCount++;return prepare(sql);}) as typeof f.db.prepare;const adopted=f.store.adopt;f.store.adopt=async(_source,value)=>{if(++seen%50===0)await turn();if(seen===count){measuring=true;const start=performance.now();lag=new Promise(resolve=>setTimeout(()=>resolve(performance.now()-start),0));}return {...value};};const started=performance.now();try{const result=await service.publish('admin',operation);assert.equal(result.receipt!.entries,count);}finally{f.store.adopt=adopted;}measuring=false;const finalTurnLagMs=await lag!;console.log(JSON.stringify({entries:count,preparationCount,withinPreparationBudget:preparationCount<=128,publicationMs:Math.round(performance.now()-started),finalTurnLagMs:Math.round(finalTurnLagMs),within500ms:finalTurnLagMs<=500,scope:'controlled prepared metadata; repeated blob IO excluded'}));
+}finally{for(const cleanup of cleanups.reverse())await cleanup();}
