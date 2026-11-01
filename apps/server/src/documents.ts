@@ -1,3 +1,4 @@
+import {requestSourceDelivery} from './providers/delivery-requests.ts';
 import {DocumentError} from './document-errors.ts';
 import {captureSourceHistory} from './history-capture.ts';
 import {officeWriteAllowed} from './office/fence.ts';
@@ -71,6 +72,7 @@ export class DocumentService {
     this.db.prepare('INSERT INTO document_versions(document_id,revision,digest,size,author_id,created_at) VALUES(?,?,?,?,?,?)')
       .run(id, revision, blob.digest, blob.size, userId, now);
     this.db.prepare('UPDATE documents SET local_revision=? WHERE id=?').run(revision, id);
+    requestSourceDelivery(this.db,id,revision,now);
     return this.stagePreview(id, revision);
   }
   private stagePreview(id: string, revision: number): string {

@@ -569,7 +569,31 @@ CREATE TRIGGER provider_connection_import_delete BEFORE DELETE ON provider_conne
  SELECT RAISE(ABORT,'Provider import receipt is permanent');
 END;
 `;
+const providerSourceRequests = `
+CREATE TABLE provider_source_bindings (
+ document_id TEXT PRIMARY KEY REFERENCES documents(id) ON DELETE RESTRICT,
+ connection_id TEXT NOT NULL REFERENCES provider_connections(id) ON DELETE RESTRICT,
+ kind TEXT NOT NULL DEFAULT 'binary-source' CHECK(kind='binary-source'),
+ reference TEXT NOT NULL CHECK(length(reference) BETWEEN 1 AND 4096),
+ generation INTEGER NOT NULL DEFAULT 1 CHECK(generation=1),
+ fingerprint TEXT NOT NULL CHECK(length(fingerprint) BETWEEN 1 AND 1024),
+ confirmed_revision INTEGER NOT NULL,
+ created_at INTEGER NOT NULL,
+ FOREIGN KEY(document_id,confirmed_revision) REFERENCES document_versions(document_id,revision) ON DELETE RESTRICT
+);
+CREATE TRIGGER provider_source_identity BEFORE UPDATE OF document_id,connection_id,kind,reference,generation,created_at ON provider_source_bindings BEGIN
+ SELECT RAISE(ABORT,'Provider source identity is immutable');
+END;
+CREATE TABLE provider_delivery_requests (
+ document_id TEXT PRIMARY KEY REFERENCES provider_source_bindings(document_id) ON DELETE RESTRICT,
+ requested_revision INTEGER NOT NULL,updated_at INTEGER NOT NULL,
+ FOREIGN KEY(document_id,requested_revision) REFERENCES document_versions(document_id,revision) ON DELETE RESTRICT
+);
+CREATE TRIGGER provider_request_monotonic BEFORE UPDATE ON provider_delivery_requests WHEN NEW.document_id!=OLD.document_id OR NEW.requested_revision<OLD.requested_revision BEGIN
+ SELECT RAISE(ABORT,'Provider request must advance');
+END;
+`;
 /** Parent-table rebuilds run atomically with FK actions suspended, checked before commit, then enforced again. */
 export const migrationForeignKeyRebuilds:readonly number[]=[23];
-export const migrations = [core + epochTriggers, authInvalidation, authSettings, jobs, documents, workerSlots, uploads, pdfLayers, saveJournal, officeSessions, officeIngress, officeCleanup, officeRecovery, officePrepared, officePreparedBindings, officeSaveIntents, officeOpenings, officeHandoff, documentVisits, versionHistory, historyPreviews, historyRestores, legacyHistory, historyImports, historyCatalogue, providerConnections] as const;
+export const migrations = [core + epochTriggers, authInvalidation, authSettings, jobs, documents, workerSlots, uploads, pdfLayers, saveJournal, officeSessions, officeIngress, officeCleanup, officeRecovery, officePrepared, officePreparedBindings, officeSaveIntents, officeOpenings, officeHandoff, documentVisits, versionHistory, historyPreviews, historyRestores, legacyHistory, historyImports, historyCatalogue, providerConnections, providerSourceRequests] as const;
 export const applicationId = 0x5957494b; // YWIK; legacy Django uses no marker.
