@@ -639,7 +639,46 @@ const providerDeliveryRequestJob = `
 ALTER TABLE provider_delivery_requests ADD COLUMN delivery_job_id TEXT REFERENCES jobs(id) ON DELETE RESTRICT;
 UPDATE provider_delivery_requests SET delivery_job_id=(SELECT id FROM jobs WHERE kind='provider.deliver' AND dedupe_key=provider_delivery_requests.document_id||':'||provider_delivery_requests.requested_revision);
 `;
+const providerVersionOrigins = `
+DROP TRIGGER provider_attempt_source;
+CREATE TABLE document_versions_rebuilt (
+ document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE RESTRICT,
+ revision INTEGER NOT NULL,digest TEXT NOT NULL,size INTEGER NOT NULL CHECK(size>=0),
+ author_id TEXT REFERENCES users(id) ON DELETE RESTRICT,created_at INTEGER NOT NULL,
+ PRIMARY KEY(document_id,revision)
+);
+INSERT INTO document_versions_rebuilt SELECT * FROM document_versions;
+DROP TABLE document_versions;
+ALTER TABLE document_versions_rebuilt RENAME TO document_versions;
+`+providerDeliveryAttempts.slice(providerDeliveryAttempts.indexOf('CREATE TRIGGER provider_attempt_source'),providerDeliveryAttempts.indexOf('CREATE TRIGGER provider_attempt_identity'))+`
+CREATE UNIQUE INDEX provider_binding_connection ON provider_source_bindings(document_id,connection_id);
+CREATE TABLE document_provider_origins (
+ document_id TEXT NOT NULL,revision INTEGER NOT NULL CHECK(revision>0),
+ connection_id TEXT NOT NULL REFERENCES provider_connections(id) ON DELETE RESTRICT,
+ fingerprint TEXT NOT NULL CHECK(length(fingerprint) BETWEEN 1 AND 1024),
+ observed_at INTEGER NOT NULL CHECK(observed_at>=0),
+ PRIMARY KEY(document_id,revision),
+ FOREIGN KEY(document_id,revision) REFERENCES document_versions(document_id,revision) ON DELETE RESTRICT DEFERRABLE INITIALLY DEFERRED,
+ FOREIGN KEY(document_id,connection_id) REFERENCES provider_source_bindings(document_id,connection_id) ON DELETE RESTRICT DEFERRABLE INITIALLY DEFERRED
+);
+CREATE TRIGGER provider_origin_insert BEFORE INSERT ON document_provider_origins BEGIN
+ SELECT CASE WHEN EXISTS(SELECT 1 FROM document_versions WHERE document_id=NEW.document_id AND revision=NEW.revision) THEN RAISE(ABORT,'Provider origin must precede source version') END;
+ SELECT CASE WHEN NOT EXISTS(SELECT 1 FROM documents d JOIN resources r ON r.id=d.id JOIN provider_connections c ON c.id=NEW.connection_id WHERE d.id=NEW.document_id AND d.local_revision+1=NEW.revision AND r.trashed=0 AND c.enabled=1) THEN RAISE(ABORT,'Provider origin context mismatch') END;
+END;
+CREATE TRIGGER provider_origin_immutable BEFORE UPDATE ON document_provider_origins BEGIN
+ SELECT RAISE(ABORT,'Provider origin is immutable');
+END;
+CREATE TRIGGER provider_origin_delete BEFORE DELETE ON document_provider_origins BEGIN
+ SELECT RAISE(ABORT,'Provider origin is retained');
+END;
+CREATE TRIGGER document_version_origin_insert BEFORE INSERT ON document_versions WHEN (NEW.author_id IS NULL)!=EXISTS(SELECT 1 FROM document_provider_origins WHERE document_id=NEW.document_id AND revision=NEW.revision) BEGIN
+ SELECT RAISE(ABORT,'Source author does not match provider origin');
+END;
+CREATE TRIGGER document_version_origin_author BEFORE UPDATE OF author_id ON document_versions WHEN (NEW.author_id IS NULL)!=EXISTS(SELECT 1 FROM document_provider_origins WHERE document_id=NEW.document_id AND revision=NEW.revision) BEGIN
+ SELECT RAISE(ABORT,'Source author does not match provider origin');
+END;
+`;
 /** Parent-table rebuilds run atomically with FK actions suspended, checked before commit, then enforced again. */
-export const migrationForeignKeyRebuilds:readonly number[]=[23];
-export const migrations = [core + epochTriggers, authInvalidation, authSettings, jobs, documents, workerSlots, uploads, pdfLayers, saveJournal, officeSessions, officeIngress, officeCleanup, officeRecovery, officePrepared, officePreparedBindings, officeSaveIntents, officeOpenings, officeHandoff, documentVisits, versionHistory, historyPreviews, historyRestores, legacyHistory, historyImports, historyCatalogue, providerConnections, providerSourceRequests, providerDeliveryAttempts, providerDeliveryRecoveryIndex, providerDeliveryRequestJob] as const;
+export const migrationForeignKeyRebuilds:readonly number[]=[23,31];
+export const migrations = [core + epochTriggers, authInvalidation, authSettings, jobs, documents, workerSlots, uploads, pdfLayers, saveJournal, officeSessions, officeIngress, officeCleanup, officeRecovery, officePrepared, officePreparedBindings, officeSaveIntents, officeOpenings, officeHandoff, documentVisits, versionHistory, historyPreviews, historyRestores, legacyHistory, historyImports, historyCatalogue, providerConnections, providerSourceRequests, providerDeliveryAttempts, providerDeliveryRecoveryIndex, providerDeliveryRequestJob, providerVersionOrigins] as const;
 export const applicationId = 0x5957494b; // YWIK; legacy Django uses no marker.
