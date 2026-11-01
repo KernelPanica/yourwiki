@@ -593,7 +593,46 @@ CREATE TRIGGER provider_request_monotonic BEFORE UPDATE ON provider_delivery_req
  SELECT RAISE(ABORT,'Provider request must advance');
 END;
 `;
+const providerDeliveryAttempts = `
+CREATE TABLE provider_delivery_attempts (
+ id TEXT PRIMARY KEY,document_id TEXT NOT NULL REFERENCES provider_source_bindings(document_id) ON DELETE RESTRICT,
+ revision INTEGER NOT NULL,author_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+ digest TEXT NOT NULL CHECK(length(digest)=64 AND digest NOT GLOB '*[^0-9a-f]*'),
+ size INTEGER NOT NULL CHECK(size BETWEEN 0 AND 4294967296),
+ baseline TEXT NOT NULL CHECK(length(baseline) BETWEEN 1 AND 1024),base_revision INTEGER NOT NULL,
+ binding_generation INTEGER NOT NULL CHECK(binding_generation=1),connection_revision INTEGER NOT NULL CHECK(connection_revision>0),
+ state TEXT NOT NULL CHECK(state IN ('prepared','writing','unknown','confirmed','retryable','conflict','blocked','retired')),
+ error_code TEXT CHECK(error_code IS NULL OR (length(error_code) BETWEEN 1 AND 64 AND error_code NOT GLOB '*[^A-Z0-9_]*')),
+ receipt_fingerprint TEXT CHECK(receipt_fingerprint IS NULL OR length(receipt_fingerprint) BETWEEN 1 AND 1024),
+ lease_job_id TEXT NOT NULL REFERENCES jobs(id) ON DELETE RESTRICT,lease_token TEXT NOT NULL,lease_until INTEGER NOT NULL,
+ created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL,
+ FOREIGN KEY(document_id,revision) REFERENCES document_versions(document_id,revision) ON DELETE RESTRICT,
+ FOREIGN KEY(document_id,base_revision) REFERENCES document_versions(document_id,revision) ON DELETE RESTRICT,
+ CHECK((state='confirmed')=(receipt_fingerprint IS NOT NULL))
+);
+CREATE UNIQUE INDEX provider_one_unresolved ON provider_delivery_attempts(document_id) WHERE state NOT IN ('confirmed','retired');
+CREATE INDEX provider_attempt_document ON provider_delivery_attempts(document_id,created_at,id);
+CREATE TRIGGER provider_attempt_source BEFORE INSERT ON provider_delivery_attempts BEGIN
+ SELECT CASE WHEN NOT EXISTS(SELECT 1 FROM document_versions v JOIN provider_source_bindings b ON b.document_id=v.document_id JOIN provider_connections c ON c.id=b.connection_id WHERE v.document_id=NEW.document_id AND v.revision=NEW.revision AND v.digest=NEW.digest AND v.size=NEW.size AND v.author_id=NEW.author_id AND b.fingerprint=NEW.baseline AND b.confirmed_revision=NEW.base_revision AND b.generation=NEW.binding_generation AND c.revision=NEW.connection_revision AND c.enabled=1) THEN RAISE(ABORT,'Provider attempt source mismatch') END;
+ SELECT CASE WHEN NEW.state!='prepared' THEN RAISE(ABORT,'Provider attempt must start prepared') END;
+END;
+CREATE TRIGGER provider_attempt_identity BEFORE UPDATE OF id,document_id,revision,author_id,digest,size,baseline,base_revision,binding_generation,connection_revision,created_at ON provider_delivery_attempts BEGIN
+ SELECT RAISE(ABORT,'Provider attempt identity is immutable');
+END;
+CREATE TRIGGER provider_attempt_transition BEFORE UPDATE OF state ON provider_delivery_attempts WHEN NEW.state!=OLD.state AND NOT (
+ (OLD.state='prepared' AND NEW.state IN ('writing','blocked','conflict')) OR
+ (OLD.state='writing' AND NEW.state IN ('unknown','confirmed','retryable','conflict','blocked')) OR
+ (OLD.state='unknown' AND NEW.state IN ('confirmed','retryable','conflict','blocked')) OR
+ (OLD.state IN ('retryable','blocked') AND NEW.state='retired')
+) BEGIN SELECT RAISE(ABORT,'Invalid provider attempt transition'); END;
+CREATE TRIGGER provider_attempt_terminal BEFORE UPDATE ON provider_delivery_attempts WHEN OLD.state IN ('confirmed','retired') BEGIN
+ SELECT RAISE(ABORT,'Provider receipt is immutable');
+END;
+CREATE TRIGGER provider_attempt_delete BEFORE DELETE ON provider_delivery_attempts BEGIN
+ SELECT RAISE(ABORT,'Provider attempt is retained');
+END;
+`;
 /** Parent-table rebuilds run atomically with FK actions suspended, checked before commit, then enforced again. */
 export const migrationForeignKeyRebuilds:readonly number[]=[23];
-export const migrations = [core + epochTriggers, authInvalidation, authSettings, jobs, documents, workerSlots, uploads, pdfLayers, saveJournal, officeSessions, officeIngress, officeCleanup, officeRecovery, officePrepared, officePreparedBindings, officeSaveIntents, officeOpenings, officeHandoff, documentVisits, versionHistory, historyPreviews, historyRestores, legacyHistory, historyImports, historyCatalogue, providerConnections, providerSourceRequests] as const;
+export const migrations = [core + epochTriggers, authInvalidation, authSettings, jobs, documents, workerSlots, uploads, pdfLayers, saveJournal, officeSessions, officeIngress, officeCleanup, officeRecovery, officePrepared, officePreparedBindings, officeSaveIntents, officeOpenings, officeHandoff, documentVisits, versionHistory, historyPreviews, historyRestores, legacyHistory, historyImports, historyCatalogue, providerConnections, providerSourceRequests, providerDeliveryAttempts] as const;
 export const applicationId = 0x5957494b; // YWIK; legacy Django uses no marker.
