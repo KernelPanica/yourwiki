@@ -524,7 +524,52 @@ CREATE TRIGGER history_import_usage_publish AFTER UPDATE OF state ON history_imp
  ON CONFLICT(document_id) DO UPDATE SET total_bytes=total_bytes+NEW.total_bytes,entry_count=entry_count+NEW.entry_count;
 END;
 `;
+const providerConnections = `
+CREATE TABLE provider_connections (
+ id TEXT PRIMARY KEY CHECK(length(id) BETWEEN 1 AND 128),
+ provider TEXT NOT NULL CHECK(provider IN ('local','google','onedrive','github','smb','sftp')),
+ label TEXT NOT NULL CHECK(length(label) BETWEEN 1 AND 200),
+ encrypted_config TEXT NOT NULL CHECK(length(encrypted_config) BETWEEN 1 AND 2097152 AND encrypted_config NOT GLOB '*[^A-Za-z0-9_=-]*'),
+ revision INTEGER NOT NULL DEFAULT 1 CHECK(typeof(revision)='integer' AND revision BETWEEN 1 AND 9007199254740991),
+ enabled INTEGER NOT NULL DEFAULT 1 CHECK(enabled IN (0,1)),created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL
+);
+CREATE TABLE provider_mounts (
+ connection_id TEXT PRIMARY KEY REFERENCES provider_connections(id) ON DELETE RESTRICT,
+ path TEXT NOT NULL UNIQUE CHECK(length(path) BETWEEN 1 AND 2048 AND substr(path,1,1)='/'),
+ folder_id TEXT UNIQUE REFERENCES resources(id) ON DELETE RESTRICT,
+ CHECK((path='/' AND folder_id IS NULL) OR (path!='/' AND folder_id IS NOT NULL))
+);
+CREATE TRIGGER provider_connection_identity BEFORE UPDATE OF id,provider,created_at ON provider_connections BEGIN
+ SELECT RAISE(ABORT,'Provider connection identity is immutable');
+END;
+CREATE TRIGGER provider_mount_identity BEFORE UPDATE ON provider_mounts BEGIN
+ SELECT RAISE(ABORT,'Provider mount identity is immutable');
+END;
+CREATE TRIGGER provider_mount_folder_insert BEFORE INSERT ON provider_mounts WHEN NEW.folder_id IS NOT NULL BEGIN
+ SELECT CASE WHEN NOT EXISTS(SELECT 1 FROM resources WHERE id=NEW.folder_id AND kind='folder' AND trashed=0) THEN RAISE(ABORT,'Provider mount requires a folder') END;
+END;
+CREATE TRIGGER provider_mount_folder_kind BEFORE UPDATE OF kind ON resources WHEN NEW.kind!='folder' AND EXISTS(SELECT 1 FROM provider_mounts WHERE folder_id=OLD.id) BEGIN
+ SELECT RAISE(ABORT,'Mounted resource must remain a folder');
+END;
+CREATE TABLE provider_connection_changes (
+ connection_id TEXT NOT NULL REFERENCES provider_connections(id) ON DELETE RESTRICT,
+ revision INTEGER NOT NULL CHECK(revision>0),created_at INTEGER NOT NULL,
+ PRIMARY KEY(connection_id,revision)
+);
+CREATE TABLE provider_connection_imports (
+ legacy_key TEXT PRIMARY KEY CHECK(length(legacy_key) BETWEEN 1 AND 256),
+ connection_id TEXT NOT NULL REFERENCES provider_connections(id) ON DELETE RESTRICT,
+ source_fingerprint TEXT NOT NULL CHECK(length(source_fingerprint)=64 AND source_fingerprint NOT GLOB '*[^0-9a-f]*'),
+ created_at INTEGER NOT NULL
+);
+CREATE TRIGGER provider_connection_import_immutable BEFORE UPDATE ON provider_connection_imports BEGIN
+ SELECT RAISE(ABORT,'Provider import receipt is immutable');
+END;
+CREATE TRIGGER provider_connection_import_delete BEFORE DELETE ON provider_connection_imports BEGIN
+ SELECT RAISE(ABORT,'Provider import receipt is permanent');
+END;
+`;
 /** Parent-table rebuilds run atomically with FK actions suspended, checked before commit, then enforced again. */
 export const migrationForeignKeyRebuilds:readonly number[]=[23];
-export const migrations = [core + epochTriggers, authInvalidation, authSettings, jobs, documents, workerSlots, uploads, pdfLayers, saveJournal, officeSessions, officeIngress, officeCleanup, officeRecovery, officePrepared, officePreparedBindings, officeSaveIntents, officeOpenings, officeHandoff, documentVisits, versionHistory, historyPreviews, historyRestores, legacyHistory, historyImports, historyCatalogue] as const;
+export const migrations = [core + epochTriggers, authInvalidation, authSettings, jobs, documents, workerSlots, uploads, pdfLayers, saveJournal, officeSessions, officeIngress, officeCleanup, officeRecovery, officePrepared, officePreparedBindings, officeSaveIntents, officeOpenings, officeHandoff, documentVisits, versionHistory, historyPreviews, historyRestores, legacyHistory, historyImports, historyCatalogue, providerConnections] as const;
 export const applicationId = 0x5957494b; // YWIK; legacy Django uses no marker.
