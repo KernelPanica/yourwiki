@@ -58,12 +58,12 @@
 
 ## Task3: Configuration JSON and migration preflight boundary
 
-**Interfaces:** `SecretConfigs(codec)` with `encrypt(value:Record<string,unknown>):string`, `decrypt(token:string):Record<string,unknown>`, `verifyLegacyRecord({source:'workspace'|'mount'|'site-ai'|'site-google-oauth'|'site-identity-oauth',id:string,encrypted:string}):{source,id,state:'verified'|'empty'}`. Only empty site configuration strings yield empty; empty workspace/mount tokens fail. Stable INVALID_SECRET_CONFIG for malformed JSON, non-object top level, cyclic/unsupported input, UTF8 corruption or invalid record identity; inherited/toJSON behaviour may not silently replace caller data. Unknown own JSON keys survive. No authenticated configuration or ciphertext is returned by the verifier.
+**Interfaces:** `SecretConfigs(codec)` with `encrypt(value:Record<string,unknown>):string`, `decrypt(token:string):Record<string,unknown>`, `verifyLegacyRecord({source:'workspace'|'mount'|'site-ai'|'site-google-oauth'|'site-identity-oauth',id:string,encrypted:string}):{source,id,state:'verified'|'empty'}`. Only empty site configuration strings yield empty; empty workspace/mount tokens fail. Stable INVALID_SECRET_CONFIG for malformed JSON, non-object top level, cyclic/unsupported input, UTF8 corruption or invalid record identity; inherited/toJSON behaviour may not silently replace caller data. Unknown own JSON keys survive. JSON traversal admits at most128 levels/100000 nodes and rejects unsafe integer values rather than rounding them; negative zero is emitted as-0.0 for JS/Python compatibility. No authenticated configuration or ciphertext is returned by the verifier.
 
-- [ ] Write tests: Python wiki.crypto JSON shapes for Workspace/MountPoint/site AI/OAuth, nested unknown fields, Unicode, null/arrays as values; round-trip in both runtimes; wrong key/corruption/oversize retained source; empty-site-only rule; arrays/null/prototype-sensitive own keys safely preserved without prototype mutation; JSON/toJSON/cycle/invalid UTF8 rejection; result/error redaction and unchanged input record.
-- [ ] Run `node --test apps/server/test/provider-secret-config.test.ts`; observe missing-config boundary failures.
-- [ ] Implement bounded JSON object validation and per-record verification without provider IO, DB mutation, logging, array materialization of an installation or HTTP scanning endpoint. Return fresh own-property data. Keep secrets internal to this explicit service.
-- [ ] Run full native server/web suite, both typechecks/build as affected, Python interoperability, diff gates and commit. Record counts/limits/sources and continue the provider connection/delivery plans. Do not mark the full rewrite or live provider migration complete.
+- [x] Write tests: Python wiki.crypto JSON shapes for Workspace/MountPoint/site AI/OAuth, nested unknown fields, Unicode, null/arrays as values; round-trip in both runtimes; wrong key/corruption/oversize retained source; empty-site-only rule; arrays/null/prototype-sensitive own keys safely preserved without prototype mutation; JSON/toJSON/cycle/invalid UTF8 rejection; result/error redaction and unchanged input record.
+- [x] Run `node --test apps/server/test/provider-secret-config.test.ts`; observe missing-config boundary failures.
+- [x] Implement bounded JSON object validation and per-record verification without provider IO, DB mutation, logging, array materialization of an installation or HTTP scanning endpoint. Return fresh own-property data. Keep secrets internal to this explicit service.
+- [x] Run full native server/web suite, both typechecks/build as affected, Python interoperability, diff gates and commit. Record counts/limits/sources and continue the provider connection/delivery plans. Do not mark the full rewrite or live provider migration complete.
 
 ## Protocol sources checked 2026-11-01
 
@@ -71,3 +71,6 @@
 - [Python cryptography Fernet documentation](https://cryptography.io/en/latest/fernet/).
 
 Self-review: this plan covers only the encrypted-configuration prerequisite to approved provider/migration stages. It deliberately has no external account operation, token refresh, grants or document write. Public account flows/warnings and the adapters remain later executable plans under the same approved roadmap.
+
+
+Completion evidence: ledger2026-11-01 provider secret Task3; native server519/519, web140/140 and both typechecks. This is an internal compatibility/preflight module, not a live provider migration.
