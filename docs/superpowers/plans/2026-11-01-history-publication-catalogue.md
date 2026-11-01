@@ -50,12 +50,12 @@ Ruling: public history identity must be independent of provisional physical row 
 
 **Files:** modify apps/server/src/history-read.ts, history-capture.ts, history-export.ts; extend history-read/history-routes/history-legacy-read/history-transfer tests.
 
-**Interfaces:** `HistoryRead.reference(userId,documentId,publicId)` returns an authorized internal reference in the current read snapshot; `entry/list` still return the existing public DTO, with no storage ID/private import fields. `HistoryRead.legacyMetadata(userId,documentId,publicId)` is the internal exact-export metadata accessor. Export snapshots use the public sequence/ranges at open, not physical SQLite keys.
+**Interfaces:** `HistoryRead.reference(userId,documentId,publicId)` returns an authorized internal reference in the current read snapshot; `entry/list` still return the existing public DTO, with no storage ID/private import fields. `HistoryRead.legacyMetadata(userId,documentId,publicId)` is the internal exact-export metadata accessor and requires export rights. `authorizeExport`, `exportSnapshot` and bounded `exportIds` provide current authority and public high-water enumeration without parsing unrelated history. Export snapshots use the public sequence/ranges at open, not physical SQLite keys.
 
-- [ ] Write RED tests: reserved physical IDs guessed through every read route return404; interleave local captures and publication of two imports, then verify50-row descending pages and stable public cursors; an export opened before publication excludes that entire import even if its physical rows already exist. Include private orphan rows, zero-entry imports and old deleted high IDs.
-- [ ] Run focused read/routes/legacy/transfer suites and observe failures before replacing raw history_entries scans.
-- [ ] Route read/list/export through catalogue keys; preserve whole-blob integrity, per-chunk scope checks, exact legacy metadata and existing no-store/export restrictions. Local capture uses the public sequence in its existing source/PDF transaction. Do not alter source/PDF save, WOPI or warning behavior.
-- [ ] Verify focused suites/TypeScript/diff gates and commit before activating private intake.
+- [x] Write RED tests: reserved physical IDs guessed through every read route return404; interleave local captures and publication of two imports, then verify50-row descending pages and stable public cursors; an export opened before publication excludes that entire import even if its physical rows already exist. Include private orphan rows, zero-entry imports and old deleted high IDs.
+- [x] Run focused read/routes/legacy/transfer suites and observe failures before replacing raw history_entries scans.
+- [x] Route read/list/export through catalogue keys; preserve whole-blob integrity, per-chunk scope checks, exact legacy metadata and existing no-store/export restrictions. Local capture uses the public sequence in its existing source/PDF transaction. Do not alter source/PDF save, WOPI or warning behavior.
+- [x] Verify focused suites/TypeScript/diff gates and commit before activating private intake.
 
 ## Task3: Keep preview/restore FK references private and public contracts stable
 

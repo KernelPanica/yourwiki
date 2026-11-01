@@ -12,12 +12,15 @@ function range(value:Range){if(!safe(value.first_public_id)||!safe(value.last_pu
 /** Read-only, bounded visibility catalogue. Callers still perform current document authorization. */
 export class HistoryCatalogue{
  private db:Database;
- private local;private roots;private matching;private imported;private stored;private owner;
+ private local;private roots;private matching;private imported;private stored;private owner;private localAscending;private rootsAscending;private importedAscending;
  constructor(db:Database){this.db=db;
   this.local=db.prepare('SELECT id AS storageId,public_id AS publicId FROM history_entries WHERE document_id=? AND import_id IS NULL AND public_id<=? ORDER BY public_id DESC LIMIT ?');
   this.roots=db.prepare("SELECT id,document_id,first_public_id,last_public_id,entry_count,catalogue_ready FROM history_imports WHERE document_id=? AND state='committed' AND first_public_id IS NOT NULL AND first_public_id<=? ORDER BY first_public_id DESC LIMIT ?");
   this.matching=db.prepare("SELECT id,document_id,first_public_id,last_public_id,entry_count,catalogue_ready FROM history_imports WHERE document_id=? AND state='committed' AND first_public_id IS NOT NULL AND first_public_id<=? ORDER BY first_public_id DESC LIMIT 1");
   this.imported=db.prepare('SELECT id AS storageId,import_ordinal AS ordinal FROM history_entries WHERE import_id=? AND import_ordinal<=? ORDER BY import_ordinal DESC LIMIT ?');
+  this.localAscending=db.prepare('SELECT id AS storageId,public_id AS publicId FROM history_entries WHERE document_id=? AND import_id IS NULL AND public_id>? AND public_id<=? ORDER BY public_id LIMIT ?');
+  this.rootsAscending=db.prepare("SELECT id,document_id,first_public_id,last_public_id,entry_count,catalogue_ready FROM history_imports WHERE document_id=? AND state='committed' AND first_public_id IS NOT NULL AND first_public_id>? AND first_public_id<=? ORDER BY first_public_id LIMIT ?");
+  this.importedAscending=db.prepare('SELECT id AS storageId,import_ordinal AS ordinal FROM history_entries WHERE import_id=? AND import_ordinal>? AND import_ordinal<=? ORDER BY import_ordinal LIMIT ?');
   this.owner=db.prepare('SELECT id,document_id,state,first_public_id,last_public_id,entry_count,catalogue_ready FROM history_imports WHERE id=?');
   this.stored=db.prepare('SELECT e.*,(SELECT metadata_json FROM history_legacy_metadata WHERE entry_id=e.id) AS legacy_metadata FROM history_entries e WHERE e.document_id=? AND e.id=?');
  }
@@ -31,6 +34,12 @@ export class HistoryCatalogue{
   if(!root||root.document_id!==documentId)corrupt();if(root.state!=='committed')return undefined;range(root);if(!safe(row.import_ordinal,0)||row.import_ordinal>=root.entry_count)corrupt();return this.record(documentId,{storageId,publicId:root.first_public_id+row.import_ordinal});
  });}
  publicId(documentId:string,storageId:number){return this.byStorageId(documentId,storageId)?.publicId;}
+ snapshot(documentId:string):{count:number;high:number}{input(documentId);return readTransaction(this.db,()=>{const usage=this.db.prepare('SELECT entry_count FROM history_usage WHERE document_id=?').get(documentId) as {entry_count:number}|undefined,sequence=this.db.prepare('SELECT value FROM history_public_sequence WHERE singleton=1').get() as {value:number}|undefined;const count=usage?.entry_count??0,high=sequence?.value;if(!safe(count,0)||count>100000||!safe(high,0)||count>0&&high===0)corrupt();return {count,high};});}
+ ascending(documentId:string,options:{after:number;high:number;limit?:number}):number[]{input(documentId);const {after,high}=options,limit=options.limit??50;if(!safe(after,0)||!safe(high,0)||after>high||!safe(limit)||limit>200)throw new DocumentError('INVALID_REQUEST');return readTransaction(this.db,()=>{
+  const keys=this.localAscending.all(documentId,after,high,limit) as Key[],roots=this.rootsAscending.all(documentId,after,high,limit) as Range[],previous=(this.matching.all(documentId,after) as Range[])[0];if(previous&&range(previous).last_public_id>after)roots.unshift(previous);
+  for(const value of roots){const root=range(value),low=Math.max(-1,after-root.first_public_id),top=Math.min(high,root.last_public_id)-root.first_public_id;if(top<=low)continue;const found=this.importedAscending.all(root.id,low,top,limit) as {storageId:number;ordinal:number}[];if(found.length!==Math.min(limit,top-low))corrupt();for(let i=0;i<found.length;i++){if(found[i].ordinal!==low+1+i)corrupt();keys.push({storageId:found[i].storageId,publicId:root.first_public_id+found[i].ordinal});}}
+  keys.sort((a,b)=>a.publicId-b.publicId);for(let i=0;i<keys.length;i++)if(!safe(keys[i].publicId)||!safe(keys[i].storageId)||i&&keys[i-1].publicId===keys[i].publicId)corrupt();return keys.slice(0,limit).map(key=>key.publicId);
+ });}
  page(documentId:string,options:{after?:number;limit?:number}={}):{items:HistoryCatalogueRecord[];nextCursor:string|null}{input(documentId,options.after);const limit=options.limit??50;if(!safe(limit)||limit>200)throw new DocumentError('INVALID_REQUEST');return readTransaction(this.db,()=>{
   const maximum=options.after===undefined?Number.MAX_SAFE_INTEGER:options.after-1,take=limit+1,keys=this.local.all(documentId,maximum,take) as Key[];
   for(const candidate of this.roots.all(documentId,maximum,take) as Range[]){const root=range(candidate),highest=Math.min(maximum,root.last_public_id)-root.first_public_id,imported=this.imported.all(root.id,highest,take) as {storageId:number;ordinal:number}[];if(imported.length!==Math.min(take,highest+1))corrupt();for(let index=0;index<imported.length;index++){const key=imported[index];if(key.ordinal!==highest-index)corrupt();keys.push({storageId:key.storageId,publicId:root.first_public_id+key.ordinal});}}
