@@ -70,3 +70,6 @@ export class HistoryBrowser{
  async archive(start:(url:string)=>void){if(!this.current())return;try{const value=await this.request(this.base()+'?limit=1',{signal:this.lifetime.signal});if(!this.current())return;const page=parseHistoryPage(value,this.options.documentId);if(this.state.page)this.update({page:{...this.state.page,document:page.document}});if(!page.document.export)throw new ApiError('HISTORY_EXPORT_DENIED');start(this.base()+'/archive');}catch(error){this.failed(error);}}
  dispose(){if(this.disposed)return;this.disposed=true;this.lifetime.abort();this.pageRequest?.abort();this.previewRequest?.abort();this.accessRequest?.abort();this.removeFence();this.listeners.clear();}
 }
+
+/** Shared scoped history-entry validator for confirmation metadata. */
+export {item as parseHistoryItem};

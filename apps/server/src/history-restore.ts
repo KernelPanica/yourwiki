@@ -1,5 +1,5 @@
 import {buffer} from 'node:stream/consumers';
-import {transaction,type Database} from './database.ts';
+import {transaction,readTransaction,type Database} from './database.ts';
 import {DocumentError} from './document-errors.ts';
 import {DocumentService} from './documents.ts';
 import {PdfLayerService} from './pdf-layers.ts';
@@ -13,15 +13,32 @@ import type {BlobStore} from './storage/blobs.ts';
 export type RestoreInput={operationId:string;userId:string;documentId:string;entryId:number;baseRevision:number;baseDigest:string;layerRevision:number;layerDigest:string|null};
 type Receipt={documentId:string;entryId:number;kind:'source'|'pdf-layer';revision:number;layerRevision:number;digest:string;size:number;jobId:string|null};
 type Row={id:string;author_id:string;document_id:string;entry_id:number;base_revision:number;base_digest:string;layer_revision:number;layer_digest:string|null;target_digest:string;target_size:number;format:string;kind:'source'|'pdf-layer';state:'staged'|'saved'|'discarded';receipt:string|null;error_code:string|null};
+type Binding=Pick<Row,'author_id'|'document_id'|'entry_id'|'base_revision'|'base_digest'|'layer_revision'|'layer_digest'|'target_digest'|'target_size'|'format'|'kind'>;
 const digest=(value:unknown)=>typeof value==='string'&&/^[a-f0-9]{64}$/.test(value);
 /** Receipt-scoped restore; public callers can never nominate a private BlobRef. */
 export class HistoryRestore{
  private db:Database;private store:BlobStore;private reader:HistoryRead;private integrity:HistoryIntegrity;private docs:DocumentService;private layers:PdfLayerService;private validator:OfficeValidationWorker;private lifetime=new AbortController();private pending=new Set<Promise<unknown>>();private maxBytes:number;
  constructor(db:Database,store:BlobStore,options:{maxFileBytes?:number}={}){this.db=db;this.store=store;this.maxBytes=options.maxFileBytes??4*1024**3;if(!Number.isSafeInteger(this.maxBytes)||this.maxBytes<1)throw new Error('Invalid restore limit');this.reader=new HistoryRead(db,store);this.integrity=new HistoryIntegrity(db);this.docs=new DocumentService(db,store,{maxBytes:this.maxBytes});this.layers=new PdfLayerService(db,store,{maxBytes:this.maxBytes});this.validator=new OfficeValidationWorker(db);}
  private row(id:string){return this.db.prepare('SELECT * FROM history_restores WHERE id=?').get(id) as Row|undefined;}
- private result(row:Row){return {operationId:row.id,documentId:row.document_id,entryId:row.entry_id,state:row.state,errorCode:row.error_code,receipt:row.receipt?JSON.parse(row.receipt) as Receipt:null,delivery:'local' as const,providerDelivery:'not_attempted' as const};}
+ private result(row:Row){return {operationId:row.id,documentId:row.document_id,entryId:row.entry_id,state:row.state,errorCode:row.error_code,baseline:{baseRevision:row.base_revision,baseDigest:row.base_digest,layerRevision:row.layer_revision,layerDigest:row.layer_digest},receipt:row.receipt?JSON.parse(row.receipt) as Receipt:null,delivery:'local' as const,providerDelivery:'not_attempted' as const};}
  private scoped(user:string,id:string){this.lifetime.signal.throwIfAborted();const row=this.row(id);if(!row||row.author_id!==user)throw new DocumentError('NOT_FOUND');this.reader.entry(user,row.document_id,row.entry_id);return row;}
- status(user:string,id:string){return this.result(this.scoped(user,id));}
+ status(user:string,id:string){return readTransaction(this.db,()=>this.result(this.scoped(user,id)));}
+ /** Read-only confirmation metadata. The accepted operation still rechecks this exact baseline. */
+ describe(user:string,documentId:string,entryId:number){
+  return readTransaction(this.db,()=>{
+   const context=this.reader.entry(user,documentId,entryId);if(!context.document.write)throw new DocumentError('ACCESS_DENIED');const entry=context.item;
+   const source=this.db.prepare('SELECT d.local_revision,v.digest FROM documents d JOIN document_versions v ON v.document_id=d.id AND v.revision=d.local_revision WHERE d.id=?').get(documentId) as {local_revision:number;digest:string}|undefined;
+   const layer=this.db.prepare('SELECT revision,digest FROM pdf_layer_versions WHERE document_id=? ORDER BY revision DESC LIMIT 1').get(documentId) as {revision:number;digest:string}|undefined;
+   if(!source||!Number.isSafeInteger(source.local_revision)||source.local_revision<1||!digest(source.digest)||layer&&(!Number.isSafeInteger(layer.revision)||layer.revision<1||!digest(layer.digest)))throw new DocumentError('HISTORY_CORRUPT');
+   const baseline={baseRevision:source.local_revision,baseDigest:source.digest,layerRevision:layer?.revision??0,layerDigest:layer?.digest??null};let blockedReason:string|null=null;
+   const binding:Binding={author_id:user,document_id:documentId,entry_id:entryId,base_revision:baseline.baseRevision,base_digest:baseline.baseDigest,layer_revision:baseline.layerRevision,layer_digest:baseline.layerDigest,target_digest:entry.sha256,target_size:entry.size,format:entry.format,kind:entry.kind};
+   try{this.guard(binding);}catch(error){if(!(error instanceof DocumentError)||!['CONFLICT','HISTORY_FORMAT_MISMATCH','OFFICE_ACTIVE','SAVE_PENDING'].includes(error.code))throw error;blockedReason=error.code;}
+   if(entry.size>this.maxBytes)blockedReason='PAYLOAD_TOO_LARGE';
+   const format=entry.format==='markdown'?'md':entry.format==='text'?'txt':entry.format;
+   if(!blockedReason&&!officeFormats.has(format)&&format!=='pdf')blockedReason='HISTORY_FORMAT_UNSUPPORTED';
+   return {schemaVersion:1 as const,documentId,entry,baseline,blockedReason};
+  });
+ }
  request(value:RestoreInput){
   const input={...value};this.lifetime.signal.throwIfAborted();
   if(typeof input.operationId!=='string'||!/^[a-zA-Z0-9_-]{8,128}$/.test(input.operationId)||typeof input.userId!=='string'||typeof input.documentId!=='string'||!Number.isSafeInteger(input.entryId)||input.entryId<1||!Number.isSafeInteger(input.baseRevision)||input.baseRevision<1||!digest(input.baseDigest)||!Number.isSafeInteger(input.layerRevision)||input.layerRevision<0||(input.layerRevision===0?input.layerDigest!==null:!digest(input.layerDigest)))throw new DocumentError('INVALID_REQUEST');
@@ -35,7 +52,7 @@ export class HistoryRestore{
    this.db.prepare("INSERT INTO history_restores(id,author_id,document_id,entry_id,base_revision,base_digest,layer_revision,layer_digest,target_digest,target_size,format,kind,state,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,'staged',?,?)").run(row.id,row.author_id,row.document_id,row.entry_id,row.base_revision,row.base_digest,row.layer_revision,row.layer_digest,row.target_digest,row.target_size,row.format,row.kind,now,now);return this.result(row);
   });
  }
- private guard(row:Row){
+ private guard(row:Binding){
   const context=this.reader.entry(row.author_id,row.document_id,row.entry_id);if(!context.document.write)throw new DocumentError('ACCESS_DENIED');const item=context.item;if(item.sha256!==row.target_digest||item.size!==row.target_size||item.format!==row.format||item.kind!==row.kind)throw new DocumentError('HISTORY_CORRUPT');
   const current=this.db.prepare('SELECT d.format,d.local_revision,v.digest FROM documents d JOIN document_versions v ON v.document_id=d.id AND v.revision=d.local_revision WHERE d.id=?').get(row.document_id) as {format:string;local_revision:number;digest:string};
   if(current.local_revision!==row.base_revision||current.digest!==row.base_digest)throw new DocumentError('CONFLICT');if(!row.format||current.format!==row.format)throw new DocumentError('HISTORY_FORMAT_MISMATCH');
@@ -49,7 +66,7 @@ export class HistoryRestore{
  commit(user:string,id:string,options:{signal?:AbortSignal;authorize?:()=>void}={}){const task=this.run(user,id,options);this.pending.add(task);void task.then(()=>this.pending.delete(task),()=>this.pending.delete(task));return task;}
  private async run(user:string,id:string,options:{signal?:AbortSignal;authorize?:()=>void}){
   const controller=new AbortController(),signal=AbortSignal.any([this.lifetime.signal,controller.signal,...(options.signal?[options.signal]:[])]),authorize=options.authorize;signal.throwIfAborted();authorize?.();let row=this.scoped(user,id);if(row.state==='saved')return this.result(row);if(row.state==='discarded')throw new DocumentError('SAVE_DISCARDED');
-  const check=()=>transaction(this.db,()=>{signal.throwIfAborted();authorize?.();const current=this.scoped(user,id);if(current.state==='discarded')throw new DocumentError('SAVE_DISCARDED');if(current.state!=='saved')this.guard(current);});
+  const check=()=>readTransaction(this.db,()=>{signal.throwIfAborted();authorize?.();const current=this.scoped(user,id);if(current.state==='discarded')throw new DocumentError('SAVE_DISCARDED');if(current.state!=='saved')this.guard(current);});
   const watch=setInterval(()=>{try{check();}catch(error){controller.abort(error);}},250);
   try{
    check();await this.integrity.verify(this.store,{digest:row.target_digest,size:row.target_size},signal,check);check();

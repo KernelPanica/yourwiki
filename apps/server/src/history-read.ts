@@ -1,6 +1,6 @@
 import {validateLegacyHistoryMetadata,type LegacyHistoryMetadata} from './history-archive.ts';
 import type {Readable} from 'node:stream';
-import {transaction,type Database} from './database.ts';
+import {readTransaction,type Database} from './database.ts';
 import {DocumentError} from './document-errors.ts';
 import {DocumentService} from './documents.ts';
 import {AccessService} from './access.ts';
@@ -30,12 +30,12 @@ export class HistoryRead{
  list(userId:string,documentId:string,options:{after?:string;limit?:number}={}){
   const limit=options.limit??50;if(!Number.isSafeInteger(limit)||limit<1||limit>200)throw new DocumentError('INVALID_REQUEST');let after:number|undefined;
   if(options.after!==undefined){if(typeof options.after!=='string'||!/^[1-9][0-9]{0,15}$/.test(options.after))throw new DocumentError('INVALID_REQUEST');after=Number(options.after);entryId(after);}
-  return transaction(this.db,()=>{const context=this.context(userId,documentId),rows=(after===undefined?this.db.prepare('SELECT history_entries.*,(SELECT metadata_json FROM history_legacy_metadata WHERE entry_id=history_entries.id) AS legacy_metadata FROM history_entries WHERE document_id=? ORDER BY id DESC LIMIT ?').all(documentId,limit+1):this.db.prepare('SELECT history_entries.*,(SELECT metadata_json FROM history_legacy_metadata WHERE entry_id=history_entries.id) AS legacy_metadata FROM history_entries WHERE document_id=? AND id<? ORDER BY id DESC LIMIT ?').all(documentId,after,limit+1)) as Row[];const items=rows.slice(0,limit).map(metadata);return {...context,items,nextCursor:rows.length>limit?String(items.at(-1)!.id):null};});
+  return readTransaction(this.db,()=>{const context=this.context(userId,documentId),rows=(after===undefined?this.db.prepare('SELECT history_entries.*,(SELECT metadata_json FROM history_legacy_metadata WHERE entry_id=history_entries.id) AS legacy_metadata FROM history_entries WHERE document_id=? ORDER BY id DESC LIMIT ?').all(documentId,limit+1):this.db.prepare('SELECT history_entries.*,(SELECT metadata_json FROM history_legacy_metadata WHERE entry_id=history_entries.id) AS legacy_metadata FROM history_entries WHERE document_id=? AND id<? ORDER BY id DESC LIMIT ?').all(documentId,after,limit+1)) as Row[];const items=rows.slice(0,limit).map(metadata);return {...context,items,nextCursor:rows.length>limit?String(items.at(-1)!.id):null};});
  }
- entry(userId:string,documentId:string,id:number){return transaction(this.db,()=>({...this.context(userId,documentId),item:this.row(documentId,id)}));}
+ entry(userId:string,documentId:string,id:number){return readTransaction(this.db,()=>({...this.context(userId,documentId),item:this.row(documentId,id)}));}
  async download(userId:string,documentId:string,id:number,options:{signal?:AbortSignal;authorize?:()=>void;range?:ByteRange}={}){
   const signal=options.signal?AbortSignal.any([this.lifetime.signal,options.signal]):this.lifetime.signal,authorize=options.authorize;
-  const authority=()=>transaction(this.db,()=>{signal.throwIfAborted();authorize?.();const context=this.context(userId,documentId),item=this.row(documentId,id);if(!context.document.export)throw new DocumentError('ACCESS_DENIED');return item;});
+  const authority=()=>readTransaction(this.db,()=>{signal.throwIfAborted();authorize?.();const context=this.context(userId,documentId),item=this.row(documentId,id);if(!context.document.export)throw new DocumentError('ACCESS_DENIED');return item;});
   const item=authority(),range=options.range?{...options.range}:undefined;
   if(range&&(!Number.isSafeInteger(range.start)||!Number.isSafeInteger(range.end)||range.start<0||range.end<range.start||range.end>=item.size))throw new DocumentError('INVALID_RANGE');
   const guard=()=>{const current=authority();if(current.sha256!==item.sha256||current.size!==item.size)throw new DocumentError('HISTORY_CORRUPT');};

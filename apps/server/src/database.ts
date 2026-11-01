@@ -4,15 +4,26 @@ import Sqlite from 'better-sqlite3';
 import { applicationId, migrations, migrationForeignKeyRebuilds } from './schema.ts';
 export type Database = Sqlite.Database;
 
-export function transaction<T>(db: Database, action: () => T): T {
+function executeTransaction<T>(db: Database, action: () => T, mode: 'immediate' | 'deferred'): T {
   if (Object.prototype.toString.call(action) === '[object AsyncFunction]') throw new Error('Database transaction callbacks must be synchronous');
-  return db.transaction(() => {
+  const run = db.transaction(() => {
     const value = action();
-    if (value && typeof (value as any).then === 'function') {
-      throw new Error('Database transaction callbacks must be synchronous');
-    }
+    if (value && typeof (value as any).then === 'function') throw new Error('Database transaction callbacks must be synchronous');
     return value;
-  }).immediate();
+  });
+  return mode === 'immediate' ? run.immediate() : run.deferred();
+}
+
+export function transaction<T>(db: Database, action: () => T): T {
+  return executeTransaction(db, action, 'immediate');
+}
+
+/** Consistent WAL metadata snapshot without reserving the writer lock; reject accidental writes. */
+export function readTransaction<T>(db: Database, action: () => T): T {
+  const wasReadOnly = db.pragma('query_only', { simple: true }) === 1;
+  if (!wasReadOnly) db.pragma('query_only = ON');
+  try { return executeTransaction(db, action, 'deferred'); }
+  finally { if (!wasReadOnly) db.pragma('query_only = OFF'); }
 }
 
 export function openDatabase(path: string): Database {

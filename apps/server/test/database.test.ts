@@ -6,7 +6,7 @@ import { mkdtempSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import Sqlite from 'better-sqlite3';
-import { openDatabase, transaction } from '../src/database.ts';
+import { openDatabase, transaction, readTransaction } from '../src/database.ts';
 
 function fixture(t: any) {
   const root = mkdtempSync(join(tmpdir(), 'yourwiki-db-'));
@@ -201,4 +201,11 @@ test('SIGKILL during parent-table rebuild rolls back before restart applies the 
 });
 test('version-twenty-three import staging preserves old history metadata and all checksums',t=>{
  const f=version22Fixture(t);f.db.pragma('foreign_keys=OFF');f.db.exec(migrations[22]!);f.db.prepare('INSERT INTO schema_migrations VALUES(23,?)').run(createHash('sha256').update(migrations[22]!).digest('hex'));f.db.pragma('foreign_keys=ON');f.db.prepare("INSERT INTO history_entries(id,document_id,kind,source_revision,digest,size,title,format,captured_by_name,created_at) VALUES(1,'doc','source',0,?,0,'Legacy','','Former',1)").run('a'.repeat(64));f.db.exec("INSERT INTO history_legacy_metadata VALUES(1,'{}')");const entries=f.db.prepare('SELECT * FROM history_entries').all(),metadata=f.db.prepare('SELECT * FROM history_legacy_metadata').all(),checksums=f.db.prepare('SELECT * FROM schema_migrations').all();f.db.close();const db=openDatabase(f.path);t.after(()=>db.close());assert.deepEqual(db.prepare('SELECT * FROM history_entries').all(),entries);assert.deepEqual(db.prepare('SELECT * FROM history_legacy_metadata').all(),metadata);assert.deepEqual(db.prepare('SELECT * FROM schema_migrations WHERE version<=23').all(),checksums);assert.deepEqual(db.prepare('SELECT * FROM history_imports').all(),[]);assert.deepEqual(db.pragma('foreign_key_check'),[]);assert.equal(db.pragma('foreign_keys',{simple:true}),1);
+});
+
+test('read snapshots refuse writes, restore query-only mode and can nest inside an accepted write transaction',t=>{
+ const db=openDatabase(fixture(t));t.after(()=>db.close());assert.equal(readTransaction(db,()=>db.pragma('query_only',{simple:true})),1);assert.equal(db.pragma('query_only',{simple:true}),0);assert.throws(()=>readTransaction(db,()=>db.prepare("INSERT INTO groups VALUES('forbidden','Forbidden')").run()),/readonly/i);assert.equal(db.pragma('query_only',{simple:true}),0);assert.equal(db.prepare("SELECT id FROM groups WHERE id='forbidden'").get(),undefined);transaction(db,()=>{db.prepare("INSERT INTO groups VALUES('outer','Outer')").run();assert.equal((readTransaction(db,()=>db.prepare("SELECT name FROM groups WHERE id='outer'").get()) as any).name,'Outer');db.prepare("INSERT INTO groups VALUES('after','After')").run();});assert.equal((db.prepare("SELECT COUNT(*) AS n FROM groups WHERE id IN ('outer','after')").get() as any).n,2);
+});
+test('read snapshots reject asynchronous callbacks without retaining query-only mode',t=>{
+ const db=openDatabase(fixture(t));t.after(()=>db.close());assert.throws(()=>readTransaction(db,async()=>true),/synchronous/i);assert.throws(()=>readTransaction(db,()=>Promise.resolve(true)),/synchronous/i);assert.equal(db.pragma('query_only',{simple:true}),0);db.prepare("INSERT INTO groups VALUES('writable','Writable')").run();
 });
