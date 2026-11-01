@@ -411,7 +411,120 @@ CREATE TRIGGER history_import_entries_binding BEFORE UPDATE OF import_id,ordinal
  SELECT RAISE(ABORT,'Staged history binding is immutable');
 END;
 `;
+const historyCatalogue = `
+CREATE TABLE history_public_sequence (
+ singleton INTEGER PRIMARY KEY CHECK(singleton=1),
+ value INTEGER NOT NULL CHECK(typeof(value)='integer' AND value>=0 AND value<=9007199254740991)
+);
+INSERT INTO history_public_sequence SELECT 1,MAX(COALESCE((SELECT seq FROM sqlite_sequence WHERE name='history_entries'),0),COALESCE((SELECT MAX(id) FROM history_entries),0));
+CREATE TRIGGER history_public_sequence_monotonic BEFORE UPDATE OF value ON history_public_sequence WHEN NEW.value<OLD.value BEGIN
+ SELECT RAISE(ABORT,'History public sequence is monotonic');
+END;
+CREATE TRIGGER history_public_sequence_delete_guard BEFORE DELETE ON history_public_sequence BEGIN
+ SELECT RAISE(ABORT,'History public sequence is permanent');
+END;
+ALTER TABLE history_entries ADD COLUMN public_id INTEGER CHECK(public_id IS NULL OR (public_id>0 AND public_id<=9007199254740991));
+ALTER TABLE history_entries ADD COLUMN import_id TEXT REFERENCES history_imports(id) ON DELETE RESTRICT;
+ALTER TABLE history_entries ADD COLUMN import_ordinal INTEGER CHECK((import_id IS NULL AND import_ordinal IS NULL) OR (import_id IS NOT NULL AND import_ordinal IS NOT NULL AND import_ordinal>=0));
+UPDATE history_entries SET public_id=id;
+CREATE UNIQUE INDEX history_entries_public_identity ON history_entries(public_id) WHERE public_id IS NOT NULL;
+CREATE INDEX history_entries_public_document ON history_entries(document_id,public_id DESC) WHERE import_id IS NULL;
+CREATE UNIQUE INDEX history_entries_import_ordinal ON history_entries(import_id,import_ordinal DESC) WHERE import_id IS NOT NULL;
+ALTER TABLE history_imports ADD COLUMN catalogue_count INTEGER NOT NULL DEFAULT 0 CHECK(catalogue_count>=0 AND catalogue_count<=100000);
+ALTER TABLE history_imports ADD COLUMN catalogue_bytes INTEGER NOT NULL DEFAULT 0 CHECK(catalogue_bytes>=0 AND catalogue_bytes<=9007199254740991);
+ALTER TABLE history_imports ADD COLUMN catalogue_ready INTEGER NOT NULL DEFAULT 0 CHECK(catalogue_ready IN (0,1) AND (catalogue_ready=0 OR (catalogue_count=entry_count AND catalogue_bytes=total_bytes)));
+ALTER TABLE history_imports ADD COLUMN first_public_id INTEGER CHECK(first_public_id IS NULL OR (first_public_id>0 AND first_public_id<=9007199254740991));
+ALTER TABLE history_imports ADD COLUMN last_public_id INTEGER CHECK((first_public_id IS NULL AND last_public_id IS NULL) OR (first_public_id IS NOT NULL AND last_public_id IS NOT NULL AND last_public_id>=first_public_id AND last_public_id<=9007199254740991 AND last_public_id-first_public_id+1=entry_count AND state='committed' AND catalogue_ready=1));
+CREATE INDEX history_imports_public_document ON history_imports(document_id,first_public_id DESC) WHERE first_public_id IS NOT NULL AND state='committed';
+CREATE UNIQUE INDEX history_imports_public_first ON history_imports(first_public_id) WHERE first_public_id IS NOT NULL;
+CREATE UNIQUE INDEX history_imports_public_last ON history_imports(last_public_id) WHERE last_public_id IS NOT NULL;
+DROP TRIGGER history_usage_insert;
+DROP TRIGGER history_usage_delete;
+CREATE TRIGGER history_usage_insert AFTER INSERT ON history_entries WHEN NEW.import_id IS NULL BEGIN
+ INSERT INTO history_usage(document_id,total_bytes,entry_count) VALUES(NEW.document_id,NEW.size,1)
+ ON CONFLICT(document_id) DO UPDATE SET total_bytes=total_bytes+NEW.size,entry_count=entry_count+1;
+END;
+CREATE TRIGGER history_usage_delete AFTER DELETE ON history_entries WHEN OLD.import_id IS NULL BEGIN
+ UPDATE history_usage SET total_bytes=total_bytes-OLD.size,entry_count=entry_count-1 WHERE document_id=OLD.document_id;
+ DELETE FROM history_usage WHERE document_id=OLD.document_id AND entry_count=0;
+END;
+CREATE TRIGGER history_local_public_insert_guard BEFORE INSERT ON history_entries WHEN NEW.import_id IS NULL AND NEW.public_id IS NOT NULL BEGIN
+ SELECT RAISE(ABORT,'Public history identity is allocated internally');
+END;
+CREATE TRIGGER history_local_public_insert AFTER INSERT ON history_entries WHEN NEW.import_id IS NULL BEGIN
+ UPDATE history_public_sequence SET value=MAX(value+1,NEW.id) WHERE singleton=1;
+ UPDATE history_entries SET public_id=(SELECT value FROM history_public_sequence WHERE singleton=1) WHERE id=NEW.id;
+END;
+CREATE TRIGGER history_public_identity_immutable BEFORE UPDATE OF public_id ON history_entries
+ WHEN NOT (OLD.public_id IS NULL AND OLD.import_id IS NULL AND NEW.import_id IS NULL AND NEW.public_id=(SELECT value FROM history_public_sequence WHERE singleton=1)) BEGIN
+ SELECT RAISE(ABORT,'Public history identity is immutable');
+END;
+CREATE TRIGGER history_import_identity_immutable BEFORE UPDATE OF import_id,import_ordinal ON history_entries BEGIN
+ SELECT RAISE(ABORT,'Canonical import identity is immutable');
+END;
+CREATE TRIGGER history_import_entry_insert_guard BEFORE INSERT ON history_entries WHEN NEW.import_id IS NOT NULL BEGIN
+ SELECT CASE WHEN NEW.public_id IS NOT NULL OR NEW.kind!='source' OR NEW.layer_revision IS NOT NULL OR NEW.captured_by IS NOT NULL OR NOT EXISTS(
+  SELECT 1 FROM history_imports i JOIN history_import_entries s ON s.import_id=i.id
+  WHERE i.id=NEW.import_id AND i.document_id=NEW.document_id AND i.state IN ('pending','receiving','prepared') AND i.catalogue_ready=0
+   AND i.catalogue_count=NEW.import_ordinal AND s.ordinal=NEW.import_ordinal AND s.digest=NEW.digest AND s.size=NEW.size AND s.entry_id IS NULL
+ ) THEN RAISE(ABORT,'Invalid private import binding') END;
+END;
+CREATE TRIGGER history_import_map_identity_immutable BEFORE UPDATE OF entry_id ON history_import_entries BEGIN
+ SELECT CASE WHEN OLD.entry_id IS NOT NULL OR NEW.entry_id IS NULL OR NOT EXISTS(
+  SELECT 1 FROM history_entries e JOIN history_imports i ON i.id=NEW.import_id
+  WHERE e.id=NEW.entry_id AND e.document_id=i.document_id AND e.digest=NEW.digest AND e.size=NEW.size
+   AND ((e.import_id=NEW.import_id AND e.import_ordinal=NEW.ordinal) OR (e.import_id IS NULL AND i.catalogue_ready=0))
+ ) THEN RAISE(ABORT,'Import receipt identity is immutable') END;
+END;
+CREATE TRIGGER history_import_entry_count_insert AFTER INSERT ON history_entries WHEN NEW.import_id IS NOT NULL BEGIN
+ UPDATE history_import_entries SET entry_id=NEW.id WHERE import_id=NEW.import_id AND ordinal=NEW.import_ordinal;
+ UPDATE history_imports SET catalogue_count=catalogue_count+1,catalogue_bytes=catalogue_bytes+NEW.size WHERE id=NEW.import_id;
+END;
+CREATE TRIGGER history_import_entry_delete_guard BEFORE DELETE ON history_entries WHEN OLD.import_id IS NOT NULL BEGIN
+ SELECT CASE WHEN NOT EXISTS(SELECT 1 FROM history_imports WHERE id=OLD.import_id AND state='failed') THEN RAISE(ABORT,'Only failed private import records can be removed') END;
+END;
+CREATE TRIGGER history_import_entry_count_delete AFTER DELETE ON history_entries WHEN OLD.import_id IS NOT NULL BEGIN
+ UPDATE history_imports SET catalogue_count=catalogue_count-1,catalogue_bytes=catalogue_bytes-OLD.size WHERE id=OLD.import_id;
+END;
+CREATE TRIGGER history_import_legacy_delete_guard BEFORE DELETE ON history_legacy_metadata BEGIN
+ SELECT CASE WHEN EXISTS(SELECT 1 FROM history_entries e JOIN history_imports i ON i.id=e.import_id WHERE e.id=OLD.entry_id AND i.state!='failed') THEN RAISE(ABORT,'Canonical import metadata is immutable') END;
+END;
+CREATE TRIGGER history_import_generation_guard BEFORE UPDATE OF namespace_id,generation ON history_imports WHEN OLD.catalogue_count>0 BEGIN
+ SELECT RAISE(ABORT,'Canonical import generation is immutable until cleanup');
+END;
+CREATE TRIGGER history_import_ready_guard BEFORE UPDATE OF catalogue_ready ON history_imports WHEN NEW.catalogue_ready=1 AND OLD.catalogue_ready=0 BEGIN
+ SELECT CASE WHEN NEW.state!='prepared' OR NEW.entry_count!=(
+  SELECT COUNT(*) FROM history_import_entries s JOIN history_entries e ON e.id=s.entry_id JOIN history_legacy_metadata m ON m.entry_id=e.id
+  WHERE s.import_id=NEW.id AND e.import_id=NEW.id AND e.import_ordinal=s.ordinal
+ ) THEN RAISE(ABORT,'Incomplete canonical import') END;
+END;
+CREATE TRIGGER history_import_ready_immutable BEFORE UPDATE OF catalogue_ready ON history_imports
+ WHEN OLD.catalogue_ready=1 AND NEW.catalogue_ready=0 AND NOT (NEW.state='failed' AND OLD.adoption_started=0 AND NEW.adoption_started=0) BEGIN
+ SELECT RAISE(ABORT,'Canonical readiness is immutable after preparation');
+END;
+CREATE TRIGGER history_import_adoption_immutable BEFORE UPDATE OF adoption_started ON history_imports
+ WHEN OLD.adoption_started=1 AND NEW.adoption_started=0 AND NOT (OLD.state='failed' AND OLD.reserved_bytes=0 AND OLD.catalogue_count=0) BEGIN
+ SELECT RAISE(ABORT,'Started adoption is immutable until failed cleanup');
+END;
+CREATE TRIGGER history_import_public_binding_immutable BEFORE UPDATE OF first_public_id,last_public_id ON history_imports WHEN OLD.first_public_id IS NOT NULL BEGIN
+ SELECT RAISE(ABORT,'Import public range is immutable');
+END;
+CREATE TRIGGER history_import_publication_guard BEFORE UPDATE OF state ON history_imports WHEN NEW.state='committed' AND OLD.state!='committed' AND NEW.catalogue_ready=1 BEGIN
+ SELECT CASE WHEN OLD.state!='prepared' OR NEW.adoption_started!=1 OR (NEW.entry_count>0 AND (
+  NEW.first_public_id IS NULL OR NEW.last_public_id!=(SELECT value FROM history_public_sequence WHERE singleton=1)
+  OR NEW.first_public_id<=COALESCE((SELECT MAX(public_id) FROM history_entries WHERE public_id IS NOT NULL),0)
+  OR NEW.first_public_id<=COALESCE((SELECT MAX(last_public_id) FROM history_imports WHERE last_public_id IS NOT NULL),0)
+ )) THEN RAISE(ABORT,'Invalid canonical publication') END;
+END;
+CREATE TRIGGER history_import_committed_immutable BEFORE UPDATE OF state,receipt,entry_count,total_bytes,catalogue_count,catalogue_bytes ON history_imports WHEN OLD.state='committed' BEGIN
+ SELECT RAISE(ABORT,'Committed import metadata is immutable');
+END;
+CREATE TRIGGER history_import_usage_publish AFTER UPDATE OF state ON history_imports WHEN NEW.state='committed' AND OLD.state!='committed' AND NEW.catalogue_ready=1 BEGIN
+ INSERT INTO history_usage(document_id,total_bytes,entry_count) SELECT NEW.document_id,NEW.total_bytes,NEW.entry_count WHERE NEW.entry_count>0
+ ON CONFLICT(document_id) DO UPDATE SET total_bytes=total_bytes+NEW.total_bytes,entry_count=entry_count+NEW.entry_count;
+END;
+`;
 /** Parent-table rebuilds run atomically with FK actions suspended, checked before commit, then enforced again. */
 export const migrationForeignKeyRebuilds:readonly number[]=[23];
-export const migrations = [core + epochTriggers, authInvalidation, authSettings, jobs, documents, workerSlots, uploads, pdfLayers, saveJournal, officeSessions, officeIngress, officeCleanup, officeRecovery, officePrepared, officePreparedBindings, officeSaveIntents, officeOpenings, officeHandoff, documentVisits, versionHistory, historyPreviews, historyRestores, legacyHistory, historyImports] as const;
+export const migrations = [core + epochTriggers, authInvalidation, authSettings, jobs, documents, workerSlots, uploads, pdfLayers, saveJournal, officeSessions, officeIngress, officeCleanup, officeRecovery, officePrepared, officePreparedBindings, officeSaveIntents, officeOpenings, officeHandoff, documentVisits, versionHistory, historyPreviews, historyRestores, legacyHistory, historyImports, historyCatalogue] as const;
 export const applicationId = 0x5957494b; // YWIK; legacy Django uses no marker.
