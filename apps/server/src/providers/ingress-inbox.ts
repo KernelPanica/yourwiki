@@ -25,6 +25,19 @@ export class ProviderIngress {
  private owned(id:string,job:ClaimedJob,now:number,live=true){const row=this.row(id);if(!row||row.lease_job_id!==job.id||row.lease_token!==job.token||row.lease_until<=now)throw new DocumentError('LEASE_LOST');this.claim(job,row.document_id,row.slot_token,now);if(live){const scope=ingressContext(this.db,row.document_id);if(scope.connection_id!==row.connection_id||scope.connection_revision!==row.connection_revision||scope.binding_generation!==row.binding_generation)throw new DocumentError('INGRESS_SCOPE_CHANGED');}return row;}
  /** Internal immutable facts for a trusted commit; never serialize this object to a client. */
  prepared(id:string,job:ClaimedJob,now=this.clock()):IngressRow{const row=this.owned(id,job,now);if(!['staged','conflict'].includes(row.state)||!row.digest)throw new DocumentError('INGRESS_NOT_READY');return {...row};}
+ /** Private worker recovery metadata; never an HTTP document/byte capability. */
+ latest(documentId:string):IngressRow|undefined{return this.db.prepare("SELECT * FROM provider_ingress_snapshots WHERE document_id=? ORDER BY generation DESC LIMIT 1").get(documentId) as IngressRow|undefined;}
+ resume(id:string,job:ClaimedJob,slotToken:string,now=this.clock()):IngressSnapshot{
+  return transaction(this.db,()=>{
+   const row=this.row(id);if(!row||['discarded','applied'].includes(row.state))throw new DocumentError('INGRESS_NOT_READY');this.claim(job,row.document_id,slotToken,now);
+   const same=row.lease_job_id===job.id&&row.lease_token===job.token;
+   if(!same&&row.lease_until>now&&this.queue.owns({id:row.lease_job_id,token:row.lease_token},now))throw new DocumentError('INGRESS_BUSY');
+   if(['staged','conflict'].includes(row.state)){const scope=ingressContext(this.db,row.document_id);if(scope.connection_id!==row.connection_id||scope.connection_revision!==row.connection_revision||scope.binding_generation!==row.binding_generation)throw new DocumentError('INGRESS_SCOPE_CHANGED');}
+   const state=row.state==='receiving'&&!same?'failed':row.state;
+   this.db.prepare('UPDATE provider_ingress_snapshots SET state=?,error_code=?,lease_job_id=?,lease_token=?,slot_token=?,lease_until=?,updated_at=? WHERE id=?').run(state,state==='failed'?'INGRESS_INTERRUPTED':row.error_code,job.id,job.token,slotToken,now+30000,now,id);return this.result(this.row(id)!);
+  });
+ }
+
  begin(value:IngressInput,now=this.clock()):IngressSnapshot{
   const input={...value};time(now);if(typeof input.documentId!=='string'||!input.documentId||input.documentId.length>128||typeof input.slotToken!=='string'||!input.slotToken||![input.connectionRevision,input.baseLocalRevision,input.baseProviderRevision].every(x=>Number.isSafeInteger(x)&&x>0)||!fingerprint(input.baseFingerprint)||!fingerprint(input.observedFingerprint)||!Number.isSafeInteger(input.declaredSize)||input.declaredSize<0||input.declaredSize>4*1024**3||!Number.isSafeInteger(input.observedAt)||input.observedAt<0)invalid();
   return transaction(this.db,()=>{this.claim(input.job,input.documentId,input.slotToken,now);const scope=ingressContext(this.db,input.documentId);if(scope.local_revision!==input.baseLocalRevision||scope.provider_revision!==input.baseProviderRevision||scope.fingerprint!==input.baseFingerprint||scope.connection_revision!==input.connectionRevision)throw new DocumentError('CONFLICT');
@@ -41,7 +54,7 @@ export class ProviderIngress {
   });
  }
  private event(row:IngressRow,now:number){this.db.prepare("INSERT INTO events(kind,document_id,payload,created_at) VALUES('provider.ingress',?,'{}',?)").run(row.document_id,now);}
- private renew(id:string,job:ClaimedJob,now:number){transaction(this.db,()=>{const row=this.owned(id,job,now);if(!this.queue.renew(job,now,30000))throw new DocumentError('LEASE_LOST');if(!this.db.prepare("UPDATE worker_slots SET lease_until=? WHERE name='provider-source' AND token=? AND lease_until>?").run(now+30000,row.slot_token,now).changes)throw new DocumentError('LEASE_LOST');this.db.prepare('UPDATE provider_ingress_snapshots SET lease_until=?,updated_at=? WHERE id=?').run(now+30000,now,id);});}
+ renew(id:string,job:ClaimedJob,now:number){transaction(this.db,()=>{const row=this.owned(id,job,now);if(!this.queue.renew(job,now,30000))throw new DocumentError('LEASE_LOST');if(!this.db.prepare("UPDATE worker_slots SET lease_until=? WHERE name='provider-source' AND token=? AND lease_until>?").run(now+30000,row.slot_token,now).changes)throw new DocumentError('LEASE_LOST');this.db.prepare('UPDATE provider_ingress_snapshots SET lease_until=?,updated_at=? WHERE id=?').run(now+30000,now,id);});}
  async receive(id:string,job:ClaimedJob,source:AsyncIterable<Uint8Array>,options:{signal?:AbortSignal}={}):Promise<IngressSnapshot>{
   const now=this.clock(),initial=transaction(this.db,()=>{const row=this.owned(id,job,now);if(row.state!=='pending')throw new DocumentError('INGRESS_NOT_PENDING');this.db.prepare("UPDATE provider_ingress_snapshots SET state='receiving',updated_at=? WHERE id=?").run(now,id);return row;});
   const controller=new AbortController(),signal=options.signal?AbortSignal.any([controller.signal,options.signal]):controller.signal;let renewAt=now+10000;
@@ -54,6 +67,11 @@ export class ProviderIngress {
  async stage(id:string,job:ClaimedJob,value:BlobRef,now=this.clock(),signal?:AbortSignal):Promise<IngressSnapshot>{
   const blob={...value},row=this.owned(id,job,now);if(row.state!=='receiving'||!/^([a-f0-9]{64})$/.test(blob.digest)||blob.size!==row.declared_size)throw new DocumentError('PROVIDER_SOURCE_CHANGED');const target=await this.store.existingUploadStore(row.namespace_id);if(!target||!await target.verify(blob,signal))throw new DocumentError('PROVIDER_SOURCE_CHANGED');
   signal?.throwIfAborted();return transaction(this.db,()=>{const current=this.owned(id,job,this.clock());if(current.state!=='receiving')throw new DocumentError('INGRESS_NOT_RECEIVING');const reason=ingressGuard(this.db,current,this.clock());this.db.prepare('UPDATE provider_ingress_snapshots SET state=?,digest=?,size=?,error_code=?,updated_at=? WHERE id=?').run(reason?'conflict':'staged',blob.digest,blob.size,reason,this.clock(),id);this.event(current,this.clock());return this.result(this.row(id)!);});
+ }
+
+ park(id:string,job:ClaimedJob,code:'PROVIDER_CONFLICT'|'PROVIDER_SOURCE_CHANGED',now=this.clock()):void{
+  if(!['PROVIDER_CONFLICT','PROVIDER_SOURCE_CHANGED'].includes(code))invalid();
+  transaction(this.db,()=>{const row=this.prepared(id,job,now);this.db.prepare("UPDATE provider_ingress_snapshots SET state='conflict',error_code=?,updated_at=? WHERE id=?").run(code,now,id);this.event(row,now);});
  }
 
  /** Trusted background acceptance only. Replays return the permanent receipt without new IO. */
@@ -73,8 +91,9 @@ export class ProviderIngress {
   }finally{clearInterval(timer);}
  }
  /** Applied source bytes already have their own durable global link; only its private duplicate is removed. */
- async cleanupApplied(id:string,job:ClaimedJob):Promise<void>{
-  const row=this.row(id);if(!row||row.state!=='applied'||row.lease_job_id!==job.id||row.lease_token!==job.token)throw new DocumentError('LEASE_LOST');
+ async cleanupApplied(id:string,job:ClaimedJob,slotToken?:string):Promise<void>{
+  const row=this.row(id);if(!row||row.state!=='applied')throw new DocumentError('LEASE_LOST');
+  if(slotToken!==undefined)this.claim(job,row.document_id,slotToken,this.clock());else if(row.lease_job_id!==job.id||row.lease_token!==job.token)throw new DocumentError('LEASE_LOST');
   await this.store.removeUpload(row.namespace_id);
   transaction(this.db,()=>{const current=this.row(id);if(!current||current.state!=='applied'||current.receipt!==row.receipt)throw new DocumentError('CONFLICT');this.db.prepare('UPDATE provider_ingress_snapshots SET reserved_bytes=0 WHERE id=?').run(id);});
  }
