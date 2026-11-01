@@ -21,7 +21,7 @@ export default function OfficeWorkspace({view,csrf,children,onSessionLost}:{view
    if(client.snapshot().phase==='closed')return true;
    if(client.bridge?.snapshot().needsRecovery&&!window.confirm(t.leave))return false;
    return client.close();
-  },()=>!!client.bridge?.snapshot().needsRecovery);
+  },()=>client.snapshot().phase!=='closed'&&!!client.bridge?.snapshot().needsRecovery);
   const message=(event:MessageEvent)=>{client.receive(event);};window.addEventListener('message',message);
   const leave=(event:BeforeUnloadEvent)=>{if(client.snapshot().bootstrap&&client.snapshot().phase!=='closed'){event.preventDefault();event.returnValue='';}};window.addEventListener('beforeunload',leave);
   const removeChanges=subscribeChanges(event=>{if(event.type==='all'||event.documentIds.includes(view.document.id))void client.check();});
