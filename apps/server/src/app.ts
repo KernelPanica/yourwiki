@@ -1,3 +1,4 @@
+import {registerProviderDelivery} from './providers/delivery-routes.ts';
 import {registerProviderConnections} from './providers/connection-routes.ts';
 import type {ProviderConnections} from './providers/connections.ts';
 import {registerHistoryTransfer} from './history-transfer-routes.ts';
@@ -69,6 +70,7 @@ export function buildApp(options: AppOptions = {}) {
   if (options.database) registerHistorySettings(app,options.database,options.publicUrl??'http://localhost:3100');
   if (options.database) registerChanges(app, options.database, options.publicUrl ?? 'http://localhost:3100', options.changesPollMs);
   if (options.database && options.storage) registerDocuments(app, options.database, options.storage, options.publicUrl ?? 'http://localhost:3100', options.maxFileBytes, !!options.office);
+  if(options.database&&options.storage)registerProviderDelivery(app,options.database,options.storage,options.publicUrl??'http://localhost:3100');
   if (options.database && options.storage) registerHistory(app,options.database,options.storage);
   if (options.database && options.storage) registerHistoryTransfer(app,options.database,options.storage,options.publicUrl??'http://localhost:3100');
   if (options.database && options.storage) registerHistoryRestore(app,options.database,options.storage,options.publicUrl??'http://localhost:3100',options.maxFileBytes);

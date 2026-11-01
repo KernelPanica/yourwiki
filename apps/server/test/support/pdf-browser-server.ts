@@ -1,3 +1,4 @@
+import {BrowserDeliveryControls} from './provider-browser-controls.ts';
 import {HistorySettings} from '../../src/history-settings.ts';
 /** Synthetic loopback-only PDF browser fixture. Never use against production data. */
 import {OfficeOpenings} from '../../src/office/openings.ts';
@@ -26,6 +27,7 @@ const fixture=process.env.YOURWIKI_BROWSER_PDF_FIXTURE??new URL('../fixtures/pdf
 const initial=await docs.create({userId:'qa',title:'PDF forms',format:'pdf',groupId:'qa',parentId:null},createReadStream(fixture));
 const notes=process.env.YOURWIKI_BROWSER_CONTROL==='1'?await docs.create({userId:'qa',title:'Live notes',format:'md',groupId:'qa',parentId:null},(async function*(){yield Buffer.from('# Initial live notes');})()):null;
 const worker=new PreviewWorker(db,store,process.env.YOURWIKI_TEST_OFFICE_ROOT?{office:{officeRoot:process.env.YOURWIKI_TEST_OFFICE_ROOT}}:{});while(await worker.runOnce()!=='idle'){}
+const sourceControls=new BrowserDeliveryControls(db,store,docs,root,initial.documentId,notes?.documentId,async()=>{while(await worker.runOnce()!=='idle'){};});
 const port=Number(process.env.YOURWIKI_BROWSER_PORT??39077);
 if(!Number.isSafeInteger(port)||port<1024||port>65535)throw new Error('Invalid test port');
 let releaseDiscovery=()=>{};const discoveryGate=process.env.YOURWIKI_BROWSER_HOLD_OFFICE==='1'?new Promise<void>(resolve=>{releaseDiscovery=resolve;}):Promise.resolve();
@@ -37,7 +39,9 @@ if(process.env.YOURWIKI_BROWSER_CONTROL==='1'){
  input.on('line',line=>{chain=chain.then(async()=>{
   try{
    const command=JSON.parse(line) as {action:string;title?:string};let result:Record<string,unknown>={};
-   if(command.action==='history-fixtures'){
+   const sourceResult=await sourceControls.handle(command.action);
+   if(sourceResult!==undefined)result=sourceResult;
+   else if(command.action==='history-fixtures'){
     if(!notes)throw new Error('Notes fixture required');const policy=new HistorySettings(db);policy.update('qa',{enabled:true,baseRevision:policy.read('qa').revision});
     await docs.save({userId:'qa',documentId:notes.documentId,baseRevision:1},(async function*(){yield Buffer.from('# Current live notes');})());
     const layers=new PdfLayerService(db,store);await layers.save({userId:'qa',documentId:initial.documentId,baseRevision:1,layerRevision:0},(async function*(){yield Buffer.concat([await readFile(fixture),Buffer.from('\n%current layer\n')]);})());
@@ -89,5 +93,5 @@ if(process.env.YOURWIKI_BROWSER_CONTROL==='1'){
  });});
 }
 let closing=false;
-async function close(){if(closing)return;closing=true;await app.close();db.close();await rm(root,{recursive:true,force:true});process.exit(0);}
+async function close(){if(closing)return;closing=true;await app.close();sourceControls.close();db.close();await rm(root,{recursive:true,force:true});process.exit(0);}
 process.on('SIGTERM',()=>void close());process.on('SIGINT',()=>void close());

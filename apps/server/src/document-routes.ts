@@ -1,3 +1,4 @@
+import {SourceDelivery} from './providers/delivery-status.ts';
 import {officeFormats} from './office/formats.ts';
 import {RecentDocuments} from './recent.ts';
 import {byteRange} from './http/byte-range.ts';
@@ -22,6 +23,7 @@ export function registerDocuments(app: FastifyInstance, db: Database, store: Blo
   if (!Number.isSafeInteger(maxBytes) || maxBytes < 1) throw new Error('Invalid file size limit');
   const service = new DocumentService(db, store, { maxBytes });
   const recent = new RecentDocuments(db, service);
+  const sourceDelivery = new SourceDelivery(db,store);
   const access = new AccessService(db);
   const pdfLayers = new PdfLayerService(db, store, { maxBytes });
   const origin = new URL(publicUrl).origin;
@@ -108,7 +110,7 @@ export function registerDocuments(app: FastifyInstance, db: Database, store: Blo
       if (!primary || primary.mimeType !== 'application/json' || primary.size > 1024 * 1024) throw new Error('Invalid presentation index');
       presentation = JSON.parse((await buffer(await store.read(primary.digest))).toString());
     }
-    return { document, manifest: value, presentation };
+    try{return { document, manifest: value, presentation,sourceDelivery:sourceDelivery.status(actor.userId,document.id) };}catch(error){return fail(error,request,reply);}
   });
   app.get<{ Params: { id: string; digest: string } }>('/api/documents/:id/previews/:digest', async (request, reply) => {
     const value = await manifest(request, reply, request.params.id, request.params.digest);

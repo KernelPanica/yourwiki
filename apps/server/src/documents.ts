@@ -60,7 +60,7 @@ export class DocumentService {
     if (!doc || !this.access.allows(input.userId, input.documentId, 'read') || !this.draftVisible(input.userId, doc.id, doc.published_revision)) throw new DocumentError('NOT_FOUND');
     if (!this.access.allows(input.userId, input.documentId, 'write')) throw new DocumentError('ACCESS_DENIED');
     if (doc.local_revision !== input.baseRevision) throw new DocumentError('CONFLICT');
-    assertSourceDeliveryWritable(this.db,doc.id);
+    assertSourceDeliveryWritable(this.db,doc.id,this.clock());
     if (!officeWriteAllowed(this.db,doc.id,input.officeSessionId,this.clock())) throw new DocumentError('OFFICE_ACTIVE');
     return doc;
   }

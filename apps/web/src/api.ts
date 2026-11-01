@@ -2,7 +2,7 @@ import { sessionSnapshot,sessionGenerationIsCurrent } from './session-fence.ts';
 export interface Account { user: { id: string; username: string; displayName: string; adminRole: string; groups: {id:string;name:string}[] }; csrf: string }
 export interface DocumentInfo { id: string; title: string; format: string; revision: number; manifestDigest: string; capabilities: {write:boolean;export:boolean;office?:boolean} }
 export interface Artifact { name:string;digest:string;size:number;mimeType:string }
-export interface DocumentView { document: DocumentInfo; manifest: {kind:string;primary:string;artifacts:Artifact[]}; presentation: unknown }
+export interface DocumentView { sourceDelivery?:unknown; document: DocumentInfo; manifest: {kind:string;primary:string;artifacts:Artifact[]}; presentation: unknown }
 export class ApiError extends Error {
   code: string; requestId: string; operationId: string|null;
   constructor(code: string, requestId='', operationId:string|null=null) { super(code); this.code=code; this.requestId=requestId; this.operationId=operationId; }

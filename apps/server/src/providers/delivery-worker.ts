@@ -25,7 +25,7 @@ export class DeliveryWorker {
   let attempt:DeliveryAttempt|null=null,adapter:ProviderAdapter|undefined,writing=false,dispatched=false,heartbeat:ReturnType<typeof setInterval>|undefined;
   const check=()=>{if(controller.signal.aborted)throw new ProviderError('PROVIDER_CANCELLED');const now=this.clock();if(!this.db.prepare("SELECT 1 FROM worker_slots WHERE name='provider-source' AND token=? AND lease_until>?").get(slot,now))throw new ProviderError('LEASE_LOST');if(attempt)this.attempts.check(attempt,now);};
   try{
-   attempt=this.attempts.acquire(job,this.clock());if(!attempt)return 'superseded';
+   attempt=this.attempts.acquire(job,this.clock());if(!attempt)return 'superseded';if(attempt.state==='blocked')return 'blocked';
    heartbeat=setInterval(()=>{try{transaction(this.db,()=>{check();this.attempts.renew(attempt!,this.clock());const now=this.clock();if(!this.db.prepare("UPDATE worker_slots SET lease_until=? WHERE name='provider-source' AND token=? AND lease_until>?").run(now+30000,slot,now).changes)throw new ProviderError('LEASE_LOST');});}catch{abort();}},10000);
    check();const connection=this.vault.forAttempt(attempt);adapter=await this.resolve(connection);check();
    // Always authenticate actual immutable source bytes, never a cached existence flag.

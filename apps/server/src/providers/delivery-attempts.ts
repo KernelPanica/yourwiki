@@ -40,7 +40,13 @@ export class DeliveryAttempts {
     if(['conflict','retryable','blocked'].includes(row.state))fail('CONFLICT');
     // Recover uncertainty even if the author/config was revoked after dispatch.
     // This grants no IO permission: check/confirm still require current scope.
-    if(row.state==='prepared')this.scope(row);
+    if(row.state==='prepared')try{this.scope(row);}catch(error){
+     if(!(error instanceof DocumentError))throw error;
+     const code=['ACCESS_DENIED','PROVIDER_CONFIG_CHANGED','PROVIDER_SOURCE_CHANGED'].includes(error.code)?error.code:'PROVIDER_CONFLICT';
+     this.db.prepare("UPDATE provider_delivery_attempts SET state='blocked',error_code=?,lease_job_id=?,lease_token=?,lease_until=?,updated_at=? WHERE id=?").run(code,job.id,job.token,now,now,row.id);
+     if(!this.queue.reject(job,code,now))fail('LEASE_LOST');this.db.prepare("INSERT INTO events(kind,document_id,payload,created_at) VALUES('provider.source-delivery',?,'{}',?)").run(row.document_id,now);
+     return decode(this.db.prepare('SELECT * FROM provider_delivery_attempts WHERE id=?').get(row.id) as AttemptRow,job);
+    }
     // Never turn a reclaimed writing lease back into a write permission.
     const state=row.state==='writing'?'unknown':row.state;
     this.db.prepare('UPDATE provider_delivery_attempts SET state=?,lease_job_id=?,lease_token=?,lease_until=?,updated_at=? WHERE id=?').run(state,job.id,job.token,now+leaseMs,now,row.id);
