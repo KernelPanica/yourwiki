@@ -1,20 +1,22 @@
+import {setImmediate as yieldTurn} from 'node:timers/promises';
+import {HistoryCatalogue} from './history-catalogue.ts';
 import {randomUUID} from 'node:crypto';
 import {transaction,type Database} from './database.ts';
 import {DocumentError} from './document-errors.ts';
 import {DocumentService} from './documents.ts';
 import {AccessService} from './access.ts';
 import {historyPolicy} from './history-settings.ts';
-import {decodeHistoryArchive,HistoryArchiveError,validateLegacyHistoryMetadata} from './history-archive.ts';
+import {decodeHistoryArchive,HistoryArchiveError} from './history-archive.ts';
 import type {BlobRef,BlobStore} from './storage/blobs.ts';
 export type HistoryImportInput={operationId:string;userId:string;documentId:string;sourceKey:string;archiveDigest:string;archiveSize:number};
-type Row={id:string;author_id:string;document_id:string;source_key:string;archive_digest:string;archive_size:number;namespace_id:string;generation:number;state:'pending'|'receiving'|'prepared'|'committed'|'failed';reserved_bytes:number;entry_count:number;total_bytes:number;adoption_started:number;lease_token:string|null;lease_until:number;receipt:string|null;error_code:string|null};
+type Row={catalogue_count:number;catalogue_ready:number;id:string;author_id:string;document_id:string;source_key:string;archive_digest:string;archive_size:number;namespace_id:string;generation:number;state:'pending'|'receiving'|'prepared'|'committed'|'failed';reserved_bytes:number;entry_count:number;total_bytes:number;adoption_started:number;lease_token:string|null;lease_until:number;receipt:string|null;error_code:string|null};
 type Entry={ordinal:number;digest:string;size:number;metadata_json:string|null;entry_id:number|null};
 type Receipt={entries:number;totalBytes:number;firstEntryId:number|null;lastEntryId:number|null;archiveSha256:string;archiveSize:number};
 type Scope={signal?:AbortSignal;authorize?:()=>void};
 /** Admin migration service. Input streams are trusted integrations, never arbitrary private blob IDs. */
 export class HistoryImport{
- private db:Database;private store:BlobStore;private docs:DocumentService;private access:AccessService;private clock:()=>number;private maxPending:number;private stop=new AbortController();private pending=new Set<Promise<unknown>>();private cleaning:Promise<number>|undefined;
- constructor(db:Database,store:BlobStore,options:{clock?:()=>number;maxPendingBytes?:number}={}){this.db=db;this.store=store;this.docs=new DocumentService(db,store);this.access=new AccessService(db);this.clock=options.clock??Date.now;this.maxPending=options.maxPendingBytes??8*1024**3;if(!Number.isSafeInteger(this.maxPending)||this.maxPending<1)throw new Error('Invalid import quota');}
+ private catalogue:HistoryCatalogue;private db:Database;private store:BlobStore;private docs:DocumentService;private access:AccessService;private clock:()=>number;private maxPending:number;private stop=new AbortController();private pending=new Set<Promise<unknown>>();private cleaning:Promise<number>|undefined;
+ constructor(db:Database,store:BlobStore,options:{clock?:()=>number;maxPendingBytes?:number}={}){this.db=db;this.catalogue=new HistoryCatalogue(db);this.store=store;this.docs=new DocumentService(db,store);this.access=new AccessService(db);this.clock=options.clock??Date.now;this.maxPending=options.maxPendingBytes??8*1024**3;if(!Number.isSafeInteger(this.maxPending)||this.maxPending<1)throw new Error('Invalid import quota');}
  private row(id:string){return this.db.prepare('SELECT * FROM history_imports WHERE id=?').get(id) as Row|undefined;}
  private scope(user:string,doc:string){this.stop.signal.throwIfAborted();const actor=this.db.prepare('SELECT active,admin_role FROM users WHERE id=?').get(user) as {active:number;admin_role:string}|undefined;if(!actor?.active||!['giga','simple'].includes(actor.admin_role))throw new DocumentError('ACCESS_DENIED');if(!this.docs.getPublished(user,doc))throw new DocumentError('NOT_FOUND');if(!this.access.allows(user,doc,'write'))throw new DocumentError('ACCESS_DENIED');}
  private owned(user:string,id:string){const row=this.row(id);if(!row||row.author_id!==user)throw new DocumentError('NOT_FOUND');this.scope(user,row.document_id);return row;}
@@ -46,40 +48,25 @@ export class HistoryImport{
  receive(user:string,id:string,source:AsyncIterable<Uint8Array>,options:Scope={}){return this.track(this.receiveRun(user,id,source,options));}
  private async receiveRun(user:string,id:string,source:AsyncIterable<Uint8Array>,options:Scope){
   options.signal?.throwIfAborted();options.authorize?.();const {row,token}=this.lease(user,id,'pending');if(!token)return this.result(row);const work=this.attempt(user,row,token,options);
-  try{work.check();const target=await this.store.uploadStore(row.namespace_id);work.check();const result=await decodeHistoryArchive(source,{signal:work.signal,maxArchiveBytes:row.archive_size,consume:async content=>{work.check();const blob=await target.put(content,{maxBytes:4*1024**3,signal:work.signal});work.check();return blob;},accept:async(meta,blob,index)=>{work.check();if(meta.sha256!==blob.digest)throw new DocumentError('HISTORY_ARCHIVE_CORRUPT');this.db.prepare('INSERT INTO history_import_entries(import_id,ordinal,digest,size,metadata_json) VALUES(?,?,?,?,?)').run(row.id,index,blob.digest,blob.size,JSON.stringify(meta));}});work.check();if(result.sha256!==row.archive_digest||result.size!==row.archive_size)throw new DocumentError('HISTORY_ARCHIVE_CORRUPT');
-   this.db.prepare("UPDATE history_imports SET state='prepared',entry_count=?,total_bytes=?,error_code=NULL,lease_token=NULL,lease_until=0,updated_at=? WHERE id=? AND lease_token=?").run(result.entries,result.totalBytes,this.clock(),row.id,token);return this.result(this.row(id)!);
+  try{work.check();const target=await this.store.uploadStore(row.namespace_id);work.check();const result=await decodeHistoryArchive(source,{signal:work.signal,maxArchiveBytes:row.archive_size,consume:async content=>{work.check();const blob=await target.put(content,{maxBytes:4*1024**3,signal:work.signal});work.check();return blob;},accept:async(meta,blob,index)=>{work.check();if(meta.sha256!==blob.digest)throw new DocumentError('HISTORY_ARCHIVE_CORRUPT');transaction(this.db,()=>{work.check();this.catalogue.stageImportEntry({importId:row.id,generation:row.generation,ordinal:index,metadata:JSON.stringify(meta),blob});});await yieldTurn();work.check();}});work.check();if(result.sha256!==row.archive_digest||result.size!==row.archive_size)throw new DocumentError('HISTORY_ARCHIVE_CORRUPT');
+   this.db.prepare("UPDATE history_imports SET state='prepared',entry_count=?,total_bytes=?,catalogue_ready=1,error_code=NULL,lease_token=NULL,lease_until=0,updated_at=? WHERE id=? AND lease_token=?").run(result.entries,result.totalBytes,this.clock(),row.id,token);return this.result(this.row(id)!);
   }catch(error){const reason=error instanceof HistoryArchiveError?new DocumentError(error.message):error;this.db.prepare("UPDATE history_imports SET state='failed',error_code=?,lease_token=NULL,lease_until=0,updated_at=? WHERE id=? AND lease_token=?").run(reason instanceof DocumentError?reason.code:'HISTORY_IMPORT_INTERRUPTED',this.clock(),id,token);throw reason;}finally{work.finish();}
  }
- private page(id:string,after:number){return this.db.prepare('SELECT ordinal,digest,size,metadata_json,entry_id FROM history_import_entries WHERE import_id=? AND ordinal>? ORDER BY ordinal LIMIT 50').all(id,after) as Entry[];}
+ private page(id:string,after:number,metadata=false){return this.db.prepare(metadata?'SELECT s.ordinal,s.digest,s.size,COALESCE(s.metadata_json,m.metadata_json) AS metadata_json,s.entry_id FROM history_import_entries s LEFT JOIN history_legacy_metadata m ON m.entry_id=s.entry_id WHERE s.import_id=? AND s.ordinal>? ORDER BY s.ordinal LIMIT 50':'SELECT ordinal,digest,size,entry_id FROM history_import_entries WHERE import_id=? AND ordinal>? ORDER BY ordinal LIMIT 50').all(id,after) as Entry[];}
  private budget(row:Row){const policy=historyPolicy(this.db),usage=this.db.prepare('SELECT total_bytes,entry_count FROM history_usage WHERE document_id=?').get(row.document_id) as {total_bytes:number;entry_count:number}|undefined;if(row.total_bytes>policy.byteLimit-(usage?.total_bytes??0)||row.entry_count>policy.entryLimit-(usage?.entry_count??0))throw new DocumentError('HISTORY_LIMIT');}
  publish(user:string,id:string,options:Scope={}){return this.track(this.publishRun(user,id,options));}
  private async publishRun(user:string,id:string,options:Scope){
   options.signal?.throwIfAborted();options.authorize?.();const {row,token}=this.lease(user,id,'prepared');if(!token)return this.result(row);const work=this.attempt(user,row,token,options);
-  try{work.check();this.budget(row);const target=await this.store.existingUploadStore(row.namespace_id);work.check();if(!target)throw new DocumentError('HISTORY_IMPORT_MISSING');this.db.prepare('UPDATE history_imports SET adoption_started=1 WHERE id=? AND lease_token=?').run(id,token);
+  try{work.check();this.budget(row);
+   // Recover schema24 prepared staging incrementally before adoption/publication. Each
+   // exact metadata copy is atomic with its private canonical binding and is resumable.
+   if(!row.catalogue_ready){let cursor=-1;for(;;){const page=this.page(id,cursor,true);if(!page.length)break;let bytes=0;for(const entry of page){work.check();if(entry.entry_id===null){if(!entry.metadata_json)throw new DocumentError('HISTORY_ARCHIVE_CORRUPT');transaction(this.db,()=>{work.check();this.catalogue.stageImportEntry({importId:id,generation:row.generation,ordinal:entry.ordinal,metadata:entry.metadata_json!,blob:entry});});}cursor=entry.ordinal;bytes+=Buffer.byteLength(entry.metadata_json??'');if(bytes>=1024**2){await yieldTurn();bytes=0;}}await yieldTurn();}}
+   work.check();this.db.prepare('UPDATE history_imports SET catalogue_ready=1 WHERE id=? AND catalogue_ready=0 AND lease_token=?').run(id,token);work.check();const target=await this.store.existingUploadStore(row.namespace_id);work.check();if(!target)throw new DocumentError('HISTORY_IMPORT_MISSING');this.db.prepare('UPDATE history_imports SET adoption_started=1 WHERE id=? AND lease_token=?').run(id,token);
    let after=-1,count=0,total=0;for(;;){const page=this.page(id,after);if(!page.length)break;for(const entry of page){work.check();await this.store.adopt(target,entry,{signal:work.signal});work.check();count++;total+=entry.size;after=entry.ordinal;}}
    if(count!==row.entry_count||total!==row.total_bytes)throw new DocumentError('HISTORY_ARCHIVE_CORRUPT');
    return transaction(this.db,()=>{
-    work.check();this.budget(row);let first:number|null=null,last:number|null=null,after=-1,count=0;
-    const staged=this.db.prepare('SELECT ordinal,digest,size,metadata_json,entry_id FROM history_import_entries WHERE import_id=? AND ordinal>? ORDER BY ordinal LIMIT 50');
-    const insert=this.db.prepare("INSERT INTO history_entries(document_id,kind,source_revision,digest,size,title,format,captured_by_name,created_at) VALUES(?,'source',?,?,?,?,?,?,?)");
-    const legacy=this.db.prepare('INSERT INTO history_legacy_metadata(entry_id,metadata_json) VALUES(?,?)');
-    const bind=this.db.prepare('UPDATE history_import_entries SET entry_id=? WHERE import_id=? AND ordinal=?');
-    // This synchronous IMMEDIATE transaction excludes other writers. Reuse statements and
-    // recheck authority/lease at both boundaries instead of recompiling scope queries per row.
-    for(;;){
-     work.signal.throwIfAborted();const page=staged.all(id,after) as Entry[];if(!page.length)break;
-     for(const entry of page){
-      if(!entry.metadata_json)throw new DocumentError('HISTORY_ARCHIVE_CORRUPT');
-      const meta=validateLegacyHistoryMetadata(JSON.parse(entry.metadata_json),65536);
-      if(meta.sha256!==entry.digest||entry.entry_id!==null)throw new DocumentError('HISTORY_ARCHIVE_CORRUPT');
-      const inserted=insert.run(row.document_id,meta.revision,entry.digest,entry.size,meta.title,meta.file_format,meta.author?.name??'',Date.parse(meta.saved_at)),entryId=Number(inserted.lastInsertRowid);
-      legacy.run(entryId,entry.metadata_json);bind.run(entryId,id,entry.ordinal);first??=entryId;last=entryId;after=entry.ordinal;count++;
-     }
-    }
-    if(count!==row.entry_count)throw new DocumentError('HISTORY_ARCHIVE_CORRUPT');work.check();
-    const receipt:Receipt={entries:count,totalBytes:row.total_bytes,firstEntryId:first,lastEntryId:last,archiveSha256:row.archive_digest,archiveSize:row.archive_size};
-    this.db.prepare("UPDATE history_imports SET state='committed',receipt=?,error_code=NULL,lease_token=NULL,lease_until=0,updated_at=? WHERE id=? AND lease_token=?").run(JSON.stringify(receipt),this.clock(),id,token);
-    this.db.prepare("INSERT INTO events(kind,document_id,payload,created_at) VALUES('history.imported',?,?,?)").run(row.document_id,JSON.stringify({operationId:id,entries:count}),this.clock());return this.result(this.row(id)!);
+    work.check();this.budget(row);const receipt=this.catalogue.publishImport({importId:id,generation:row.generation,token,now:this.clock()});
+    this.db.prepare("INSERT INTO events(kind,document_id,payload,created_at) VALUES('history.imported',?,?,?)").run(row.document_id,JSON.stringify({operationId:id,entries:receipt.entries}),this.clock());return this.result(this.row(id)!);
    });
   }catch(error){this.db.prepare('UPDATE history_imports SET error_code=?,lease_token=NULL,lease_until=0,updated_at=? WHERE id=? AND lease_token=?').run(error instanceof DocumentError?error.code:'HISTORY_IMPORT_INTERRUPTED',this.clock(),id,token);throw error;}finally{work.finish();}
  }
@@ -87,7 +74,13 @@ export class HistoryImport{
  private async cleanRun(){let count=0;
   this.db.prepare("UPDATE history_imports SET state='failed',error_code='HISTORY_IMPORT_INTERRUPTED',lease_token=NULL,lease_until=0 WHERE id IN (SELECT id FROM history_imports WHERE (state='receiving' AND lease_until<=?) OR (state='pending' AND updated_at<=?) ORDER BY updated_at,id LIMIT 16)").run(this.clock(),this.clock()-24*3600_000);
   const rows=this.db.prepare("SELECT * FROM history_imports WHERE reserved_bytes>0 AND state IN ('failed','committed') AND lease_until<=? ORDER BY updated_at,id LIMIT 16").all(this.clock()) as Row[];
-  for(const row of rows){const token=randomUUID(),claimed=this.db.prepare("UPDATE history_imports SET lease_token=?,lease_until=? WHERE id=? AND namespace_id=? AND lease_until<=? AND state IN ('failed','committed')").run(token,this.clock()+30000,row.id,row.namespace_id,this.clock());if(claimed.changes!==1)continue;try{await this.store.removeUpload(row.namespace_id);transaction(this.db,()=>{const current=this.row(row.id);if(current?.lease_token!==token||current.namespace_id!==row.namespace_id)return;if(current.state==='failed')this.db.prepare('DELETE FROM history_import_entries WHERE import_id=?').run(row.id);else this.db.prepare('UPDATE history_import_entries SET metadata_json=NULL WHERE import_id=?').run(row.id);this.db.prepare('UPDATE history_imports SET reserved_bytes=0,lease_token=NULL,lease_until=0 WHERE id=? AND lease_token=?').run(row.id,token);});count++;}catch{this.db.prepare('UPDATE history_imports SET lease_token=NULL,lease_until=0 WHERE id=? AND lease_token=?').run(row.id,token);}}
+  for(const row of rows){if(this.stop.signal.aborted)break;const token=randomUUID(),claimed=this.db.prepare("UPDATE history_imports SET lease_token=?,lease_until=? WHERE id=? AND namespace_id=? AND lease_until<=? AND state IN ('failed','committed')").run(token,this.clock()+30000,row.id,row.namespace_id,this.clock());if(claimed.changes!==1)continue;
+   const check=()=>{this.stop.signal.throwIfAborted();const current=this.row(row.id);if(!current||current.lease_token!==token||current.namespace_id!==row.namespace_id||current.generation!==row.generation||current.lease_until<=this.clock()||!['failed','committed'].includes(current.state)||current.state==='failed'&&current.adoption_started)throw new DocumentError('HISTORY_IMPORT_LEASE_LOST');this.db.prepare('UPDATE history_imports SET lease_until=? WHERE id=? AND lease_token=?').run(this.clock()+30000,row.id,token);};
+   try{check();if(row.state==='failed'){for(;;){check();const page=this.catalogue.deleteFailedPage({importId:row.id,generation:row.generation,token,now:this.clock(),maxRows:50,maxMetadataBytes:1048576});if(page.done)break;if(!page.removed)throw new DocumentError('HISTORY_ARCHIVE_CORRUPT');await yieldTurn();}}
+    else{let after=-1;for(;;){check();const page=this.db.prepare('SELECT ordinal,length(CAST(metadata_json AS BLOB)) AS bytes FROM history_import_entries WHERE import_id=? AND ordinal>? AND metadata_json IS NOT NULL ORDER BY ordinal LIMIT 50').all(row.id,after) as {ordinal:number;bytes:number}[];if(!page.length)break;let total=0;transaction(this.db,()=>{check();for(const entry of page){if(total+entry.bytes>1048576)break;this.db.prepare('UPDATE history_import_entries SET metadata_json=NULL WHERE import_id=? AND ordinal=?').run(row.id,entry.ordinal);total+=entry.bytes;after=entry.ordinal;}});await yieldTurn();}}
+    check();if(row.state==='failed'&&this.row(row.id)!.catalogue_count!==0)throw new DocumentError('HISTORY_ARCHIVE_CORRUPT');await this.store.removeUpload(row.namespace_id);transaction(this.db,()=>{check();this.db.prepare('UPDATE history_imports SET reserved_bytes=0,lease_token=NULL,lease_until=0 WHERE id=? AND lease_token=?').run(row.id,token);});count++;
+   }catch{this.db.prepare('UPDATE history_imports SET lease_token=NULL,lease_until=0 WHERE id=? AND lease_token=?').run(row.id,token);}}
+
   return count;
  }
  async close(){this.stop.abort(new DocumentError('HISTORY_CLOSED'));await Promise.allSettled([...this.pending]);await this.cleaning;}
