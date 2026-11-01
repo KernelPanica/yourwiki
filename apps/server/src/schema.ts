@@ -723,7 +723,16 @@ CREATE TRIGGER provider_ingress_terminal BEFORE UPDATE ON provider_ingress_snaps
 CREATE TRIGGER provider_ingress_usage_insert AFTER INSERT ON provider_ingress_snapshots BEGIN UPDATE provider_ingress_usage SET pending_bytes=pending_bytes+NEW.reserved_bytes WHERE id=1; END;
 CREATE TRIGGER provider_ingress_usage_update AFTER UPDATE OF reserved_bytes ON provider_ingress_snapshots BEGIN UPDATE provider_ingress_usage SET pending_bytes=pending_bytes+NEW.reserved_bytes-OLD.reserved_bytes WHERE id=1; END;
 `;
+const providerIngressScheduling = `
+CREATE TABLE provider_sync_checks (
+ document_id TEXT PRIMARY KEY REFERENCES provider_source_bindings(document_id) ON DELETE RESTRICT,
+ sequence INTEGER NOT NULL CHECK(sequence>0),due_at INTEGER NOT NULL CHECK(due_at>=0),
+ job_id TEXT NOT NULL REFERENCES jobs(id) ON DELETE RESTRICT
+);
+CREATE TABLE provider_sync_cursor(id INTEGER PRIMARY KEY CHECK(id=1),after_document_id TEXT);
+INSERT INTO provider_sync_cursor VALUES(1,NULL);
+`;
 /** Parent-table rebuilds run atomically with FK actions suspended, checked before commit, then enforced again. */
 export const migrationForeignKeyRebuilds:readonly number[]=[23,31];
-export const migrations = [core + epochTriggers, authInvalidation, authSettings, jobs, documents, workerSlots, uploads, pdfLayers, saveJournal, officeSessions, officeIngress, officeCleanup, officeRecovery, officePrepared, officePreparedBindings, officeSaveIntents, officeOpenings, officeHandoff, documentVisits, versionHistory, historyPreviews, historyRestores, legacyHistory, historyImports, historyCatalogue, providerConnections, providerSourceRequests, providerDeliveryAttempts, providerDeliveryRecoveryIndex, providerDeliveryRequestJob, providerVersionOrigins, providerIngressInbox] as const;
+export const migrations = [core + epochTriggers, authInvalidation, authSettings, jobs, documents, workerSlots, uploads, pdfLayers, saveJournal, officeSessions, officeIngress, officeCleanup, officeRecovery, officePrepared, officePreparedBindings, officeSaveIntents, officeOpenings, officeHandoff, documentVisits, versionHistory, historyPreviews, historyRestores, legacyHistory, historyImports, historyCatalogue, providerConnections, providerSourceRequests, providerDeliveryAttempts, providerDeliveryRecoveryIndex, providerDeliveryRequestJob, providerVersionOrigins, providerIngressInbox, providerIngressScheduling] as const;
 export const applicationId = 0x5957494b; // YWIK; legacy Django uses no marker.

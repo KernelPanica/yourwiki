@@ -28,6 +28,20 @@ export class LocalAdapter implements ProviderAdapter {
   await this.check(options);const after=await handle.stat({bigint:true}),named=await lstat(path,{bigint:true});if(!same(before,after)||!same(after,named)||!named.isFile())throw new ProviderError('PROVIDER_CONFLICT');
   const digest=hash.digest('hex');return {stat:after,digest,size:position,fingerprint:JSON.stringify(['local-v1',...identity(after),digest])};
  }
+
+ /** Read-only scheduling hint from pinned stat identity; acceptance still reads and authenticates all bytes. */
+ async changed(reference:string,baseline:string,options:ProviderCheck):Promise<boolean>{
+  let parent:Awaited<ReturnType<LocalPaths['parent']>>|undefined,file:FileHandle|undefined;
+  try{
+   await this.check(options);parent=await this.paths.parent(reference);const path=`${parent.path}/${parent.name}`;file=await this.paths.own(path,localFileFlags);
+   const before=await this.validFile(file);await this.check(options);const after=await this.validFile(file),named=await lstat(path,{bigint:true});
+   if(!same(before,after)||!same(after,named)||!named.isFile())return true;
+   let prior:unknown;try{if(typeof baseline!=='string'||baseline.length>1024)return true;prior=JSON.parse(baseline);}catch{return true;}
+   if(!Array.isArray(prior)||prior.length!==7||prior[0]!=='local-v1'||!prior.slice(1,6).every(x=>typeof x==='string'&&/^-?[0-9]+$/.test(x))||typeof prior[6]!=='string'||!/^[a-f0-9]{64}$/.test(prior[6]))return true;
+   return identity(after).some((value,index)=>value!==prior[index+1]);
+  }catch(error){throw safeProviderError(error);}finally{if(file)await this.paths.release(file);if(parent)await this.paths.release(parent.handle);}
+ }
+
  async read(reference:string,options:ProviderCheck){
   let parent:Awaited<ReturnType<LocalPaths['parent']>>|undefined,file:FileHandle|undefined;
   try{await this.check(options);parent=await this.paths.parent(reference);const path=`${parent.path}/${parent.name}`;file=await this.paths.own(path,localFileFlags);const proof=await this.scan(file,path,options),paths=this.paths,adapter=this,pinned=file,owner=parent;
