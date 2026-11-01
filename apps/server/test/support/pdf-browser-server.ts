@@ -6,7 +6,7 @@ import {createSession,revokeSession} from '../../src/auth/sessions.ts';
 import {createInterface} from 'node:readline';
 import {PdfLayerService} from '../../src/pdf-layers.ts';
 import { createReadStream } from 'node:fs';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -36,7 +36,14 @@ if(process.env.YOURWIKI_BROWSER_CONTROL==='1'){
  input.on('line',line=>{chain=chain.then(async()=>{
   try{
    const command=JSON.parse(line) as {action:string;title?:string};let result:Record<string,unknown>={};
-   if(command.action==='recent-state'){result={visits:db.prepare('SELECT * FROM document_visits ORDER BY user_id,document_id').all()};}
+   if(command.action==='history-save-two'){
+    if(!notes)throw new Error('Notes fixture required');const revision=(db.prepare('SELECT local_revision FROM documents WHERE id=?').get(notes.documentId) as {local_revision:number}).local_revision;
+    await docs.save({userId:'qa',documentId:notes.documentId,baseRevision:revision},(async function*(){yield Buffer.from('# History update '+(revision+1));})());
+    const layers=new PdfLayerService(db,store),state=layers.state('qa',initial.documentId)!,source=Buffer.concat([await readFile(fixture),Buffer.from('\n%history '+(state.layerRevision+1)+'\n')]);
+    await layers.save({userId:'qa',documentId:initial.documentId,baseRevision:state.baseRevision,layerRevision:state.layerRevision},(async function*(){yield source;})());while(await worker.runOnce()!=='idle'){}
+    result={counts:db.prepare('SELECT document_id,COUNT(*) AS count FROM history_entries GROUP BY document_id ORDER BY document_id').all(),documents:[initial.documentId,notes.documentId]};
+   }else if(command.action==='history-state'){result={counts:db.prepare('SELECT document_id,COUNT(*) AS count FROM history_entries GROUP BY document_id ORDER BY document_id').all(),documents:[initial.documentId,notes?.documentId]};}
+   else if(command.action==='recent-state'){result={visits:db.prepare('SELECT * FROM document_visits ORDER BY user_id,document_id').all()};}
    else if(command.action==='deny-notes'){if(!notes)throw new Error('Notes fixture required');db.prepare("UPDATE users SET admin_role='member' WHERE id='qa'").run();db.prepare('UPDATE resources SET user_policies=? WHERE id=?').run(JSON.stringify({qa:{read:false}}),notes.documentId);}
    else if(command.action==='release-discovery'){releaseDiscovery();}
    else if(command.action==='opening-state'){result={openings:db.prepare('SELECT open_id,state,handoff_deadline,claimed_at FROM office_openings').all(),tokens:(db.prepare('SELECT COUNT(*) AS n FROM office_tokens').get() as {n:number}).n};}

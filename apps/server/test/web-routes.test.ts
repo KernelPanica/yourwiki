@@ -14,6 +14,7 @@ test('web shell serves only manifest assets with immutable code/font cache and s
  const app=buildApp({webRoot:root});t.after(async()=>{await app.close();await rm(root,{recursive:true,force:true});});
  const page=await app.inject({url:'/documents/private-id'});assert.equal(page.statusCode,200);assert.equal(page.headers['cache-control'],'no-store');assert.match(page.headers['content-security-policy'] as string,/script-src 'self'/);
  const recent=await app.inject({url:'/recent'});assert.equal(recent.statusCode,200);assert.equal(recent.headers['cache-control'],'no-store');assert.equal(recent.body,'<html>Yourwiki</html>');
+ const settings=await app.inject({url:'/settings'});assert.equal(settings.statusCode,200);assert.equal(settings.headers['cache-control'],'no-store');assert.equal(settings.body,'<html>Yourwiki</html>');
  const asset=await app.inject({url:'/assets/main-ABC.js',headers:{'accept-encoding':'br'}});assert.equal(asset.statusCode,200);assert.equal(asset.headers['content-encoding'],'br');assert.match(asset.headers['cache-control'] as string,/immutable/);assert.deepEqual(asset.rawPayload,br);
  const plain=await app.inject({url:'/assets/main-ABC.js',headers:{'accept-encoding':'br;q=0,gzip;q=0'}});assert.equal(plain.headers['content-encoding'],undefined);assert.equal(plain.body,source.toString());
  assert.equal((await app.inject({url:'/assets/manifest.json'})).statusCode,404);
