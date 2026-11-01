@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { chmodSync, existsSync } from 'node:fs';
 import Sqlite from 'better-sqlite3';
-import { applicationId, migrations } from './schema.ts';
+import { applicationId, migrations, migrationForeignKeyRebuilds } from './schema.ts';
 export type Database = Sqlite.Database;
 
 export function transaction<T>(db: Database, action: () => T): T {
@@ -38,7 +38,9 @@ export function openDatabase(path: string): Database {
     }
     db.pragma('journal_mode = WAL');
     db.pragma('synchronous = FULL');
-    transaction(db, () => {
+    const rebuild = migrationForeignKeyRebuilds.some(version => !tables.length || !db.prepare('SELECT 1 FROM schema_migrations WHERE version=?').get(version));
+    if (rebuild) db.pragma('foreign_keys = OFF');
+    try { transaction(db, () => {
       db.exec(`CREATE TABLE IF NOT EXISTS schema_migrations (
         version INTEGER PRIMARY KEY, checksum TEXT NOT NULL
       )`);
@@ -49,8 +51,10 @@ export function openDatabase(path: string): Database {
           db.prepare('INSERT INTO schema_migrations(version,checksum) VALUES(?,?)').run(version, digest(sql));
         }
       }
+      if (rebuild && (db.pragma('foreign_key_check') as unknown[]).length) throw new Error('Migration foreign key validation failed');
       db.pragma(`application_id = ${applicationId}`);
-    });
+    }); } finally { if (rebuild) db.pragma('foreign_keys = ON'); }
+    if (db.pragma('foreign_keys', { simple: true }) !== 1) throw new Error('Foreign key enforcement unavailable');
     return db;
   } catch (error) {
     db.close();

@@ -339,5 +339,47 @@ CREATE TRIGGER history_restores_binding BEFORE UPDATE OF author_id,document_id,e
  SELECT RAISE(ABORT,'Restore binding is immutable');
 END;
 `;
-export const migrations = [core + epochTriggers, authInvalidation, authSettings, jobs, documents, workerSlots, uploads, pdfLayers, saveJournal, officeSessions, officeIngress, officeCleanup, officeRecovery, officePrepared, officePreparedBindings, officeSaveIntents, officeOpenings, officeHandoff, documentVisits, versionHistory, historyPreviews, historyRestores] as const;
+const legacyHistory = `
+CREATE TEMP TABLE history_sequence_before_rebuild(seq INTEGER);
+INSERT INTO history_sequence_before_rebuild SELECT seq FROM sqlite_sequence WHERE name='history_entries';
+CREATE TABLE history_entries_rebuilt (
+ id INTEGER PRIMARY KEY AUTOINCREMENT,
+ document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE RESTRICT,
+ kind TEXT NOT NULL CHECK(kind IN ('source','pdf-layer')),
+ source_revision INTEGER NOT NULL CHECK(source_revision>=0),
+ layer_revision INTEGER,
+ digest TEXT NOT NULL, size INTEGER NOT NULL CHECK(size>=0),
+ title TEXT NOT NULL, format TEXT NOT NULL,
+ captured_by TEXT REFERENCES users(id) ON DELETE SET NULL, captured_by_name TEXT NOT NULL,
+ created_at INTEGER NOT NULL,
+ CHECK((kind='source' AND layer_revision IS NULL) OR (kind='pdf-layer' AND layer_revision IS NOT NULL AND layer_revision>=0))
+);
+INSERT INTO history_entries_rebuilt SELECT * FROM history_entries;
+DROP TABLE history_entries;
+ALTER TABLE history_entries_rebuilt RENAME TO history_entries;
+UPDATE sqlite_sequence SET seq=MAX(seq,COALESCE((SELECT seq FROM history_sequence_before_rebuild),0)) WHERE name='history_entries';
+DROP TABLE history_sequence_before_rebuild;
+CREATE INDEX history_entries_document ON history_entries(document_id,id DESC);
+CREATE TRIGGER history_entries_immutable BEFORE UPDATE OF document_id,kind,source_revision,layer_revision,digest,size,title,format,captured_by_name,created_at ON history_entries BEGIN
+ SELECT RAISE(ABORT,'History entries are immutable');
+END;
+CREATE TRIGGER history_usage_insert AFTER INSERT ON history_entries BEGIN
+ INSERT INTO history_usage(document_id,total_bytes,entry_count) VALUES(NEW.document_id,NEW.size,1)
+ ON CONFLICT(document_id) DO UPDATE SET total_bytes=total_bytes+NEW.size,entry_count=entry_count+1;
+END;
+CREATE TRIGGER history_usage_delete AFTER DELETE ON history_entries BEGIN
+ UPDATE history_usage SET total_bytes=total_bytes-OLD.size,entry_count=entry_count-1 WHERE document_id=OLD.document_id;
+ DELETE FROM history_usage WHERE document_id=OLD.document_id AND entry_count=0;
+END;
+CREATE TABLE history_legacy_metadata (
+ entry_id INTEGER PRIMARY KEY REFERENCES history_entries(id) ON DELETE CASCADE,
+ metadata_json TEXT NOT NULL CHECK(json_valid(metadata_json) AND length(CAST(metadata_json AS BLOB))<=65536)
+);
+CREATE TRIGGER history_legacy_metadata_immutable BEFORE UPDATE ON history_legacy_metadata BEGIN
+ SELECT RAISE(ABORT,'Legacy history metadata is immutable');
+END;
+`;
+/** Parent-table rebuilds run atomically with FK actions suspended, checked before commit, then enforced again. */
+export const migrationForeignKeyRebuilds:readonly number[]=[23];
+export const migrations = [core + epochTriggers, authInvalidation, authSettings, jobs, documents, workerSlots, uploads, pdfLayers, saveJournal, officeSessions, officeIngress, officeCleanup, officeRecovery, officePrepared, officePreparedBindings, officeSaveIntents, officeOpenings, officeHandoff, documentVisits, versionHistory, historyPreviews, historyRestores, legacyHistory] as const;
 export const applicationId = 0x5957494b; // YWIK; legacy Django uses no marker.

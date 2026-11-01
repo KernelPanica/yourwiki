@@ -11,8 +11,9 @@ import {errorEnvelope} from './errors.ts';
 const docParams={type:'object',required:['id'],properties:{id:{type:'string',minLength:1,maxLength:128}}};
 const versionParams={type:'object',required:['id','entryId'],properties:{...docParams.properties,entryId:{type:'string',pattern:'^[1-9][0-9]{0,15}$'}}};
 function disposition(entry:HistoryEntry){
- const title=Array.from(entry.title||'history-'+entry.id).slice(0,200).join('').replace(/[\\/\x00-\x1f\x7f]/g,'_'),name=title.toLowerCase().endsWith('.'+entry.format)?title:title+'.'+entry.format;
- const encoded=encodeURIComponent(Buffer.from(name,'utf8').toString('utf8')).replace(/[!'()*]/g,value=>'%'+value.charCodeAt(0).toString(16).toUpperCase());return `attachment; filename="history-${entry.id}.${entry.format}"; filename*=UTF-8''${encoded}`;
+ const extension=entry.format||'bin';
+ const title=Array.from(entry.title||'history-'+entry.id).slice(0,200).join('').replace(/[\\/\x00-\x1f\x7f]/g,'_'),name=title.toLowerCase().endsWith('.'+extension)?title:title+'.'+extension;
+ const encoded=encodeURIComponent(Buffer.from(name,'utf8').toString('utf8')).replace(/[!'()*]/g,value=>'%'+value.charCodeAt(0).toString(16).toUpperCase());return `attachment; filename="history-${entry.id}.${extension}"; filename*=UTF-8''${encoded}`;
 }
 export function registerHistory(app:FastifyInstance,db:Database,store:BlobStore){
  const reader=new HistoryRead(db,store),active=new Set<AbortController>();

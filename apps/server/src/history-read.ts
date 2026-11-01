@@ -1,3 +1,4 @@
+import {validateLegacyHistoryMetadata,type LegacyHistoryMetadata} from './history-archive.ts';
 import type {Readable} from 'node:stream';
 import {transaction,type Database} from './database.ts';
 import {DocumentError} from './document-errors.ts';
@@ -6,12 +7,17 @@ import {AccessService} from './access.ts';
 import {historyPolicy} from './history-settings.ts';
 import {HistoryIntegrity} from './history-integrity.ts';
 import type {BlobStore,ByteRange} from './storage/blobs.ts';
-type Row={id:number;document_id:string;kind:'source'|'pdf-layer';source_revision:number;layer_revision:number|null;digest:string;size:number;title:string;format:string;captured_by:string|null;captured_by_name:string;created_at:number};
-export type HistoryEntry={id:number;documentId:string;kind:'source'|'pdf-layer';sourceRevision:number;layerRevision:number|null;sha256:string;size:number;title:string;format:string;author:{id:string|null;name:string};capturedAt:number};
+type Row={legacy_metadata:string|null;id:number;document_id:string;kind:'source'|'pdf-layer';source_revision:number;layer_revision:number|null;digest:string;size:number;title:string;format:string;captured_by:string|null;captured_by_name:string;created_at:number};
+export type HistoryEntry={id:number;documentId:string;kind:'source'|'pdf-layer';sourceRevision:number;layerRevision:number|null;sha256:string;size:number;title:string;format:string;author:{id:string|null;name:string};capturedAt:number;legacy?:{revision:number;kind:string;fileFormat:string;savedAt:string;author:null|{id:string|number;name:string}}};
 function entryId(value:number){if(!Number.isSafeInteger(value)||value<1)throw new DocumentError('INVALID_REQUEST');}
 function metadata(row:Row):HistoryEntry{
- if(!/^[a-f0-9]{64}$/.test(row.digest)||!Number.isSafeInteger(row.size)||row.size<0||!Number.isSafeInteger(row.id)||row.id<1||!Number.isSafeInteger(row.source_revision)||row.source_revision<1||!['source','pdf-layer'].includes(row.kind)||(row.kind==='source'?row.layer_revision!==null:!Number.isSafeInteger(row.layer_revision)||row.layer_revision!<0)||typeof row.title!=='string'||row.title.length>2000||typeof row.format!=='string'||!/^[a-z0-9][a-z0-9.-]{0,31}$/.test(row.format)||typeof row.captured_by_name!=='string'||row.captured_by_name.length>2000||!Number.isSafeInteger(row.created_at)||Math.abs(row.created_at)>8640000000000000)throw new DocumentError('HISTORY_CORRUPT');
- return {id:row.id,documentId:row.document_id,kind:row.kind,sourceRevision:row.source_revision,layerRevision:row.layer_revision,sha256:row.digest,size:row.size,title:row.title,format:row.format,author:{id:row.captured_by,name:row.captured_by_name},capturedAt:row.created_at};
+ let legacy:LegacyHistoryMetadata|undefined;
+ if(row.legacy_metadata!==null&&row.legacy_metadata!==undefined){try{legacy=validateLegacyHistoryMetadata(JSON.parse(row.legacy_metadata),65536);}catch{throw new DocumentError('HISTORY_CORRUPT');}
+  if(row.kind!=='source'||legacy.revision!==row.source_revision||legacy.sha256!==row.digest||legacy.file_format!==row.format||legacy.title!==row.title||Date.parse(legacy.saved_at)!==row.created_at||(legacy.author?.name??'')!==row.captured_by_name)throw new DocumentError('HISTORY_CORRUPT');
+ }
+
+ if(!/^[a-f0-9]{64}$/.test(row.digest)||!Number.isSafeInteger(row.size)||row.size<0||!Number.isSafeInteger(row.id)||row.id<1||!Number.isSafeInteger(row.source_revision)||row.source_revision<(legacy?0:1)||!['source','pdf-layer'].includes(row.kind)||(row.kind==='source'?row.layer_revision!==null:!Number.isSafeInteger(row.layer_revision)||row.layer_revision!<0)||typeof row.title!=='string'||row.title.length>2000||typeof row.format!=='string'||!(legacy&&row.format===''||/^[a-z0-9][a-z0-9.-]{0,31}$/.test(row.format))||typeof row.captured_by_name!=='string'||row.captured_by_name.length>2000||!Number.isSafeInteger(row.created_at)||Math.abs(row.created_at)>8640000000000000)throw new DocumentError('HISTORY_CORRUPT');
+ return {id:row.id,documentId:row.document_id,kind:row.kind,sourceRevision:row.source_revision,layerRevision:row.layer_revision,sha256:row.digest,size:row.size,title:row.title,format:row.format,author:{id:row.captured_by,name:row.captured_by_name},capturedAt:row.created_at,...(legacy?{legacy:{revision:legacy.revision,kind:legacy.kind,fileFormat:legacy.file_format,savedAt:legacy.saved_at,author:legacy.author?{id:legacy.author.id,name:legacy.author.name}:null}}:{})};
 }
 /** History authority is the document plus immutable receipt; a digest alone grants no access. */
 export class HistoryRead{
@@ -20,11 +26,11 @@ export class HistoryRead{
  private context(userId:string,documentId:string){
   this.lifetime.signal.throwIfAborted();const doc=this.docs.getPublished(userId,documentId);if(!doc)throw new DocumentError('NOT_FOUND');const policy=historyPolicy(this.db);return {schemaVersion:2 as const,enabled:policy.enabled===1,settingsRevision:policy.revision,document:{id:doc.id,localRevision:doc.localRevision,publishedRevision:doc.revision,write:this.access.allows(userId,documentId,'write'),export:this.access.allows(userId,documentId,'export')}};
  }
- private row(documentId:string,id:number){entryId(id);const row=this.db.prepare('SELECT * FROM history_entries WHERE document_id=? AND id=?').get(documentId,id) as Row|undefined;if(!row)throw new DocumentError('NOT_FOUND');return metadata(row);}
+ private row(documentId:string,id:number){entryId(id);const row=this.db.prepare('SELECT history_entries.*,(SELECT metadata_json FROM history_legacy_metadata WHERE entry_id=history_entries.id) AS legacy_metadata FROM history_entries WHERE document_id=? AND id=?').get(documentId,id) as Row|undefined;if(!row)throw new DocumentError('NOT_FOUND');return metadata(row);}
  list(userId:string,documentId:string,options:{after?:string;limit?:number}={}){
   const limit=options.limit??50;if(!Number.isSafeInteger(limit)||limit<1||limit>200)throw new DocumentError('INVALID_REQUEST');let after:number|undefined;
   if(options.after!==undefined){if(typeof options.after!=='string'||!/^[1-9][0-9]{0,15}$/.test(options.after))throw new DocumentError('INVALID_REQUEST');after=Number(options.after);entryId(after);}
-  return transaction(this.db,()=>{const context=this.context(userId,documentId),rows=(after===undefined?this.db.prepare('SELECT * FROM history_entries WHERE document_id=? ORDER BY id DESC LIMIT ?').all(documentId,limit+1):this.db.prepare('SELECT * FROM history_entries WHERE document_id=? AND id<? ORDER BY id DESC LIMIT ?').all(documentId,after,limit+1)) as Row[];const items=rows.slice(0,limit).map(metadata);return {...context,items,nextCursor:rows.length>limit?String(items.at(-1)!.id):null};});
+  return transaction(this.db,()=>{const context=this.context(userId,documentId),rows=(after===undefined?this.db.prepare('SELECT history_entries.*,(SELECT metadata_json FROM history_legacy_metadata WHERE entry_id=history_entries.id) AS legacy_metadata FROM history_entries WHERE document_id=? ORDER BY id DESC LIMIT ?').all(documentId,limit+1):this.db.prepare('SELECT history_entries.*,(SELECT metadata_json FROM history_legacy_metadata WHERE entry_id=history_entries.id) AS legacy_metadata FROM history_entries WHERE document_id=? AND id<? ORDER BY id DESC LIMIT ?').all(documentId,after,limit+1)) as Row[];const items=rows.slice(0,limit).map(metadata);return {...context,items,nextCursor:rows.length>limit?String(items.at(-1)!.id):null};});
  }
  entry(userId:string,documentId:string,id:number){return transaction(this.db,()=>({...this.context(userId,documentId),item:this.row(documentId,id)}));}
  async download(userId:string,documentId:string,id:number,options:{signal?:AbortSignal;authorize?:()=>void;range?:ByteRange}={}){

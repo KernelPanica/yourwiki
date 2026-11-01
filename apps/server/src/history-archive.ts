@@ -70,3 +70,6 @@ export async function* encodeHistoryArchive(entries:AsyncIterable<{metadata:Lega
   if(hash.digest('hex')!==pinned.sha256)throw new HistoryArchiveError('HISTORY_ARCHIVE_CORRUPT');if(pending.length)yield emit(pending.toString('base64'));yield emit('"}');count++;
  }yield emit(']}');
 }
+
+/** Shared validator for private persisted metadata; never expose the full result in read-only metadata APIs. */
+export {metadata as validateLegacyHistoryMetadata};
