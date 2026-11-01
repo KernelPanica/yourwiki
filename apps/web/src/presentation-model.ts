@@ -1,7 +1,7 @@
 import type { DocumentView } from './api.ts';
 import { ApiError } from './api.ts';
 export interface Slide { index:number;image:string;thumbnail:string }
-export function slidesFor(view:DocumentView):Slide[] {
+export function slidesFor(view:Pick<DocumentView,'presentation'>&{manifest:Pick<DocumentView['manifest'],'artifacts'>}):Slide[] {
   const value=view.presentation as {schemaVersion?:number;slides?:unknown[]}|null;
   if(value?.schemaVersion!==1||!Array.isArray(value.slides)||!value.slides.length||value.slides.length>500)throw new ApiError('INVALID_PREVIEW');
   const images=new Set(view.manifest.artifacts.filter(item=>item.mimeType==='image/png').map(item=>item.name));

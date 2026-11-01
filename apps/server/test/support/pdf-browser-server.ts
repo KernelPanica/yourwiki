@@ -1,3 +1,4 @@
+import {HistorySettings} from '../../src/history-settings.ts';
 /** Synthetic loopback-only PDF browser fixture. Never use against production data. */
 import {OfficeOpenings} from '../../src/office/openings.ts';
 import {OfficeSessions} from '../../src/office/sessions.ts';
@@ -24,7 +25,7 @@ const store=await BlobStore.open(root),docs=new DocumentService(db,store);
 const fixture=process.env.YOURWIKI_BROWSER_PDF_FIXTURE??new URL('../fixtures/pdf/form.pdf',import.meta.url);
 const initial=await docs.create({userId:'qa',title:'PDF forms',format:'pdf',groupId:'qa',parentId:null},createReadStream(fixture));
 const notes=process.env.YOURWIKI_BROWSER_CONTROL==='1'?await docs.create({userId:'qa',title:'Live notes',format:'md',groupId:'qa',parentId:null},(async function*(){yield Buffer.from('# Initial live notes');})()):null;
-const worker=new PreviewWorker(db,store);while(await worker.runOnce()!=='idle'){}
+const worker=new PreviewWorker(db,store,process.env.YOURWIKI_TEST_OFFICE_ROOT?{office:{officeRoot:process.env.YOURWIKI_TEST_OFFICE_ROOT}}:{});while(await worker.runOnce()!=='idle'){}
 const port=Number(process.env.YOURWIKI_BROWSER_PORT??39077);
 if(!Number.isSafeInteger(port)||port<1024||port>65535)throw new Error('Invalid test port');
 let releaseDiscovery=()=>{};const discoveryGate=process.env.YOURWIKI_BROWSER_HOLD_OFFICE==='1'?new Promise<void>(resolve=>{releaseDiscovery=resolve;}):Promise.resolve();
@@ -36,7 +37,17 @@ if(process.env.YOURWIKI_BROWSER_CONTROL==='1'){
  input.on('line',line=>{chain=chain.then(async()=>{
   try{
    const command=JSON.parse(line) as {action:string;title?:string};let result:Record<string,unknown>={};
-   if(command.action==='history-save-two'){
+   if(command.action==='history-fixtures'){
+    if(!notes)throw new Error('Notes fixture required');const policy=new HistorySettings(db);policy.update('qa',{enabled:true,baseRevision:policy.read('qa').revision});
+    await docs.save({userId:'qa',documentId:notes.documentId,baseRevision:1},(async function*(){yield Buffer.from('# Current live notes');})());
+    const layers=new PdfLayerService(db,store);await layers.save({userId:'qa',documentId:initial.documentId,baseRevision:1,layerRevision:0},(async function*(){yield Buffer.concat([await readFile(fixture),Buffer.from('\n%current layer\n')]);})());
+    for(let index=0;index<55;index++){const payload=await store.put((async function*(){yield Buffer.from('# Archived note '+index);})(),{maxBytes:1024});db.prepare("INSERT INTO history_entries(document_id,kind,source_revision,digest,size,title,format,captured_by_name,created_at) VALUES(?,'source',1,?,?,?,'md','Archive author',?)").run(notes.documentId,payload.digest,payload.size,'Archive '+index,Date.now()+index);}
+    const slides=await docs.create({userId:'qa',title:'History slides',format:'pptx',groupId:'qa',parentId:null},createReadStream(new URL('../fixtures/office/slides.pptx',import.meta.url)));while(await worker.runOnce()!=='idle'){}
+    db.prepare("INSERT INTO history_entries(document_id,kind,source_revision,digest,size,title,format,captured_by_name,created_at) VALUES(?,'source',1,?,?,'Archive slides','pptx','Archive author',?)").run(slides.documentId,slides.blob.digest,slides.blob.size,Date.now());const table=await docs.create({userId:'qa',title:'History table',format:'xlsx',groupId:'qa',parentId:null},createReadStream(new URL('../fixtures/office/table.xlsx',import.meta.url)));while(await worker.runOnce()!=='idle'){}
+    db.prepare("INSERT INTO history_entries(document_id,kind,source_revision,digest,size,title,format,captured_by_name,created_at) VALUES(?,'source',1,?,?,'Archive table','xlsx','Archive author',?)").run(table.documentId,table.blob.digest,table.blob.size,Date.now());result={notes:notes.documentId,pdf:initial.documentId,slides:slides.documentId,table:table.documentId};
+   }else if(command.action==='history-work'){while(await worker.runOnce()!=='idle'){};}
+   else if(command.action==='history-deny-other'){if(!notes)throw new Error('Notes required');db.prepare('UPDATE resources SET user_policies=? WHERE id=?').run(JSON.stringify({other:{read:false}}),notes.documentId);}
+   else if(command.action==='history-save-two'){
     if(!notes)throw new Error('Notes fixture required');const revision=(db.prepare('SELECT local_revision FROM documents WHERE id=?').get(notes.documentId) as {local_revision:number}).local_revision;
     await docs.save({userId:'qa',documentId:notes.documentId,baseRevision:revision},(async function*(){yield Buffer.from('# History update '+(revision+1));})());
     const layers=new PdfLayerService(db,store),state=layers.state('qa',initial.documentId)!,source=Buffer.concat([await readFile(fixture),Buffer.from('\n%history '+(state.layerRevision+1)+'\n')]);

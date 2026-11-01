@@ -9,6 +9,7 @@ import {startChangeFeed,publishChanges,subscribeChanges} from './live-updates.ts
 import { requestNavigation,hasUnsavedChanges } from './navigation-guard.ts';
 import { labels,languageFor } from './i18n.ts';
 import type { Labels } from './i18n.ts';
+const HistoryPanel=lazy(()=>import('./HistoryPanel.tsx'));
 const HistorySettingsPage=lazy(()=>import('./HistorySettingsPage.tsx'));
 const OfficeRecoveryPanel=lazy(()=>import('./OfficeRecoveryPanel.tsx'));
 const OfficeWorkspace=lazy(()=>import('./OfficeWorkspace.tsx'));
@@ -36,6 +37,12 @@ class PreviewBoundary extends Component<{children:ReactNode},{failed:boolean}> {
   static getDerivedStateFromError(){return {failed:true};}
   componentDidCatch(_error:Error,_info:ErrorInfo) { /* No private content in logs. */ }
   render(){return this.state.failed?<ErrorBox error={new ApiError('INVALID_PREVIEW')} retry={()=>location.reload()}/>:this.props.children;}
+}
+class HistoryBoundary extends Component<{children:ReactNode;onClose:()=>void},{failed:boolean}> {
+  state={failed:false};
+  static getDerivedStateFromError(){return {failed:true};}
+  componentDidCatch(_error:Error,_info:ErrorInfo){ /* Keep the live editor mounted when optional history fails. */ }
+  render(){return this.state.failed?<aside className="notice" role="alert"><p>{t.error}</p><button type="button" onClick={this.props.onClose}>{t.closeHistory}</button></aside>:this.props.children;}
 }
 function Login({onLogin,notice}:{onLogin:(account:Account)=>void;notice?:unknown}) {
   const [pending,setPending]=useState(false),[error,setError]=useState<unknown>(notice);
@@ -69,10 +76,11 @@ function Library({onSessionLost,active,recent=false}:{onSessionLost:()=>void;act
     {cursor&&<button type="button" disabled={pending} onClick={()=>void load(cursor)}>{t.more}</button>}
   </main>;
 }
-function DocumentPage({id,onSessionLost,csrf}:{id:string;onSessionLost:()=>void;csrf:string}) {
+function DocumentPage({id,onSessionLost,csrf,admin}:{id:string;onSessionLost:()=>void;csrf:string;admin:boolean}) {
   const [view,setView]=useState<DocumentView|null>(null),[error,setError]=useState<unknown>(null),[attempt,setAttempt]=useState(0);
   const currentView=useRef<DocumentView|null>(null),officeMounted=useRef(false),visit=useRef<DocumentVisit|null>(null);
-  const [visitFailed,setVisitFailed]=useState(false);
+  const [visitFailed,setVisitFailed]=useState(false),[historyOpen,setHistoryOpen]=useState(false);
+  const historyButton=useRef<HTMLButtonElement|null>(null);
   useEffect(()=>{const tracker=new DocumentVisit({documentId:id,csrf,recorded:publishRecentActivity,changed:state=>{setVisitFailed(state.phase==='error');if(state.error instanceof ApiError&&state.error.code==='SESSION_REQUIRED'&&!sessionSnapshot().blocked)onSessionLost();}});visit.current=tracker;return()=>{tracker.dispose();visit.current=null;};},[id,csrf]);
   useEffect(()=>{if(view)void visit.current?.opened();},[view,csrf]);
   useEffect(()=>{
@@ -92,7 +100,8 @@ function DocumentPage({id,onSessionLost,csrf}:{id:string;onSessionLost:()=>void;
     </Suspense></PreviewBoundary>:null;
   if(view?.document.capabilities.office===true&&view.document.capabilities.write&&['document','table','presentation'].includes(view.manifest.kind))officeMounted.current=true;
   const office=officeMounted.current;
-  return <main id="content" className="document-page"><div className="document-toolbar"><Link href="/" className="back">← {t.back}</Link><div className="document-name"><h1>{view?.document.title??t.preview}</h1>{view&&<span className="muted">{view.document.format.toUpperCase()} · {t.read}</span>}</div>{view?.document.capabilities.export&&view.manifest.kind!=='pdf'&&<a className="button" href={`/api/documents/${encodeURIComponent(id)}/content`} download>{t.download}</a>}</div>
+  return <main id="content" className="document-page"><div className="document-toolbar"><Link href="/" className="back">← {t.back}</Link><div className="document-name"><h1>{view?.document.title??t.preview}</h1>{view&&<span className="muted">{view.document.format.toUpperCase()} · {t.read}</span>}</div>{view&&<button ref={historyButton} type="button" aria-expanded={historyOpen} onClick={()=>setHistoryOpen(value=>!value)}>{t.history}</button>}{view?.document.capabilities.export&&view.manifest.kind!=='pdf'&&<a className="button" href={`/api/documents/${encodeURIComponent(id)}/content`} download>{t.download}</a>}</div>
+    {historyOpen&&view&&<HistoryBoundary onClose={()=>{setHistoryOpen(false);requestAnimationFrame(()=>historyButton.current?.focus());}}><Suspense fallback={<p role="status">{t.loading}</p>}><HistoryPanel documentId={id} csrf={csrf} admin={admin} onSessionLost={onSessionLost} onClose={()=>{setHistoryOpen(false);requestAnimationFrame(()=>historyButton.current?.focus());}}/></Suspense></HistoryBoundary>}
     {visitFailed&&<p className="visit-notice" role="status">{t.visitFailed} <button type="button" onClick={()=>void visit.current?.retry()}>{t.retry}</button></p>}
     {error?<ErrorBox error={error} retry={!view?()=>setAttempt(x=>x+1):undefined}/>:null}
     {!office&&view?.document.capabilities.office===true&&<Suspense fallback={null}><OfficeRecoveryPanel documentId={id} csrf={csrf} onSessionLost={onSessionLost}/></Suspense>}
@@ -133,5 +142,5 @@ export default function App() {
   if(account===undefined)return <main id="content" className="loading" role="status">{t.loading}</main>;
   if(!account)return <Login onLogin={value=>{resumeSession();setAuthPaused(false);setError(null);setAccount(value);authChannel?.postMessage('changed');}} notice={error}/>;
   let id='';try{if(path.startsWith('/documents/'))id=decodeURIComponent(path.slice('/documents/'.length));}catch{/* invalid URL handled below */}
-  return <><a className="skip" href="#content">{t.skip}</a><header className="site-header"><Link href="/" className="brand">Yourwiki<span>·</span></Link><nav aria-label="Yourwiki"><Link href="/" aria-current={path==='/'?'page':undefined}>{t.files}</Link><Link href="/recent" aria-current={path==='/recent'?'page':undefined}>{t.recent}</Link><Link href="/account" aria-current={path==='/account'?'page':undefined}>{t.account}</Link>{['giga','simple'].includes(account.user.adminRole)&&<Link href="/settings" aria-current={path==='/settings'?'page':undefined}>{t.settings}</Link>}</nav><button type="button" className="sign-out" onClick={()=>authPaused?recoverSession():void signOut()}>{authPaused?t.signIn:t.signOut}</button></header>{error?<ErrorBox error={error}/>:null}{libraryVisited&&<div className="library-route" hidden={path!=='/'}><Library key={account.user.id+account.csrf} onSessionLost={sessionLost} active={path==='/'}/></div>}{recentVisited&&<div className="library-route" hidden={path!=='/recent'}><Library key={account.user.id+account.csrf} recent onSessionLost={sessionLost} active={path==='/recent'}/></div>}{id?<DocumentPage key={id} id={id} onSessionLost={sessionLost} csrf={account.csrf}/>:path==='/account'?<AccountPage account={account}/>:path==='/settings'?['giga','simple'].includes(account.user.adminRole)?<Suspense fallback={<main id="content" className="loading" role="status">{t.loading}</main>}><HistorySettingsPage key={account.user.id+account.csrf} csrf={account.csrf} onSessionLost={sessionLost}/></Suspense>:<main id="content" className="account-page"><h1>{t.settings}</h1><p role="alert">{t.settingsDenied}</p></main>:null}</>;
+  return <><a className="skip" href="#content">{t.skip}</a><header className="site-header"><Link href="/" className="brand">Yourwiki<span>·</span></Link><nav aria-label="Yourwiki"><Link href="/" aria-current={path==='/'?'page':undefined}>{t.files}</Link><Link href="/recent" aria-current={path==='/recent'?'page':undefined}>{t.recent}</Link><Link href="/account" aria-current={path==='/account'?'page':undefined}>{t.account}</Link>{['giga','simple'].includes(account.user.adminRole)&&<Link href="/settings" aria-current={path==='/settings'?'page':undefined}>{t.settings}</Link>}</nav><button type="button" className="sign-out" onClick={()=>authPaused?recoverSession():void signOut()}>{authPaused?t.signIn:t.signOut}</button></header>{error?<ErrorBox error={error}/>:null}{libraryVisited&&<div className="library-route" hidden={path!=='/'}><Library key={account.user.id+account.csrf} onSessionLost={sessionLost} active={path==='/'}/></div>}{recentVisited&&<div className="library-route" hidden={path!=='/recent'}><Library key={account.user.id+account.csrf} recent onSessionLost={sessionLost} active={path==='/recent'}/></div>}{id?<DocumentPage key={id} id={id} onSessionLost={sessionLost} csrf={account.csrf} admin={['giga','simple'].includes(account.user.adminRole)}/>:path==='/account'?<AccountPage account={account}/>:path==='/settings'?['giga','simple'].includes(account.user.adminRole)?<Suspense fallback={<main id="content" className="loading" role="status">{t.loading}</main>}><HistorySettingsPage key={account.user.id+account.csrf} csrf={account.csrf} onSessionLost={sessionLost}/></Suspense>:<main id="content" className="account-page"><h1>{t.settings}</h1><p role="alert">{t.settingsDenied}</p></main>:null}</>;
 }
