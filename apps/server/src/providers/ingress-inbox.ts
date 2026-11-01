@@ -1,3 +1,4 @@
+import {commitIngressSnapshot,type IngressReceipt} from './ingress-commit.ts';
 import {randomUUID,createHash} from 'node:crypto';
 import {transaction,type Database} from '../database.ts';
 import {DocumentError} from '../document-errors.ts';
@@ -54,6 +55,30 @@ export class ProviderIngress {
   const blob={...value},row=this.owned(id,job,now);if(row.state!=='receiving'||!/^([a-f0-9]{64})$/.test(blob.digest)||blob.size!==row.declared_size)throw new DocumentError('PROVIDER_SOURCE_CHANGED');const target=await this.store.existingUploadStore(row.namespace_id);if(!target||!await target.verify(blob,signal))throw new DocumentError('PROVIDER_SOURCE_CHANGED');
   signal?.throwIfAborted();return transaction(this.db,()=>{const current=this.owned(id,job,this.clock());if(current.state!=='receiving')throw new DocumentError('INGRESS_NOT_RECEIVING');const reason=ingressGuard(this.db,current,this.clock());this.db.prepare('UPDATE provider_ingress_snapshots SET state=?,digest=?,size=?,error_code=?,updated_at=? WHERE id=?').run(reason?'conflict':'staged',blob.digest,blob.size,reason,this.clock(),id);this.event(current,this.clock());return this.result(this.row(id)!);});
  }
+
+ /** Trusted background acceptance only. Replays return the permanent receipt without new IO. */
+ async commit(id:string,job:ClaimedJob,options:{signal?:AbortSignal;converterVersion?:string}={}):Promise<IngressReceipt>{
+  const prior=this.row(id);
+  if(prior?.state==='applied'&&prior.lease_job_id===job.id&&prior.lease_token===job.token)return JSON.parse(prior.receipt!) as IngressReceipt;
+  const initial=this.prepared(id,job),converterVersion=options.converterVersion??'preview-v2';
+  if(!converterVersion||converterVersion.length>128)invalid();
+  const controller=new AbortController(),signal=options.signal?AbortSignal.any([controller.signal,options.signal]):controller.signal;let renewAt=this.clock()+10000;
+  const check=()=>{signal.throwIfAborted();this.prepared(id,job);const at=this.clock();if(at>=renewAt){this.renew(id,job,at);renewAt=at+10000;}};
+  const timer=setInterval(()=>{try{check();}catch(error){controller.abort(error);}},250);
+  try{
+   check();const source=await this.store.existingUploadStore(initial.namespace_id);check();if(!source)throw new DocumentError('PROVIDER_SOURCE_CHANGED');
+   await this.store.adopt(source,{digest:initial.digest!,size:initial.size!},{signal});check();
+   const result=transaction(this.db,()=>{check();return commitIngressSnapshot(this.db,this.prepared(id,job),this.clock(),converterVersion);});
+   if('error' in result)throw new DocumentError(result.error);return result;
+  }finally{clearInterval(timer);}
+ }
+ /** Applied source bytes already have their own durable global link; only its private duplicate is removed. */
+ async cleanupApplied(id:string,job:ClaimedJob):Promise<void>{
+  const row=this.row(id);if(!row||row.state!=='applied'||row.lease_job_id!==job.id||row.lease_token!==job.token)throw new DocumentError('LEASE_LOST');
+  await this.store.removeUpload(row.namespace_id);
+  transaction(this.db,()=>{const current=this.row(id);if(!current||current.state!=='applied'||current.receipt!==row.receipt)throw new DocumentError('CONFLICT');this.db.prepare('UPDATE provider_ingress_snapshots SET reserved_bytes=0 WHERE id=?').run(id);});
+ }
+
  async discard(id:string,job:ClaimedJob):Promise<IngressSnapshot>{
   const row=transaction(this.db,()=>{const current=this.owned(id,job,this.clock(),false);if(current.state==='applied')throw new DocumentError('CONFLICT');if(current.state!=='discarded')this.db.prepare("UPDATE provider_ingress_snapshots SET state='discarding',updated_at=? WHERE id=?").run(this.clock(),id);return current;});if(row.state==='discarded')return this.result(row);
   await this.store.removeUpload(row.namespace_id);return transaction(this.db,()=>{const current=this.owned(id,job,this.clock(),false);if(current.state!=='discarding')throw new DocumentError('CONFLICT');this.db.prepare("UPDATE provider_ingress_snapshots SET state='discarded',reserved_bytes=0,error_code=NULL,updated_at=? WHERE id=?").run(this.clock(),id);this.event(current,this.clock());return this.result(this.row(id)!);});

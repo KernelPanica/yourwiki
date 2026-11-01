@@ -64,10 +64,10 @@
 
 **Interfaces:** `ProviderIngress.commit(snapshotId,claim,now)` is internal background publication with no user impersonation. Only verified current snapshot/binding/config/lease plus a clean unchanged local baseline may create a null-author origin-bound source version. Same bytes update only baseline; changed bytes capture optional history, increment local revision, acknowledge provider revision/fingerprint, enqueue preview and persist inbox receipt/event atomically. No source-delivery job or PDF-layer claim.
 
-- [ ] RED exact-byte commit/no-echo/history-off tests; local source/Office opening/room/ingress/upload/journal/recovery/ACL or connection changes during async verification; failed receipt/preview/history limit must roll back all pointers and retain snapshot.
-- [ ] Implement shared source staging primitives or trusted commit function without loosening normal DocumentService write/session/ACL rules. Published preview stays at the previous ready revision until existing preview worker atomically publishes the newly prepared manifest.
-- [ ] Prove durable replay after dropped acknowledgement/reopen and kill points, staged future receipts cannot publish, client-side dirty PDF remains for explicit recovery, unchanged content does not grow history/source/jobs, unknown provider author stays null and history export/import round-trips existing unknown-author representation.
-- [ ] Run focused and full native server/web/types/build and relevant preview/history/Office regressions. Expected no source mutation on refused guard and no outbound echo; ledger/commit.
+- [x] RED exact-byte commit/no-echo/history-off tests; local source/Office opening/room/ingress/upload/journal/recovery/ACL or connection changes during async verification; failed receipt/preview/history limit must roll back all pointers and retain snapshot.
+- [x] Implement shared source staging primitives or trusted commit function without loosening normal DocumentService write/session/ACL rules. Published preview stays at the previous ready revision until existing preview worker atomically publishes the newly prepared manifest.
+- [x] Prove durable replay after dropped acknowledgement/reopen and kill points, staged future receipts cannot publish, client-side dirty PDF remains for explicit recovery, unchanged content does not grow history/source/jobs, unknown provider author stays null and history export/import round-trips existing unknown-author representation.
+- [x] Run focused and full native server/web/types/build and relevant preview/history/Office regressions. Expected no source mutation on refused guard and no outbound echo; ledger/commit.
 
 ## Task4: Background inbound scheduler, truthful status and current editor
 

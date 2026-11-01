@@ -1,3 +1,4 @@
+import {stagePreviewRequest} from './preview-request.ts';
 import {requestSourceDelivery,assertSourceDeliveryWritable} from './providers/delivery-requests.ts';
 import {DocumentError} from './document-errors.ts';
 import {captureSourceHistory} from './history-capture.ts';
@@ -77,12 +78,7 @@ export class DocumentService {
     return this.stagePreview(id, revision);
   }
   private stagePreview(id: string, revision: number): string {
-    this.db.prepare('UPDATE documents SET preview_generation=preview_generation+1 WHERE id=?').run(id);
-    const row = this.db.prepare('SELECT preview_generation FROM documents WHERE id=?').get(id) as { preview_generation: number };
-    const jobId = this.queue.enqueue({ kind: 'preview.prepare', key: `${id}:${revision}:${row.preview_generation}`,
-      payload: { documentId: id, revision, converterVersion: this.converterVersion } }, this.clock());
-    this.db.prepare('UPDATE documents SET preview_job_id=? WHERE id=?').run(jobId, id);
-    return jobId;
+    return stagePreviewRequest(this.db,id,revision,this.converterVersion,this.clock());
   }
 
   requestPreview(userId: string, documentId: string): { jobId: string } {
