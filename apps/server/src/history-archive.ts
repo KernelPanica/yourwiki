@@ -13,7 +13,11 @@ type Budget={remaining:number};
 class Cursor{
  private options:Limits;private iterator:AsyncIterator<string>;private text='';private position=0;size=0;hash=createHash('sha256');
  constructor(source:AsyncIterable<Uint8Array>,options:Limits,maximum:number){this.options=options;const self=this;this.iterator=(async function*(){const decoder=new TextDecoder('utf-8',{fatal:true});try{for await(const chunk of source){options.signal?.throwIfAborted();if(!(chunk instanceof Uint8Array))invalid();self.size+=chunk.byteLength;if(self.size>maximum)limit();self.hash.update(chunk);for(let i=0;i<chunk.length;i+=65536){options.signal?.throwIfAborted();const text=decoder.decode(chunk.subarray(i,i+65536),{stream:true});if(text)yield text;}}const tail=decoder.decode();if(tail)yield tail;}catch(error){if(error instanceof TypeError)invalid();throw error;}})()[Symbol.asyncIterator]();}
- async ensure(){this.options.signal?.throwIfAborted();while(this.position>=this.text.length){const next=await this.iterator.next();if(next.done)return false;this.text=next.value;this.position=0;}return true;}
+ private async next(){
+  const signal=this.options.signal;signal?.throwIfAborted();const next=this.iterator.next();if(!signal)return next;let abort:(()=>void)|undefined;
+  try{return await Promise.race([next,new Promise<never>((_,reject)=>{abort=()=>reject(signal.reason);signal.addEventListener('abort',abort,{once:true});if(signal.aborted)abort();})]);}finally{if(abort)signal.removeEventListener('abort',abort);}
+ }
+ async ensure(){this.options.signal?.throwIfAborted();while(this.position>=this.text.length){const next=await this.next();if(next.done)return false;this.text=next.value;this.position=0;}return true;}
  async peek(){return await this.ensure()?this.text[this.position]! : '';}
  async take(budget?:Budget){if(!await this.ensure())invalid();if(budget&&--budget.remaining<0)limit();return this.text[this.position++]!;}
  async whitespace(budget?:Budget){while(/[\x20\t\r\n]/.test(await this.peek())&&await this.peek()!=='')await this.take(budget);}
@@ -35,7 +39,7 @@ class Cursor{
   }
   let token='';while(await this.peek()&&!/[\x20\t\r\n,\]}]/.test(await this.peek())){token+=await this.take(budget);if(token.length>128)invalid();}if(!/^(?:null|true|false|-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?)$/.test(token))invalid();const result=JSON.parse(token);if(typeof result==='number'&&!Number.isFinite(result))invalid();return result;
  }
- async close(){await this.iterator.return?.();}
+ async close(){try{void Promise.resolve(this.iterator.return?.()).catch(()=>{});}catch{ /* Source shutdown cannot retain the parser after cancellation. */ }}
 }
 export async function decodeHistoryArchive<T>(source:AsyncIterable<Uint8Array>,options:Limits&{consume:(content:AsyncIterable<Uint8Array>,index:number)=>Promise<T>;accept:(metadata:LegacyHistoryMetadata,content:T,index:number)=>Promise<void>}){
  const bounds=limits(options),cursor=new Cursor(source,options,bounds.archive);let count=0,total=0;

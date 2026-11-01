@@ -379,7 +379,39 @@ CREATE TRIGGER history_legacy_metadata_immutable BEFORE UPDATE ON history_legacy
  SELECT RAISE(ABORT,'Legacy history metadata is immutable');
 END;
 `;
+const historyImports = `
+CREATE TABLE history_imports (
+ id TEXT PRIMARY KEY, author_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+ document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE RESTRICT,
+ source_key TEXT NOT NULL, archive_digest TEXT NOT NULL, archive_size INTEGER NOT NULL CHECK(archive_size>0),
+ namespace_id TEXT NOT NULL UNIQUE, generation INTEGER NOT NULL DEFAULT 1 CHECK(generation>0),
+ state TEXT NOT NULL CHECK(state IN ('pending','receiving','prepared','committed','failed')),
+ reserved_bytes INTEGER NOT NULL CHECK(reserved_bytes>=0),
+ entry_count INTEGER NOT NULL DEFAULT 0 CHECK(entry_count>=0), total_bytes INTEGER NOT NULL DEFAULT 0 CHECK(total_bytes>=0),
+ adoption_started INTEGER NOT NULL DEFAULT 0 CHECK(adoption_started IN (0,1)),
+ lease_token TEXT, lease_until INTEGER NOT NULL DEFAULT 0,
+ receipt TEXT, error_code TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+ UNIQUE(document_id,source_key,archive_digest),
+ CHECK((state='committed' AND receipt IS NOT NULL) OR (state!='committed' AND receipt IS NULL))
+);
+CREATE INDEX history_imports_reservations ON history_imports(reserved_bytes) WHERE reserved_bytes>0;
+CREATE INDEX history_imports_author_pending ON history_imports(author_id,state);
+CREATE INDEX history_imports_cleanup ON history_imports(state,lease_until);
+CREATE TRIGGER history_imports_binding BEFORE UPDATE OF author_id,document_id,source_key,archive_digest,archive_size ON history_imports BEGIN
+ SELECT RAISE(ABORT,'History import binding is immutable');
+END;
+CREATE TABLE history_import_entries (
+ import_id TEXT NOT NULL REFERENCES history_imports(id) ON DELETE CASCADE,
+ ordinal INTEGER NOT NULL CHECK(ordinal>=0), digest TEXT NOT NULL, size INTEGER NOT NULL CHECK(size>=0),
+ metadata_json TEXT CHECK(metadata_json IS NULL OR (json_valid(metadata_json) AND length(CAST(metadata_json AS BLOB))<=65536)),
+ entry_id INTEGER UNIQUE REFERENCES history_entries(id) ON DELETE RESTRICT,
+ PRIMARY KEY(import_id,ordinal)
+);
+CREATE TRIGGER history_import_entries_binding BEFORE UPDATE OF import_id,ordinal,digest,size ON history_import_entries BEGIN
+ SELECT RAISE(ABORT,'Staged history binding is immutable');
+END;
+`;
 /** Parent-table rebuilds run atomically with FK actions suspended, checked before commit, then enforced again. */
 export const migrationForeignKeyRebuilds:readonly number[]=[23];
-export const migrations = [core + epochTriggers, authInvalidation, authSettings, jobs, documents, workerSlots, uploads, pdfLayers, saveJournal, officeSessions, officeIngress, officeCleanup, officeRecovery, officePrepared, officePreparedBindings, officeSaveIntents, officeOpenings, officeHandoff, documentVisits, versionHistory, historyPreviews, historyRestores, legacyHistory] as const;
+export const migrations = [core + epochTriggers, authInvalidation, authSettings, jobs, documents, workerSlots, uploads, pdfLayers, saveJournal, officeSessions, officeIngress, officeCleanup, officeRecovery, officePrepared, officePreparedBindings, officeSaveIntents, officeOpenings, officeHandoff, documentVisits, versionHistory, historyPreviews, historyRestores, legacyHistory, historyImports] as const;
 export const applicationId = 0x5957494b; // YWIK; legacy Django uses no marker.
