@@ -13,6 +13,8 @@ function metadata(row:Row):ConnectionMetadata{return {id:row.id,provider:row.pro
 export class ProviderConnections{
  private db:Database;private configs:SecretConfigs;private clock:()=>number;
  constructor(db:Database,configs:SecretConfigs,options:{clock?:()=>number}={}){this.db=db;this.configs=configs;this.clock=options.clock??Date.now;}
+ /** Internal app wiring guard; never serialized as metadata. */
+ belongsToDatabase(db:Database){return this.db===db;}
  private admin(userId:string){const user=this.db.prepare('SELECT active,admin_role FROM users WHERE id=?').get(userId) as {active:number;admin_role:string}|undefined;if(!user?.active||user.admin_role!=='giga')error('ACCESS_DENIED');}
  private row(id:string){return this.db.prepare('SELECT '+columns+' FROM provider_connections c JOIN provider_mounts m ON m.connection_id=c.id WHERE c.id=?').get(id) as Row|undefined;}
  private current(id:string){if(!opaque(id))error();const row=this.row(id);if(!row)error('NOT_FOUND');return row;}

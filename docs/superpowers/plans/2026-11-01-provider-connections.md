@@ -53,11 +53,14 @@
 
 ## Task3: Safe read-only administrative HTTP metadata
 
-**Interfaces:** optional `AppOptions.providerConnections?:ProviderConnections`; register only when supplied. GET `/api/admin/provider-connections?after=&limit=` returns bounded DTO page; GET `/api/admin/provider-connections/:id` returns DTO. Current cookie/session and giga role are mandatory; arbitrary query/body/coercion rejected. No route returns config/token/location or accepts writes until provider-specific validation/connect flows are implemented. Existing app without configured secrets retains previous startup/readiness behaviour.
+**Interfaces:** optional `AppOptions.providerConnections?:ProviderConnections`; register only when supplied and its internal belongsToDatabase(db) guard confirms the same explicit workspace database. GET `/api/admin/provider-connections?after=&limit=` returns bounded DTO page; GET `/api/admin/provider-connections/:id` returns DTO. Current cookie/session and giga role are mandatory; arbitrary query/body/coercion rejected. No route returns config/token/location or accepts writes until provider-specific validation/connect flows are implemented. Existing app without configured secrets retains previous startup/readiness behaviour.
 
-- [ ] Write RED HTTP tests: supplied repository only,401 anonymous,403 simple/member/inactive/revoked; unknown id404; strict cursors/limits/query;50/next pages; no ciphertext/credential/unknown fields in JSON or errors; corrupt ciphertext/closed codec do not break safe metadata reads and are never returned; no provider IO or secret read for unrelated health/document pages.
-- [ ] Run route tests, observe404/missing-option failures.
-- [ ] Register private no-store GET routes with existing error/session conventions and current service authorization; map INVALID_REQUEST400,ACCESS_DENIED403,NOT_FOUND404,CONFLICT/CONNECTION_EXISTS/CONNECTION_IDENTITY_IMMUTABLE/MIGRATION_MISMATCH409,CONFIG_UNAVAILABLE503 without exception detail; add optional AppOptions wiring only. No frontend/config writer/automatic OAuth probe or production startup change.
-- [ ] Run full native server/web tests, both typechecks, migration SQL preservation checks, diff gates and commit. Ledger results and continue real provider document-binding/delivery plans under the active whole rewrite goal.
+- [x] Write RED HTTP tests: supplied repository only,401 anonymous,403 simple/member/inactive/revoked; unknown id404; strict cursors/limits/query;50/next pages; no ciphertext/credential/unknown fields in JSON or errors; corrupt ciphertext/closed codec do not break safe metadata reads and are never returned; no provider IO or secret read for unrelated health/document pages.
+- [x] Run route tests, observe404/missing-option failures.
+- [x] Register private no-store GET routes with existing error/session conventions and current service authorization; map INVALID_REQUEST400,ACCESS_DENIED403,NOT_FOUND404,CONFLICT/CONNECTION_EXISTS/CONNECTION_IDENTITY_IMMUTABLE/MIGRATION_MISMATCH409,CONFIG_UNAVAILABLE503 without exception detail; add optional AppOptions wiring only. No frontend/config writer/automatic OAuth probe or production startup change.
+- [x] Run full native server/web tests, both typechecks, migration SQL preservation checks, diff gates and commit. Ledger results and continue real provider document-binding/delivery plans under the active whole rewrite goal.
 
 Self-review: addresses the approved central-account persistence/migration prerequisite only. OAuth refresh serialization, per-provider connect validation, native Google round-trip, grants/export restrictions/trash, provider outbox/reconciliation and admin UI remain explicit subsequent deliverables, not claims made by this repository/metadata boundary.
+
+
+Completion evidence: ledger2026-11-01 provider connections Task3. Internal persistence/import/read-only metadata subproject complete; actual adapter/delivery/UI/live-provider work and the whole rewrite remain active.

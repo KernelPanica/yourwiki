@@ -1,3 +1,5 @@
+import {registerProviderConnections} from './providers/connection-routes.ts';
+import type {ProviderConnections} from './providers/connections.ts';
 import {registerHistoryTransfer} from './history-transfer-routes.ts';
 import {registerHistoryRestore} from './history-restore-routes.ts';
 import {registerHistoryPreviews} from './history-preview-routes.ts';
@@ -16,6 +18,7 @@ import type { BlobStore } from './storage/blobs.ts';
 import { registerAuth } from './auth/routes.ts';
 
 export interface AppOptions {
+  providerConnections?: ProviderConnections;
   office?: OfficeOptions;
   database?: Database;
   publicUrl?: string;
@@ -30,6 +33,7 @@ export interface AppOptions {
 }
 
 export function buildApp(options: AppOptions = {}) {
+  if(options.providerConnections&&(!options.database||!options.providerConnections.belongsToDatabase(options.database)))throw new Error('Provider connections require a matching workspace database');
   const app = Fastify({
     logger: false,
     requestIdHeader: false,
@@ -60,6 +64,7 @@ export function buildApp(options: AppOptions = {}) {
     }
     return reply.code(500).send(errorEnvelope('INTERNAL_ERROR', request.id));
   });
+  if(options.database&&options.providerConnections)registerProviderConnections(app,options.database,options.providerConnections);
   if (options.database) registerAuth(app, options.database, options.publicUrl ?? 'http://localhost:3100');
   if (options.database) registerHistorySettings(app,options.database,options.publicUrl??'http://localhost:3100');
   if (options.database) registerChanges(app, options.database, options.publicUrl ?? 'http://localhost:3100', options.changesPollMs);
