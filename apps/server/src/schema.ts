@@ -678,7 +678,52 @@ CREATE TRIGGER document_version_origin_author BEFORE UPDATE OF author_id ON docu
  SELECT RAISE(ABORT,'Source author does not match provider origin');
 END;
 `;
+const providerIngressInbox = `
+CREATE TABLE provider_ingress_snapshots (
+ id TEXT PRIMARY KEY,document_id TEXT NOT NULL REFERENCES provider_source_bindings(document_id) ON DELETE RESTRICT,
+ generation INTEGER NOT NULL CHECK(generation>0),source_key TEXT NOT NULL CHECK(length(source_key)=64),
+ connection_id TEXT NOT NULL REFERENCES provider_connections(id) ON DELETE RESTRICT,
+ connection_revision INTEGER NOT NULL CHECK(connection_revision>0),binding_generation INTEGER NOT NULL CHECK(binding_generation>0),
+ base_local_revision INTEGER NOT NULL,base_provider_revision INTEGER NOT NULL,base_digest TEXT NOT NULL CHECK(length(base_digest)=64),
+ base_fingerprint TEXT NOT NULL,observed_fingerprint TEXT NOT NULL CHECK(length(observed_fingerprint) BETWEEN 1 AND 1024),
+ declared_size INTEGER NOT NULL CHECK(declared_size BETWEEN 0 AND 4294967296),observed_at INTEGER NOT NULL,
+ namespace_id TEXT NOT NULL UNIQUE,reserved_bytes INTEGER NOT NULL CHECK(reserved_bytes>=0 AND reserved_bytes<=declared_size),
+ state TEXT NOT NULL CHECK(state IN ('pending','receiving','staged','conflict','applied','failed','discarding','discarded')),
+ digest TEXT CHECK(digest IS NULL OR (length(digest)=64 AND digest NOT GLOB '*[^0-9a-f]*')),size INTEGER,
+ error_code TEXT CHECK(error_code IS NULL OR (length(error_code) BETWEEN 1 AND 64 AND error_code NOT GLOB '*[^A-Z0-9_]*')),
+ receipt TEXT CHECK(receipt IS NULL OR (json_valid(receipt) AND length(receipt)<=4096)),
+ lease_job_id TEXT NOT NULL REFERENCES jobs(id) ON DELETE RESTRICT,lease_token TEXT NOT NULL,slot_token TEXT NOT NULL,lease_until INTEGER NOT NULL,
+ created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL,
+ UNIQUE(document_id,generation),
+ FOREIGN KEY(document_id,base_local_revision) REFERENCES document_versions(document_id,revision) ON DELETE RESTRICT,
+ FOREIGN KEY(document_id,base_provider_revision) REFERENCES document_versions(document_id,revision) ON DELETE RESTRICT,
+ CHECK((digest IS NULL AND size IS NULL) OR (digest IS NOT NULL AND size=declared_size)),
+ CHECK(state NOT IN ('staged','conflict','applied') OR digest IS NOT NULL),
+ CHECK((state='applied')=(receipt IS NOT NULL)),CHECK(state!='discarded' OR reserved_bytes=0)
+);
+CREATE INDEX provider_ingress_active ON provider_ingress_snapshots(document_id,generation DESC) WHERE state NOT IN ('applied','discarded');
+CREATE INDEX provider_ingress_cleanup ON provider_ingress_snapshots(state,updated_at,id) WHERE reserved_bytes>0;
+CREATE TABLE provider_ingress_usage(id INTEGER PRIMARY KEY CHECK(id=1),pending_bytes INTEGER NOT NULL CHECK(pending_bytes BETWEEN 0 AND 17179869184));
+INSERT INTO provider_ingress_usage VALUES(1,0);
+CREATE TRIGGER provider_ingress_insert BEFORE INSERT ON provider_ingress_snapshots BEGIN
+ SELECT CASE WHEN NEW.state!='pending' OR NEW.digest IS NOT NULL OR NEW.receipt IS NOT NULL OR NEW.reserved_bytes!=NEW.declared_size THEN RAISE(ABORT,'Ingress must reserve before receiving') END;
+ SELECT CASE WHEN (SELECT COUNT(*) FROM provider_ingress_snapshots WHERE document_id=NEW.document_id AND state NOT IN ('applied','discarded'))>=15 THEN RAISE(ABORT,'Ingress quota') END;
+END;
+CREATE TRIGGER provider_ingress_identity BEFORE UPDATE OF id,document_id,generation,source_key,connection_id,connection_revision,binding_generation,base_local_revision,base_provider_revision,base_digest,base_fingerprint,observed_fingerprint,declared_size,observed_at,namespace_id,created_at ON provider_ingress_snapshots BEGIN SELECT RAISE(ABORT,'Ingress identity is immutable'); END;
+CREATE TRIGGER provider_ingress_bytes BEFORE UPDATE OF digest,size ON provider_ingress_snapshots WHEN OLD.digest IS NOT NULL BEGIN SELECT RAISE(ABORT,'Ingress bytes are immutable'); END;
+CREATE TRIGGER provider_ingress_transition BEFORE UPDATE OF state ON provider_ingress_snapshots WHEN NEW.state!=OLD.state AND NOT (
+ (OLD.state='pending' AND NEW.state IN ('receiving','failed','discarding')) OR
+ (OLD.state='receiving' AND NEW.state IN ('staged','conflict','failed','discarding')) OR
+ (OLD.state='staged' AND NEW.state IN ('conflict','applied','discarding')) OR
+ (OLD.state='conflict' AND NEW.state IN ('applied','discarding')) OR
+ (OLD.state='failed' AND NEW.state='discarding') OR (OLD.state='discarding' AND NEW.state='discarded')) BEGIN SELECT RAISE(ABORT,'Invalid ingress transition'); END;
+CREATE TRIGGER provider_ingress_reservation BEFORE UPDATE OF reserved_bytes ON provider_ingress_snapshots WHEN NEW.reserved_bytes!=OLD.reserved_bytes AND (NEW.reserved_bytes!=0 OR NEW.state NOT IN ('applied','discarded')) BEGIN SELECT RAISE(ABORT,'Ingress reservation is retained until cleanup'); END;
+CREATE TRIGGER provider_ingress_delete BEFORE DELETE ON provider_ingress_snapshots BEGIN SELECT RAISE(ABORT,'Ingress receipt is retained'); END;
+CREATE TRIGGER provider_ingress_terminal BEFORE UPDATE ON provider_ingress_snapshots WHEN OLD.state='discarded' OR (OLD.state='applied' AND (NEW.state!='applied' OR NEW.digest!=OLD.digest OR NEW.receipt!=OLD.receipt)) BEGIN SELECT RAISE(ABORT,'Ingress receipt is immutable'); END;
+CREATE TRIGGER provider_ingress_usage_insert AFTER INSERT ON provider_ingress_snapshots BEGIN UPDATE provider_ingress_usage SET pending_bytes=pending_bytes+NEW.reserved_bytes WHERE id=1; END;
+CREATE TRIGGER provider_ingress_usage_update AFTER UPDATE OF reserved_bytes ON provider_ingress_snapshots BEGIN UPDATE provider_ingress_usage SET pending_bytes=pending_bytes+NEW.reserved_bytes-OLD.reserved_bytes WHERE id=1; END;
+`;
 /** Parent-table rebuilds run atomically with FK actions suspended, checked before commit, then enforced again. */
 export const migrationForeignKeyRebuilds:readonly number[]=[23,31];
-export const migrations = [core + epochTriggers, authInvalidation, authSettings, jobs, documents, workerSlots, uploads, pdfLayers, saveJournal, officeSessions, officeIngress, officeCleanup, officeRecovery, officePrepared, officePreparedBindings, officeSaveIntents, officeOpenings, officeHandoff, documentVisits, versionHistory, historyPreviews, historyRestores, legacyHistory, historyImports, historyCatalogue, providerConnections, providerSourceRequests, providerDeliveryAttempts, providerDeliveryRecoveryIndex, providerDeliveryRequestJob, providerVersionOrigins] as const;
+export const migrations = [core + epochTriggers, authInvalidation, authSettings, jobs, documents, workerSlots, uploads, pdfLayers, saveJournal, officeSessions, officeIngress, officeCleanup, officeRecovery, officePrepared, officePreparedBindings, officeSaveIntents, officeOpenings, officeHandoff, documentVisits, versionHistory, historyPreviews, historyRestores, legacyHistory, historyImports, historyCatalogue, providerConnections, providerSourceRequests, providerDeliveryAttempts, providerDeliveryRecoveryIndex, providerDeliveryRequestJob, providerVersionOrigins, providerIngressInbox] as const;
 export const applicationId = 0x5957494b; // YWIK; legacy Django uses no marker.

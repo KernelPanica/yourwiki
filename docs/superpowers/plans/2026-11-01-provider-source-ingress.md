@@ -53,12 +53,12 @@
 
 ## Task2: Guarded durable external snapshot inbox
 
-**Interfaces:** `ProviderIngress.stage({job,documentId,connectionRevision,baseLocalRevision,baseProviderRevision,baseFingerprint,observedFingerprint,blob,observedAt},now)` accepts only already stored/verified bytes under a current binding capability; immutable UUID receipt/state and per-doc generation. `guards(db,documentId,baseline)` rechecks resource ancestry, config/binding/revisions, outbound and Office/save/upload/recovery fences. Snapshots are private and confer no digest-only access.
+**Interfaces:** `ProviderIngress.begin({job,slotToken,documentId,connectionRevision,baseLocalRevision,baseProviderRevision,baseFingerprint,observedFingerprint,declaredSize,observedAt},now)` reserves before IO; `receive(snapshotId,job,source,{signal?})` writes an owned namespace and validates full bytes before staged/conflict. `stage(snapshotId,job,blob,now)` validates an existing owned namespace blob only. Interrupted receiving is retained as failed, never silently resumed by a second writer. Immutable UUID receipt/state and per-doc generation. `guards(db,documentId,baseline)` rechecks resource ancestry, config/binding/revisions, outbound and Office/save/upload/pending-restore fences. Retained Office/save intents block application; general recovery copies remain untouched and are not pending write authority (ledgered lifecycle distinction). Snapshots are private and confer no digest-only access.
 
-- [ ] RED tests for immutable snapshot/byte identity, current guards, no partial visibility, bounded pending budget, worker lease expiry, two DB owners, restart and same snapshot dedupe; no deletion on read errors.
-- [ ] Append inbox/usage schema with <=4GiB per source,16GiB global pending bound and indexed per-document bounded active records; status error codes static and credential/reference-free. Separate staged/conflict/applied/discarded states; unknown remote deletion is not inferred.
-- [ ] Implement guards using existing save/Office semantics, extracting shared fence helpers only where needed with old behavior regressions. External changes during local pending work park an authenticated snapshot and emit document-only conflict hints; never discard current source.
-- [ ] Verify focused/full native/types, quota and crash evidence, exact old SQL; ledger/commit. Expected no production scan, no provider mutation and no source overwrite yet.
+- [x] RED tests for immutable snapshot/byte identity, current guards, no partial visibility, bounded pending budget, worker lease expiry, two DB owners, restart and same snapshot dedupe; no deletion on read errors.
+- [x] Append inbox/usage schema with <=4GiB per source,16GiB global pending bound and indexed per-document bounded active records; status error codes static and credential/reference-free. Separate pending/receiving/staged/conflict/applied/failed/discarding/discarded states; reservation released only after owned namespace removal; unknown remote deletion is not inferred.
+- [x] Implement guards using existing save/Office semantics, extracting shared fence helpers only where needed with old behavior regressions. External changes during local pending work park an authenticated snapshot and emit document-only conflict hints; never discard current source.
+- [x] Verify focused/full native/types, quota and crash evidence, exact old SQL; ledger/commit. Expected no production scan, no provider mutation and no source overwrite yet.
 
 ## Task3: Atomic external source commit and preview publication
 

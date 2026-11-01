@@ -81,3 +81,10 @@ export class OfficeOpenings {
  }
  close(){this.stopped=true;for(const close of [...this.watches])close();}
 }
+
+/** Read-only inbound fence; expired/untrusted parents cannot hold a document forever. */
+export function officeOpeningBlocksExternalChange(db:Database,documentId:string,now:number):boolean{
+ return !!db.prepare(`SELECT 1 FROM office_openings o JOIN sessions s ON s.token_hash=o.browser_session_hash JOIN users u ON u.id=s.user_id
+ WHERE o.document_id=? AND s.expires_at>? AND u.active=1 AND s.auth_version=u.auth_version AND
+ ((o.state='pending' AND o.created_at>?) OR (o.state='ready' AND o.claimed_at IS NULL AND o.handoff_deadline>?)) LIMIT 1`).get(documentId,now,now-openingLeaseMs,now);
+}
