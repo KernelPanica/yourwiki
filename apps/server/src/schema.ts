@@ -755,7 +755,10 @@ CREATE TRIGGER provider_sync_action_identity BEFORE UPDATE OF id,document_id,kin
 CREATE TRIGGER provider_sync_action_terminal BEFORE UPDATE ON provider_sync_actions WHEN OLD.state!='queued' BEGIN SELECT RAISE(ABORT,'Sync action receipt is immutable'); END;
 CREATE TRIGGER provider_sync_action_delete BEFORE DELETE ON provider_sync_actions BEGIN SELECT RAISE(ABORT,'Sync action receipt is retained'); END;
 `;
+const providerAcceptedJobIndex = `
+CREATE INDEX provider_ingress_applied_job ON provider_ingress_snapshots(lease_job_id,generation DESC) WHERE state='applied';
+`;
 /** Parent-table rebuilds run atomically with FK actions suspended, checked before commit, then enforced again. */
 export const migrationForeignKeyRebuilds:readonly number[]=[23,31];
-export const migrations = [core + epochTriggers, authInvalidation, authSettings, jobs, documents, workerSlots, uploads, pdfLayers, saveJournal, officeSessions, officeIngress, officeCleanup, officeRecovery, officePrepared, officePreparedBindings, officeSaveIntents, officeOpenings, officeHandoff, documentVisits, versionHistory, historyPreviews, historyRestores, legacyHistory, historyImports, historyCatalogue, providerConnections, providerSourceRequests, providerDeliveryAttempts, providerDeliveryRecoveryIndex, providerDeliveryRequestJob, providerVersionOrigins, providerIngressInbox, providerIngressScheduling, providerSyncActions] as const;
+export const migrations = [core + epochTriggers, authInvalidation, authSettings, jobs, documents, workerSlots, uploads, pdfLayers, saveJournal, officeSessions, officeIngress, officeCleanup, officeRecovery, officePrepared, officePreparedBindings, officeSaveIntents, officeOpenings, officeHandoff, documentVisits, versionHistory, historyPreviews, historyRestores, legacyHistory, historyImports, historyCatalogue, providerConnections, providerSourceRequests, providerDeliveryAttempts, providerDeliveryRecoveryIndex, providerDeliveryRequestJob, providerVersionOrigins, providerIngressInbox, providerIngressScheduling, providerSyncActions, providerAcceptedJobIndex] as const;
 export const applicationId = 0x5957494b; // YWIK; legacy Django uses no marker.

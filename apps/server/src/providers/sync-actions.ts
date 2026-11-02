@@ -38,13 +38,32 @@ export class SyncActions {
    return this.ticket(this.db.prepare('SELECT * FROM provider_sync_actions WHERE id=?').get(body.requestId) as SyncActionRow);
   });
  }
+ forJob(job:ClaimedJob):SyncActionRow|undefined{return this.db.prepare('SELECT * FROM provider_sync_actions WHERE job_id=?').get(job.id) as SyncActionRow|undefined;}
+ finish(job:ClaimedJob,errorCode?:string):void{
+  const allowed=['SESSION_REQUIRED','ACCESS_DENIED','NOT_FOUND','CONFLICT','OFFICE_ACTIVE','SAVE_PENDING','PROVIDER_CONFIG_CHANGED','PROVIDER_SOURCE_CHANGED','PROVIDER_CONFLICT','PROVIDER_UNAVAILABLE','INGRESS_QUOTA','INGRESS_INTERRUPTED'];
+  if(!this.queue.owns(job,this.clock()))throw new DocumentError('LEASE_LOST');const row=this.forJob(job);if(!row||row.state!=='queued')return;
+  const code=errorCode===undefined?null:allowed.includes(errorCode)?errorCode:'PROVIDER_UNAVAILABLE';
+  this.db.prepare('UPDATE provider_sync_actions SET state=?,error_code=?,completed_at=? WHERE id=?').run(code?'refused':'done',code,this.clock(),row.id);
+  this.db.prepare("INSERT INTO events(kind,document_id,payload,created_at) VALUES('provider.ingress',?,'{}',?)").run(row.document_id,this.clock());
+ }
  /** Worker-only current capability check. A queued request is not lasting write authority. */
- authorize(job:ClaimedJob):SyncActionRow{
+ authorize(job:ClaimedJob,workingSnapshot?:string):SyncActionRow{
   if(!this.queue.owns(job,this.clock()))throw new DocumentError('LEASE_LOST');
   const row=this.db.prepare('SELECT * FROM provider_sync_actions WHERE job_id=?').get(job.id) as SyncActionRow|undefined;if(!row||row.state!=='queued'||job.kind!=='provider.pull'||job.payload.documentId!==row.document_id||Object.keys(job.payload).length!==1)throw new DocumentError('INVALID_REQUEST');
   this.actor(row.author_id,row.session_hash);const doc=this.document(row.author_id,row.document_id);if(doc.local_revision!==row.base_local_revision||doc.provider_revision!==row.base_provider_revision)throw new DocumentError('CONFLICT');
-  const latest=this.db.prepare('SELECT id,state FROM provider_ingress_snapshots WHERE document_id=? ORDER BY generation DESC LIMIT 1').get(row.document_id) as {id:string;state:string}|undefined;if((latest&&latest.state!=='discarded'?latest.id:null)!==row.snapshot_id)throw new DocumentError('CONFLICT');
+  const latest=this.db.prepare('SELECT id,state,lease_job_id,lease_token,lease_until,base_local_revision,base_provider_revision,connection_revision,binding_generation FROM provider_ingress_snapshots WHERE document_id=? ORDER BY generation DESC LIMIT 1').get(row.document_id) as {id:string;state:string;lease_job_id:string;lease_token:string;lease_until:number;base_local_revision:number;base_provider_revision:number;connection_revision:number;binding_generation:number}|undefined;if((latest&&latest.state!=='discarded'?latest.id:null)!==row.snapshot_id&&!(row.kind==='check'&&workingSnapshot===latest?.id&&latest?.lease_job_id===job.id&&(latest?.lease_token===job.token||latest!.lease_until<=this.clock())&&latest?.base_local_revision===row.base_local_revision&&latest?.base_provider_revision===row.base_provider_revision&&latest?.connection_revision===row.connection_revision&&latest?.binding_generation===row.binding_generation))throw new DocumentError('CONFLICT');
   const binding=this.db.prepare('SELECT c.enabled,c.revision,b.generation FROM provider_source_bindings b JOIN provider_connections c ON c.id=b.connection_id WHERE b.document_id=?').get(row.document_id) as {enabled:number;revision:number;generation:number};
   if(!binding||binding.revision!==row.connection_revision||binding.generation!==row.binding_generation||row.kind!=='discard'&&!binding.enabled)throw new DocumentError('PROVIDER_CONFIG_CHANGED');return {...row};
  }
+}
+
+/** Called only for each of the scheduler's bounded known-document batch, within its metadata transaction. */
+export function recoverSyncAction(db:Database,documentId:string,now:number):void{
+ if(!db.inTransaction)throw new Error('Sync action recovery requires a transaction');
+ const row=db.prepare("SELECT a.id,a.job_id,j.error_code FROM provider_sync_actions a JOIN jobs j ON j.id=a.job_id WHERE a.document_id=? AND a.state='queued' AND j.state='failed'").get(documentId) as {id:string;job_id:string;error_code:string|null}|undefined;if(!row)return;
+ const applied=db.prepare("SELECT 1 FROM provider_ingress_snapshots WHERE lease_job_id=? AND document_id=? AND state='applied' ORDER BY generation DESC LIMIT 1").get(row.job_id,documentId);
+ const codes=['SESSION_REQUIRED','ACCESS_DENIED','NOT_FOUND','CONFLICT','OFFICE_ACTIVE','SAVE_PENDING','PROVIDER_CONFIG_CHANGED','PROVIDER_SOURCE_CHANGED','PROVIDER_CONFLICT','PROVIDER_UNAVAILABLE','INGRESS_QUOTA','INGRESS_INTERRUPTED'];
+ const code=applied?null:row.error_code&&codes.includes(row.error_code)?row.error_code:'PROVIDER_UNAVAILABLE';
+ db.prepare('UPDATE provider_sync_actions SET state=?,error_code=?,completed_at=? WHERE id=?').run(applied?'done':'refused',code,now,row.id);
+ db.prepare("INSERT INTO events(kind,document_id,payload,created_at) VALUES('provider.ingress',?,'{}',?)").run(documentId,now);
 }

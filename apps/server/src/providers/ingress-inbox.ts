@@ -27,12 +27,13 @@ export class ProviderIngress {
  prepared(id:string,job:ClaimedJob,now=this.clock()):IngressRow{const row=this.owned(id,job,now);if(!['staged','conflict'].includes(row.state)||!row.digest)throw new DocumentError('INGRESS_NOT_READY');return {...row};}
  /** Private worker recovery metadata; never an HTTP document/byte capability. */
  latest(documentId:string):IngressRow|undefined{return this.db.prepare("SELECT * FROM provider_ingress_snapshots WHERE document_id=? ORDER BY generation DESC LIMIT 1").get(documentId) as IngressRow|undefined;}
- resume(id:string,job:ClaimedJob,slotToken:string,now=this.clock()):IngressSnapshot{
+ appliedForJob(job:ClaimedJob):IngressRow|undefined{if(!this.queue.owns(job,this.clock()))throw new DocumentError('LEASE_LOST');return this.db.prepare("SELECT * FROM provider_ingress_snapshots WHERE lease_job_id=? AND document_id=? AND state='applied' ORDER BY generation DESC LIMIT 1").get(job.id,String(job.payload.documentId)) as IngressRow|undefined;}
+ resume(id:string,job:ClaimedJob,slotToken:string,now=this.clock(),cleanup=false):IngressSnapshot{
   return transaction(this.db,()=>{
    const row=this.row(id);if(!row||['discarded','applied'].includes(row.state))throw new DocumentError('INGRESS_NOT_READY');this.claim(job,row.document_id,slotToken,now);
    const same=row.lease_job_id===job.id&&row.lease_token===job.token;
    if(!same&&row.lease_until>now&&this.queue.owns({id:row.lease_job_id,token:row.lease_token},now))throw new DocumentError('INGRESS_BUSY');
-   if(['staged','conflict'].includes(row.state)){const scope=ingressContext(this.db,row.document_id);if(scope.connection_id!==row.connection_id||scope.connection_revision!==row.connection_revision||scope.binding_generation!==row.binding_generation)throw new DocumentError('INGRESS_SCOPE_CHANGED');}
+   if(!cleanup&&['staged','conflict'].includes(row.state)){const scope=ingressContext(this.db,row.document_id);if(scope.connection_id!==row.connection_id||scope.connection_revision!==row.connection_revision||scope.binding_generation!==row.binding_generation)throw new DocumentError('INGRESS_SCOPE_CHANGED');}
    const state=row.state==='receiving'&&!same?'failed':row.state;
    this.db.prepare('UPDATE provider_ingress_snapshots SET state=?,error_code=?,lease_job_id=?,lease_token=?,slot_token=?,lease_until=?,updated_at=? WHERE id=?').run(state,state==='failed'?'INGRESS_INTERRUPTED':row.error_code,job.id,job.token,slotToken,now+30000,now,id);return this.result(this.row(id)!);
   });
@@ -75,13 +76,13 @@ export class ProviderIngress {
  }
 
  /** Trusted background acceptance only. Replays return the permanent receipt without new IO. */
- async commit(id:string,job:ClaimedJob,options:{signal?:AbortSignal;converterVersion?:string}={}):Promise<IngressReceipt>{
+ async commit(id:string,job:ClaimedJob,options:{signal?:AbortSignal;converterVersion?:string;authorize?:()=>void}={}):Promise<IngressReceipt>{
   const prior=this.row(id);
   if(prior?.state==='applied'&&prior.lease_job_id===job.id&&prior.lease_token===job.token)return JSON.parse(prior.receipt!) as IngressReceipt;
   const initial=this.prepared(id,job),converterVersion=options.converterVersion??'preview-v2';
   if(!converterVersion||converterVersion.length>128)invalid();
   const controller=new AbortController(),signal=options.signal?AbortSignal.any([controller.signal,options.signal]):controller.signal;let renewAt=this.clock()+10000;
-  const check=()=>{signal.throwIfAborted();this.prepared(id,job);const at=this.clock();if(at>=renewAt){this.renew(id,job,at);renewAt=at+10000;}};
+  const check=()=>{signal.throwIfAborted();options.authorize?.();this.prepared(id,job);const at=this.clock();if(at>=renewAt){this.renew(id,job,at);renewAt=at+10000;}};
   const timer=setInterval(()=>{try{check();}catch(error){controller.abort(error);}},250);
   try{
    check();const source=await this.store.existingUploadStore(initial.namespace_id);check();if(!source)throw new DocumentError('PROVIDER_SOURCE_CHANGED');
