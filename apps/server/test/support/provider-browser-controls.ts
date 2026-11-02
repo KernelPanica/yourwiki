@@ -47,10 +47,10 @@ export class BrowserDeliveryControls {
     }finally{await adapter.close();}
    }
    else if(action==='source-incoming-work'){incomingResult=await new IngressWorker(this.db,this.store,new CredentialVault(this.db,new SecretConfigs(this.codec!)),async connection=>LocalAdapter.open(String(connection.config.root))).runOnce();if(incomingResult==='applied')await this.previews();}
-   else if(action==='source-export-limit'){
+   else if(action==='source-export-limit'||action==='source-read-conflict'){
     const session=createSession(this.db,'qa'),actor=authenticateSession(this.db,session.token)!,latest=this.db.prepare('SELECT id,state FROM provider_ingress_snapshots WHERE document_id=? ORDER BY generation DESC LIMIT 1').get(this.notes) as {id:string;state:string}|undefined;
     new SyncActions(this.db,this.store).request(actor,this.notes,'check',{requestId:randomUUID(),baseLocalRevision:this.current(this.notes).local_revision,snapshotId:latest&&latest.state!=='discarded'?latest.id:null});
-    const vault=new CredentialVault(this.db,new SecretConfigs(this.codec!));try{incomingResult=await new IngressWorker(this.db,this.store,vault,async()=>({read:async()=>{throw new ProviderError('PROVIDER_EXPORT_LIMIT');},replace:async()=>{throw new Error('Owned export must not replace');},retire:async()=>{},close:async()=>{}})).runOnce();}finally{await vault.close();}
+    const vault=new CredentialVault(this.db,new SecretConfigs(this.codec!));try{incomingResult=await new IngressWorker(this.db,this.store,vault,async()=>({read:async()=>{throw new ProviderError(action==='source-export-limit'?'PROVIDER_EXPORT_LIMIT':'PROVIDER_CONFLICT');},replace:async()=>{throw new Error('Owned export must not replace');},retire:async()=>{},close:async()=>{}})).runOnce();}finally{await vault.close();}
    }
    else if(action!=='source-state')throw new Error('Unknown source fixture action');
   }
