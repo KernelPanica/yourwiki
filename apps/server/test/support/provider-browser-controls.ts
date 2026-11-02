@@ -1,5 +1,6 @@
 import {randomUUID} from 'node:crypto';
 import {JobQueue} from '../../src/jobs.ts';
+import {ProviderIngress} from '../../src/providers/ingress-inbox.ts';
 import {IngressWorker} from '../../src/providers/ingress-worker.ts';
 /** Owned loopback-browser fixture only. No HTTP control routes or live accounts. */
 import {mkdir,writeFile,readFile} from 'node:fs/promises';
@@ -35,6 +36,15 @@ export class BrowserDeliveryControls {
    else if(action==='source-not-written'||action==='source-lost-ack'){this.fault=action==='source-not-written'?'not-written':'lost-ack';await this.worker.runOnce();}
    else if(action==='source-pdf-conflict'){const current=this.current(this.pdf),bytes=await readFile(await this.store.localFile(current.digest));await this.docs.save({userId:'qa',documentId:this.pdf,baseRevision:current.local_revision},(async function*(){yield Buffer.concat([bytes,Buffer.from('\n% latest local original\n')]);})());await writeFile(join(this.root,'form.pdf'),Buffer.concat([bytes,Buffer.from('\n% external original\n')]));for(let n=0;n<12;n++){const state=await this.worker.runOnce();if(!['confirmed','superseded'].includes(state))break;}}
    else if(action==='source-incoming-pdf'){new JobQueue(this.db).enqueue({kind:'provider.pull',key:randomUUID(),payload:{documentId:this.pdf}});incomingResult=await new IngressWorker(this.db,this.store,new CredentialVault(this.db,new SecretConfigs(this.codec!)),async connection=>LocalAdapter.open(String(connection.config.root))).runOnce();}
+   else if(action==='source-stage-notes'){
+    await writeFile(join(this.root,'notes.md'),'# Incoming staged notes\n');const adapter=await LocalAdapter.open(this.root),queue=new JobQueue(this.db),now=Date.now();
+    try{const proof=await adapter.read('notes.md',{check:()=>{}}),current=this.current(this.notes),binding=this.db.prepare('SELECT b.fingerprint,c.revision FROM provider_source_bindings b JOIN provider_connections c ON c.id=b.connection_id WHERE b.document_id=?').get(this.notes) as {fingerprint:string;revision:number};
+     queue.enqueue({kind:'provider.pull',key:randomUUID(),payload:{documentId:this.notes}},now);const job=queue.claim(now,30000,'provider.pull');if(!job)throw new Error('Owned ingress job required');const slotToken=randomUUID();this.db.prepare("INSERT INTO worker_slots VALUES('provider-source',?,?) ON CONFLICT(name) DO UPDATE SET token=excluded.token,lease_until=excluded.lease_until").run(slotToken,now+30000);
+     try{const inbox=new ProviderIngress(this.db,this.store),snapshot=inbox.begin({job,slotToken,documentId:this.notes,connectionRevision:binding.revision,baseLocalRevision:current.local_revision,baseProviderRevision:current.provider_revision,baseFingerprint:binding.fingerprint,observedFingerprint:proof.fingerprint,declaredSize:proof.size,observedAt:now});await inbox.receive(snapshot.id,job,proof.bytes);queue.complete(job,Date.now());}
+     finally{this.db.prepare('DELETE FROM worker_slots WHERE token=?').run(slotToken);}
+    }finally{await adapter.close();}
+   }
+   else if(action==='source-incoming-work'){incomingResult=await new IngressWorker(this.db,this.store,new CredentialVault(this.db,new SecretConfigs(this.codec!)),async connection=>LocalAdapter.open(String(connection.config.root))).runOnce();if(incomingResult==='applied')await this.previews();}
    else if(action!=='source-state')throw new Error('Unknown source fixture action');
   }
   const notes=this.current(this.notes),pdf=this.current(this.pdf);return {incomingResult,notes:this.notes,pdf:this.pdf,notesRevision:notes.local_revision,notesProviderRevision:notes.provider_revision,pdfRevision:pdf.local_revision,pdfProviderRevision:pdf.provider_revision,writes:this.writes,pdfDeliveryState:(this.db.prepare("SELECT state FROM provider_delivery_attempts WHERE document_id=? AND state NOT IN ('confirmed','retired')").get(this.pdf) as {state:string}|undefined)?.state??null,notesText:await readFile(join(this.root,'notes.md'),'utf8')};
