@@ -1,3 +1,4 @@
+import {ProviderSync} from './providers/sync-status.ts';
 import {SourceDelivery} from './providers/delivery-status.ts';
 import {officeFormats} from './office/formats.ts';
 import {RecentDocuments} from './recent.ts';
@@ -24,6 +25,7 @@ export function registerDocuments(app: FastifyInstance, db: Database, store: Blo
   const service = new DocumentService(db, store, { maxBytes });
   const recent = new RecentDocuments(db, service);
   const sourceDelivery = new SourceDelivery(db,store);
+  const sourceSync = new ProviderSync(db,store);
   const access = new AccessService(db);
   const pdfLayers = new PdfLayerService(db, store, { maxBytes });
   const origin = new URL(publicUrl).origin;
@@ -110,7 +112,7 @@ export function registerDocuments(app: FastifyInstance, db: Database, store: Blo
       if (!primary || primary.mimeType !== 'application/json' || primary.size > 1024 * 1024) throw new Error('Invalid presentation index');
       presentation = JSON.parse((await buffer(await store.read(primary.digest))).toString());
     }
-    try{return { document, manifest: value, presentation,sourceDelivery:sourceDelivery.status(actor.userId,document.id) };}catch(error){return fail(error,request,reply);}
+    try{return { document, manifest: value, presentation,sourceDelivery:sourceDelivery.status(actor.userId,document.id),sourceSync:sourceSync.status(actor.userId,document.id) };}catch(error){return fail(error,request,reply);}
   });
   app.get<{ Params: { id: string; digest: string } }>('/api/documents/:id/previews/:digest', async (request, reply) => {
     const value = await manifest(request, reply, request.params.id, request.params.digest);
