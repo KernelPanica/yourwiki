@@ -10,7 +10,7 @@ export interface ProviderAdapter {
  retire(input:{operationId:string;reference:string;signal?:AbortSignal}):Promise<void>;
  close():Promise<void>;
 }
-const providerCodes=['ACCESS_DENIED','LEASE_LOST','PROVIDER_CONFIG_CHANGED','PROVIDER_SOURCE_CHANGED','PROVIDER_CONFLICT','PROVIDER_CANCELLED','PROVIDER_INVALID_REFERENCE','PROVIDER_UNAVAILABLE','PROVIDER_UNKNOWN'];
+const providerCodes=['ACCESS_DENIED','LEASE_LOST','PROVIDER_CONFIG_CHANGED','PROVIDER_SOURCE_CHANGED','PROVIDER_CONFLICT','PROVIDER_CANCELLED','PROVIDER_INVALID_REFERENCE','PROVIDER_UNAVAILABLE','PROVIDER_EXPORT_LIMIT','PROVIDER_UNKNOWN'];
 export class ProviderError extends Error {
  code:string;outcome:'not_written'|'unknown';
  constructor(code:string,outcome:'not_written'|'unknown'='not_written'){const safe=providerCodes.includes(code)?code:'PROVIDER_UNAVAILABLE';super(safe);this.code=safe;this.outcome=outcome==='unknown'?'unknown':'not_written';}

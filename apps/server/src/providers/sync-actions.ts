@@ -10,7 +10,7 @@ type Input={requestId:string;baseLocalRevision:number;snapshotId:string|null};
 export type SyncActionRow={id:string;document_id:string;kind:SyncActionKind;author_id:string;session_hash:string;base_local_revision:number;base_provider_revision:number;snapshot_id:string|null;connection_revision:number;binding_generation:number;job_id:string;state:'queued'|'done'|'refused';error_code:string|null};
 export type SyncActionTicket={requestId:string;documentId:string;action:SyncActionKind;state:SyncActionRow['state'];errorCode:string|null};
 type TicketRow=Pick<SyncActionRow,'id'|'document_id'|'kind'|'state'|'error_code'>;
-const publicCodes=['SESSION_REQUIRED','ACCESS_DENIED','NOT_FOUND','CONFLICT','OFFICE_ACTIVE','SAVE_PENDING','PROVIDER_CONFIG_CHANGED','PROVIDER_SOURCE_CHANGED','PROVIDER_CONFLICT','PROVIDER_UNAVAILABLE','INGRESS_QUOTA','INGRESS_INTERRUPTED'];
+const publicCodes=['SESSION_REQUIRED','ACCESS_DENIED','NOT_FOUND','CONFLICT','OFFICE_ACTIVE','SAVE_PENDING','PROVIDER_CONFIG_CHANGED','PROVIDER_SOURCE_CHANGED','PROVIDER_CONFLICT','PROVIDER_UNAVAILABLE','PROVIDER_EXPORT_LIMIT','INGRESS_QUOTA','INGRESS_INTERRUPTED'];
 const uuid=(value:unknown):value is string=>typeof value==='string'&&/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(value);
 function input(value:unknown):Input{if(!value||typeof value!=='object'||Array.isArray(value))throw new DocumentError('INVALID_REQUEST');const row=value as Record<string,unknown>,keys=['requestId','baseLocalRevision','snapshotId'];if(Object.keys(row).length!==3||Object.keys(row).some(key=>!keys.includes(key))||!uuid(row.requestId)||!Number.isSafeInteger(row.baseLocalRevision)||Number(row.baseLocalRevision)<1||row.snapshotId!==null&&!uuid(row.snapshotId))throw new DocumentError('INVALID_REQUEST');return {requestId:row.requestId,baseLocalRevision:Number(row.baseLocalRevision),snapshotId:row.snapshotId as string|null};}
 /** Durable explicit intents only. No provider IO or source/snapshot mutation during admission. */
@@ -45,7 +45,7 @@ export class SyncActions {
  }
  forJob(job:ClaimedJob):SyncActionRow|undefined{return this.db.prepare('SELECT * FROM provider_sync_actions WHERE job_id=?').get(job.id) as SyncActionRow|undefined;}
  finish(job:ClaimedJob,errorCode?:string):void{
-  const allowed=['SESSION_REQUIRED','ACCESS_DENIED','NOT_FOUND','CONFLICT','OFFICE_ACTIVE','SAVE_PENDING','PROVIDER_CONFIG_CHANGED','PROVIDER_SOURCE_CHANGED','PROVIDER_CONFLICT','PROVIDER_UNAVAILABLE','INGRESS_QUOTA','INGRESS_INTERRUPTED'];
+  const allowed=['SESSION_REQUIRED','ACCESS_DENIED','NOT_FOUND','CONFLICT','OFFICE_ACTIVE','SAVE_PENDING','PROVIDER_CONFIG_CHANGED','PROVIDER_SOURCE_CHANGED','PROVIDER_CONFLICT','PROVIDER_UNAVAILABLE','PROVIDER_EXPORT_LIMIT','INGRESS_QUOTA','INGRESS_INTERRUPTED'];
   if(!this.queue.owns(job,this.clock()))throw new DocumentError('LEASE_LOST');const row=this.forJob(job);if(!row||row.state!=='queued')return;
   const code=errorCode===undefined?null:allowed.includes(errorCode)?errorCode:'PROVIDER_UNAVAILABLE';
   this.db.prepare('UPDATE provider_sync_actions SET state=?,error_code=?,completed_at=? WHERE id=?').run(code?'refused':'done',code,this.clock(),row.id);
@@ -67,7 +67,7 @@ export function recoverSyncAction(db:Database,documentId:string,now:number):void
  if(!db.inTransaction)throw new Error('Sync action recovery requires a transaction');
  const row=db.prepare("SELECT a.id,a.job_id,j.error_code FROM provider_sync_actions a JOIN jobs j ON j.id=a.job_id WHERE a.document_id=? AND a.state='queued' AND j.state='failed'").get(documentId) as {id:string;job_id:string;error_code:string|null}|undefined;if(!row)return;
  const applied=db.prepare("SELECT 1 FROM provider_ingress_snapshots WHERE lease_job_id=? AND document_id=? AND state='applied' ORDER BY generation DESC LIMIT 1").get(row.job_id,documentId);
- const codes=['SESSION_REQUIRED','ACCESS_DENIED','NOT_FOUND','CONFLICT','OFFICE_ACTIVE','SAVE_PENDING','PROVIDER_CONFIG_CHANGED','PROVIDER_SOURCE_CHANGED','PROVIDER_CONFLICT','PROVIDER_UNAVAILABLE','INGRESS_QUOTA','INGRESS_INTERRUPTED'];
+ const codes=['SESSION_REQUIRED','ACCESS_DENIED','NOT_FOUND','CONFLICT','OFFICE_ACTIVE','SAVE_PENDING','PROVIDER_CONFIG_CHANGED','PROVIDER_SOURCE_CHANGED','PROVIDER_CONFLICT','PROVIDER_UNAVAILABLE','PROVIDER_EXPORT_LIMIT','INGRESS_QUOTA','INGRESS_INTERRUPTED'];
  const code=applied?null:row.error_code&&codes.includes(row.error_code)?row.error_code:'PROVIDER_UNAVAILABLE';
  db.prepare('UPDATE provider_sync_actions SET state=?,error_code=?,completed_at=? WHERE id=?').run(applied?'done':'refused',code,now,row.id);
  db.prepare("INSERT INTO events(kind,document_id,payload,created_at) VALUES('provider.ingress',?,'{}',?)").run(documentId,now);
