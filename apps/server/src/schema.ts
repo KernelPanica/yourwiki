@@ -758,7 +758,25 @@ CREATE TRIGGER provider_sync_action_delete BEFORE DELETE ON provider_sync_action
 const providerAcceptedJobIndex = `
 CREATE INDEX provider_ingress_applied_job ON provider_ingress_snapshots(lease_job_id,generation DESC) WHERE state='applied';
 `;
+const providerOAuthRefreshes = `
+CREATE TABLE provider_oauth_refreshes (
+ connection_id TEXT PRIMARY KEY REFERENCES provider_connections(id) ON DELETE RESTRICT,
+ connection_revision INTEGER NOT NULL CHECK(connection_revision>0),
+ refresh_hash TEXT NOT NULL CHECK(length(refresh_hash)=64 AND refresh_hash NOT GLOB '*[^0-9a-f]*'),
+ request_id TEXT NOT NULL UNIQUE CHECK(length(request_id)=36),owner_token TEXT NOT NULL CHECK(length(owner_token)=36),
+ state TEXT NOT NULL CHECK(state IN ('reserved','dispatched','complete','unknown')),
+ lease_until INTEGER NOT NULL,created_at INTEGER NOT NULL CHECK(created_at>=0),updated_at INTEGER NOT NULL CHECK(updated_at>=created_at),
+ CHECK(lease_until=created_at+60000)
+);
+CREATE TRIGGER provider_oauth_refresh_insert BEFORE INSERT ON provider_oauth_refreshes WHEN NEW.state!='reserved' OR NOT EXISTS(SELECT 1 FROM provider_connections WHERE id=NEW.connection_id AND provider='google' AND enabled=1 AND revision=NEW.connection_revision) BEGIN SELECT RAISE(ABORT,'Invalid OAuth refresh context'); END;
+CREATE TRIGGER provider_oauth_refresh_update BEFORE UPDATE ON provider_oauth_refreshes BEGIN
+ SELECT CASE WHEN NEW.connection_id!=OLD.connection_id THEN RAISE(ABORT,'OAuth connection is immutable') END;
+ SELECT CASE WHEN NEW.request_id=OLD.request_id AND (NEW.connection_revision!=OLD.connection_revision OR NEW.owner_token!=OLD.owner_token OR NEW.refresh_hash!=OLD.refresh_hash OR NEW.created_at!=OLD.created_at OR NEW.lease_until!=OLD.lease_until OR OLD.state IN ('complete','unknown') OR NOT ((OLD.state='reserved' AND NEW.state IN ('dispatched','complete')) OR (OLD.state='dispatched' AND NEW.state IN ('complete','unknown')))) THEN RAISE(ABORT,'Invalid OAuth refresh transition') END;
+ SELECT CASE WHEN NEW.request_id!=OLD.request_id AND (NEW.state!='reserved' OR NOT (OLD.state='complete' OR (OLD.state IN ('dispatched','unknown') AND NEW.refresh_hash!=OLD.refresh_hash) OR (OLD.state='reserved' AND (NEW.connection_revision!=OLD.connection_revision OR NEW.created_at>=OLD.lease_until))) OR NOT EXISTS(SELECT 1 FROM provider_connections WHERE id=NEW.connection_id AND provider='google' AND enabled=1 AND revision=NEW.connection_revision)) THEN RAISE(ABORT,'OAuth refresh is unresolved') END;
+END;
+CREATE TRIGGER provider_oauth_refresh_delete BEFORE DELETE ON provider_oauth_refreshes BEGIN SELECT RAISE(ABORT,'OAuth refresh outcome is retained'); END;
+`;
 /** Parent-table rebuilds run atomically with FK actions suspended, checked before commit, then enforced again. */
 export const migrationForeignKeyRebuilds:readonly number[]=[23,31];
-export const migrations = [core + epochTriggers, authInvalidation, authSettings, jobs, documents, workerSlots, uploads, pdfLayers, saveJournal, officeSessions, officeIngress, officeCleanup, officeRecovery, officePrepared, officePreparedBindings, officeSaveIntents, officeOpenings, officeHandoff, documentVisits, versionHistory, historyPreviews, historyRestores, legacyHistory, historyImports, historyCatalogue, providerConnections, providerSourceRequests, providerDeliveryAttempts, providerDeliveryRecoveryIndex, providerDeliveryRequestJob, providerVersionOrigins, providerIngressInbox, providerIngressScheduling, providerSyncActions, providerAcceptedJobIndex] as const;
+export const migrations = [core + epochTriggers, authInvalidation, authSettings, jobs, documents, workerSlots, uploads, pdfLayers, saveJournal, officeSessions, officeIngress, officeCleanup, officeRecovery, officePrepared, officePreparedBindings, officeSaveIntents, officeOpenings, officeHandoff, documentVisits, versionHistory, historyPreviews, historyRestores, legacyHistory, historyImports, historyCatalogue, providerConnections, providerSourceRequests, providerDeliveryAttempts, providerDeliveryRecoveryIndex, providerDeliveryRequestJob, providerVersionOrigins, providerIngressInbox, providerIngressScheduling, providerSyncActions, providerAcceptedJobIndex, providerOAuthRefreshes] as const;
 export const applicationId = 0x5957494b; // YWIK; legacy Django uses no marker.
