@@ -18,10 +18,10 @@ async function json(response:Response,signal:AbortSignal):Promise<Record<string,
 }
 /** Worker-only bearer cache. No page request, write retry loop or configurable token URL. */
 export class GoogleTokens{
- private options:Options;private request:typeof fetch;private clock:()=>number;private timeoutMs:number;private closed=false;private pending:Promise<string>|null=null;private active:AbortController|undefined;private token:string|null=null;private issuedAt=0;private expiresAt=0;private credentialCheck:(()=>void)|undefined;
+ private options:Options;private request:typeof fetch;private clock:()=>number;private timeoutMs:number;private closed=false;private lifetime=new AbortController();private pending:Promise<string>|null=null;private active:AbortController|undefined;private token:string|null=null;private issuedAt=0;private expiresAt=0;private credentialCheck:(()=>void)|undefined;
  constructor(options:Options){this.options={...options};this.request=options.fetch??fetch;this.clock=options.clock??(()=>performance.now());this.timeoutMs=options.timeoutMs??30000;if(!Number.isSafeInteger(this.timeoutMs)||this.timeoutMs<1||this.timeoutMs>30000)throw new ProviderError('PROVIDER_CONFIG_CHANGED');}
  private now(){const value=this.clock();if(!Number.isFinite(value)||value<0||value>Number.MAX_SAFE_INTEGER)throw failure();return value;}
- private async guard(options:ProviderCheck){if(this.closed||options.signal?.aborted)throw cancelled();await wait(Promise.resolve().then(()=>options.check()),options.signal);if(this.closed||options.signal?.aborted)throw cancelled();}
+ private async guard(options:ProviderCheck){if(this.closed||options.signal?.aborted)throw cancelled();const signal=options.signal?AbortSignal.any([options.signal,this.lifetime.signal]):this.lifetime.signal;await wait(Promise.resolve().then(()=>options.check()),signal);if(this.closed||options.signal?.aborted)throw cancelled();}
  async access(options:ProviderCheck):Promise<string>{
   await this.guard(options);let token:string;
   const now=this.now();if(this.token&&now>=this.issuedAt&&now<this.expiresAt){this.credentialCheck?.();token=this.token;}
@@ -55,6 +55,7 @@ export class GoogleTokens{
    if(this.closed)throw cancelled();if(error instanceof ProviderError&&['PROVIDER_CONFIG_CHANGED','PROVIDER_UNAVAILABLE'].includes(error.code))throw error;throw failure();
   }finally{clearTimeout(timer);if(this.active===controller)this.active=undefined;}
  }
+ get inFlight(){return this.pending!==null;}
  invalidate(accessToken:string){if(this.token===accessToken){this.token=null;this.expiresAt=0;}}
- close(){if(this.closed)return;this.closed=true;this.token=null;this.expiresAt=0;this.credentialCheck=undefined;this.active?.abort();}
+ close():Promise<void>{if(!this.closed){this.closed=true;this.token=null;this.expiresAt=0;this.credentialCheck=undefined;this.lifetime.abort();this.active?.abort();}return this.pending?this.pending.then(()=>{},()=>{}):Promise.resolve();}
 }
