@@ -776,7 +776,29 @@ CREATE TRIGGER provider_oauth_refresh_update BEFORE UPDATE ON provider_oauth_ref
 END;
 CREATE TRIGGER provider_oauth_refresh_delete BEFORE DELETE ON provider_oauth_refreshes BEGIN SELECT RAISE(ABORT,'OAuth refresh outcome is retained'); END;
 `;
+const providerGoogleGrantImports = `
+CREATE TABLE provider_google_grant_imports (
+ legacy_key TEXT PRIMARY KEY CHECK(length(legacy_key) BETWEEN 1 AND 256),
+ connection_legacy_key TEXT NOT NULL REFERENCES provider_connection_imports(legacy_key) ON DELETE RESTRICT,
+ connection_id TEXT NOT NULL REFERENCES provider_connections(id) ON DELETE RESTRICT,
+ reference TEXT NOT NULL CHECK(length(reference) BETWEEN 1 AND 256 AND reference NOT GLOB '*[^A-Za-z0-9_-]*'),
+ object_key TEXT NOT NULL CHECK(length(object_key)=64 AND object_key NOT GLOB '*[^0-9a-f]*'),
+ legacy_user_key TEXT CHECK(legacy_user_key IS NULL OR length(legacy_user_key) BETWEEN 1 AND 256),
+ recipient TEXT NOT NULL CHECK(length(recipient)<=320),
+ desired_role TEXT NOT NULL CHECK(desired_role IN ('','read','write')),
+ applied_role TEXT NOT NULL CHECK(applied_role IN ('','read','write')),
+ permission_id TEXT NOT NULL CHECK(length(permission_id)<=255),
+ status TEXT NOT NULL CHECK(status IN ('pending','synced','failed','revoked')),
+ attempted_at INTEGER CHECK(attempted_at IS NULL OR attempted_at BETWEEN 0 AND 9007199254740991),
+ source_fingerprint TEXT NOT NULL CHECK(length(source_fingerprint)=64 AND source_fingerprint NOT GLOB '*[^0-9a-f]*'),
+ created_at INTEGER NOT NULL CHECK(created_at BETWEEN 0 AND 9007199254740991)
+);
+CREATE INDEX provider_google_grant_object ON provider_google_grant_imports(reference,legacy_key);
+CREATE TRIGGER provider_google_grant_import_context BEFORE INSERT ON provider_google_grant_imports WHEN NOT EXISTS(SELECT 1 FROM provider_connection_imports i JOIN provider_connections c ON c.id=i.connection_id WHERE i.legacy_key=NEW.connection_legacy_key AND c.id=NEW.connection_id AND c.provider='google' AND c.enabled=1) BEGIN SELECT RAISE(ABORT,'Invalid Google grant import context'); END;
+CREATE TRIGGER provider_google_grant_import_update BEFORE UPDATE ON provider_google_grant_imports BEGIN SELECT RAISE(ABORT,'Google grant import is immutable'); END;
+CREATE TRIGGER provider_google_grant_import_delete BEFORE DELETE ON provider_google_grant_imports BEGIN SELECT RAISE(ABORT,'Google grant import is retained'); END;
+`;
 /** Parent-table rebuilds run atomically with FK actions suspended, checked before commit, then enforced again. */
 export const migrationForeignKeyRebuilds:readonly number[]=[23,31];
-export const migrations = [core + epochTriggers, authInvalidation, authSettings, jobs, documents, workerSlots, uploads, pdfLayers, saveJournal, officeSessions, officeIngress, officeCleanup, officeRecovery, officePrepared, officePreparedBindings, officeSaveIntents, officeOpenings, officeHandoff, documentVisits, versionHistory, historyPreviews, historyRestores, legacyHistory, historyImports, historyCatalogue, providerConnections, providerSourceRequests, providerDeliveryAttempts, providerDeliveryRecoveryIndex, providerDeliveryRequestJob, providerVersionOrigins, providerIngressInbox, providerIngressScheduling, providerSyncActions, providerAcceptedJobIndex, providerOAuthRefreshes] as const;
+export const migrations = [core + epochTriggers, authInvalidation, authSettings, jobs, documents, workerSlots, uploads, pdfLayers, saveJournal, officeSessions, officeIngress, officeCleanup, officeRecovery, officePrepared, officePreparedBindings, officeSaveIntents, officeOpenings, officeHandoff, documentVisits, versionHistory, historyPreviews, historyRestores, legacyHistory, historyImports, historyCatalogue, providerConnections, providerSourceRequests, providerDeliveryAttempts, providerDeliveryRecoveryIndex, providerDeliveryRequestJob, providerVersionOrigins, providerIngressInbox, providerIngressScheduling, providerSyncActions, providerAcceptedJobIndex, providerOAuthRefreshes, providerGoogleGrantImports] as const;
 export const applicationId = 0x5957494b; // YWIK; legacy Django uses no marker.

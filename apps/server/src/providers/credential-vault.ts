@@ -5,6 +5,7 @@ import {SecretConfigs} from './secret-config.ts';
 import {ProviderError,type ProviderCheck} from './adapter.ts';
 import type {Provider} from './connection-types.ts';
 import type {DeliveryAttempt} from './delivery-attempts.ts';
+import {googleManagedRecipients} from './google-grants.ts';
 import {GoogleAuthPool,type GoogleAuthPoolOptions} from './google-auth-pool.ts';
 export type AdapterConnection={provider:Provider;config:Record<string,unknown>;reference:string};
 export type GoogleAuthorization={access:(options:ProviderCheck)=>Promise<string>;invalidate:(accessToken:string)=>void};
@@ -37,6 +38,14 @@ export class CredentialVault {
    access:async(options:ProviderCheck)=>{scope.check();return this.auth.access(scope.id,scope.revision,{signal:options.signal,check:async()=>{scope.check();await options.check();scope.check();}});},
    invalidate:(token:string)=>{scope.check();this.auth.invalidate(scope.id,scope.revision,token);}
   });
+ }
+ /** Scoped managed-sharing evidence for metadata/ancestor checks, never local ACL authority. */
+ googleRecipients(connection:AdapterConnection):(reference:string,options:ProviderCheck)=>Promise<readonly string[]>{
+  this.live();const scope=this.minted.get(connection);if(!scope||scope.provider!=='google')throw new ProviderError('PROVIDER_CONFIG_CHANGED');scope.check();
+  return async(reference,options)=>{
+   const check=async()=>{if(options.signal?.aborted)throw new ProviderError('PROVIDER_CANCELLED');scope.check();await options.check();scope.check();if(options.signal?.aborted)throw new ProviderError('PROVIDER_CANCELLED');};
+   await check();const recipients=googleManagedRecipients(this.db,scope.id,scope.revision,reference);await check();return recipients;
+  };
  }
  close():Promise<void>{this.closed=true;return this.auth.close();}
 }
