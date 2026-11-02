@@ -1,3 +1,6 @@
+import {randomUUID} from 'node:crypto';
+import {JobQueue} from '../../src/jobs.ts';
+import {IngressWorker} from '../../src/providers/ingress-worker.ts';
 /** Owned loopback-browser fixture only. No HTTP control routes or live accounts. */
 import {mkdir,writeFile,readFile} from 'node:fs/promises';
 import {join} from 'node:path';
@@ -18,6 +21,7 @@ export class BrowserDeliveryControls {
  close(){this.codec?.close();}
  private current(id:string){return this.db.prepare('SELECT d.local_revision,d.provider_revision,v.digest,v.size FROM documents d JOIN document_versions v ON v.document_id=d.id AND v.revision=d.local_revision WHERE d.id=?').get(id) as {local_revision:number;provider_revision:number;digest:string;size:number};}
  async handle(action:string):Promise<Record<string,unknown>|undefined>{
+  let incomingResult:string|undefined;
   if(!action.startsWith('source-'))return;if(!this.notes)throw new Error('Owned notes fixture required');
   if(action==='source-fixtures'){
    if(this.worker)throw new Error('Source fixture already initialized');await mkdir(this.root);this.codec=new FernetCodec('cw_0x689RpI-jtRR7oE8h_eQsKImvJapLeSbXpwF4e4=');const configs=new SecretConfigs(this.codec);new ProviderConnections(this.db,configs).create('qa',{id:'owned-local',provider:'local',label:'Owned Local',path:'/',folderId:null,config:{root:this.root}});
@@ -30,8 +34,9 @@ export class BrowserDeliveryControls {
    else if(action==='source-work'){for(let n=0;n<12;n++){const state=await this.worker.runOnce();if(!['confirmed','superseded'].includes(state))break;}}
    else if(action==='source-not-written'||action==='source-lost-ack'){this.fault=action==='source-not-written'?'not-written':'lost-ack';await this.worker.runOnce();}
    else if(action==='source-pdf-conflict'){const current=this.current(this.pdf),bytes=await readFile(await this.store.localFile(current.digest));await this.docs.save({userId:'qa',documentId:this.pdf,baseRevision:current.local_revision},(async function*(){yield Buffer.concat([bytes,Buffer.from('\n% latest local original\n')]);})());await writeFile(join(this.root,'form.pdf'),Buffer.concat([bytes,Buffer.from('\n% external original\n')]));for(let n=0;n<12;n++){const state=await this.worker.runOnce();if(!['confirmed','superseded'].includes(state))break;}}
+   else if(action==='source-incoming-pdf'){new JobQueue(this.db).enqueue({kind:'provider.pull',key:randomUUID(),payload:{documentId:this.pdf}});incomingResult=await new IngressWorker(this.db,this.store,new CredentialVault(this.db,new SecretConfigs(this.codec!)),async connection=>LocalAdapter.open(String(connection.config.root))).runOnce();}
    else if(action!=='source-state')throw new Error('Unknown source fixture action');
   }
-  const notes=this.current(this.notes),pdf=this.current(this.pdf);return {notes:this.notes,pdf:this.pdf,notesRevision:notes.local_revision,notesProviderRevision:notes.provider_revision,pdfRevision:pdf.local_revision,pdfProviderRevision:pdf.provider_revision,writes:this.writes,pdfDeliveryState:(this.db.prepare("SELECT state FROM provider_delivery_attempts WHERE document_id=? AND state NOT IN ('confirmed','retired')").get(this.pdf) as {state:string}|undefined)?.state??null,notesText:await readFile(join(this.root,'notes.md'),'utf8')};
+  const notes=this.current(this.notes),pdf=this.current(this.pdf);return {incomingResult,notes:this.notes,pdf:this.pdf,notesRevision:notes.local_revision,notesProviderRevision:notes.provider_revision,pdfRevision:pdf.local_revision,pdfProviderRevision:pdf.provider_revision,writes:this.writes,pdfDeliveryState:(this.db.prepare("SELECT state FROM provider_delivery_attempts WHERE document_id=? AND state NOT IN ('confirmed','retired')").get(this.pdf) as {state:string}|undefined)?.state??null,notesText:await readFile(join(this.root,'notes.md'),'utf8')};
  }
 }
