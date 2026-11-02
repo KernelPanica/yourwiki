@@ -1,4 +1,4 @@
-import {transaction,type Database} from '../database.ts';
+import {transaction,readTransaction,type Database} from '../database.ts';
 import {AccessService} from '../access.ts';
 import {DocumentService,DocumentError} from '../documents.ts';
 import type {SessionIdentity} from '../auth/sessions.ts';
@@ -9,6 +9,8 @@ export type SyncActionKind='check'|'apply'|'discard';
 type Input={requestId:string;baseLocalRevision:number;snapshotId:string|null};
 export type SyncActionRow={id:string;document_id:string;kind:SyncActionKind;author_id:string;session_hash:string;base_local_revision:number;base_provider_revision:number;snapshot_id:string|null;connection_revision:number;binding_generation:number;job_id:string;state:'queued'|'done'|'refused';error_code:string|null};
 export type SyncActionTicket={requestId:string;documentId:string;action:SyncActionKind;state:SyncActionRow['state'];errorCode:string|null};
+type TicketRow=Pick<SyncActionRow,'id'|'document_id'|'kind'|'state'|'error_code'>;
+const publicCodes=['SESSION_REQUIRED','ACCESS_DENIED','NOT_FOUND','CONFLICT','OFFICE_ACTIVE','SAVE_PENDING','PROVIDER_CONFIG_CHANGED','PROVIDER_SOURCE_CHANGED','PROVIDER_CONFLICT','PROVIDER_UNAVAILABLE','INGRESS_QUOTA','INGRESS_INTERRUPTED'];
 const uuid=(value:unknown):value is string=>typeof value==='string'&&/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(value);
 function input(value:unknown):Input{if(!value||typeof value!=='object'||Array.isArray(value))throw new DocumentError('INVALID_REQUEST');const row=value as Record<string,unknown>,keys=['requestId','baseLocalRevision','snapshotId'];if(Object.keys(row).length!==3||Object.keys(row).some(key=>!keys.includes(key))||!uuid(row.requestId)||!Number.isSafeInteger(row.baseLocalRevision)||Number(row.baseLocalRevision)<1||row.snapshotId!==null&&!uuid(row.snapshotId))throw new DocumentError('INVALID_REQUEST');return {requestId:row.requestId,baseLocalRevision:Number(row.baseLocalRevision),snapshotId:row.snapshotId as string|null};}
 /** Durable explicit intents only. No provider IO or source/snapshot mutation during admission. */
@@ -17,7 +19,9 @@ export class SyncActions {
  constructor(db:Database,store:BlobStore,options:{clock?:()=>number}={}){this.db=db;this.docs=new DocumentService(db,store);this.access=new AccessService(db);this.queue=new JobQueue(db);this.clock=options.clock??Date.now;}
  private actor(user:string,hash:string){if(!this.db.prepare('SELECT 1 FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=? AND s.user_id=? AND s.expires_at>? AND u.active=1 AND u.auth_version=s.auth_version').get(hash,user,this.clock()))throw new DocumentError('SESSION_REQUIRED');}
  private document(user:string,id:string){if(!this.docs.processingStatus(user,id))throw new DocumentError('NOT_FOUND');if(!this.access.allows(user,id,'write'))throw new DocumentError('ACCESS_DENIED');return providerOriginContext(this.db,id);}
- private ticket(row:SyncActionRow):SyncActionTicket{return {requestId:row.id,documentId:row.document_id,action:row.kind,state:row.state,errorCode:row.error_code};}
+ private ticket(row:TicketRow):SyncActionTicket{return {requestId:row.id,documentId:row.document_id,action:row.kind,state:row.state,errorCode:row.error_code===null?null:publicCodes.includes(row.error_code)?row.error_code:'PROVIDER_UNAVAILABLE'};}
+ status(user:string,documentId:string,requestId:string):SyncActionTicket{return readTransaction(this.db,()=>{if(!this.docs.processingStatus(user,documentId))throw new DocumentError('NOT_FOUND');if(!uuid(requestId))throw new DocumentError('INVALID_REQUEST');const row=this.db.prepare('SELECT id,document_id,kind,state,error_code FROM provider_sync_actions WHERE id=? AND document_id=?').get(requestId,documentId) as TicketRow|undefined;if(!row)throw new DocumentError('NOT_FOUND');return this.ticket(row);});}
+ active(user:string,documentId:string):SyncActionTicket|null{return readTransaction(this.db,()=>{if(!this.docs.processingStatus(user,documentId))throw new DocumentError('NOT_FOUND');const row=this.db.prepare("SELECT id,document_id,kind,state,error_code FROM provider_sync_actions WHERE document_id=? AND state='queued'").get(documentId) as TicketRow|undefined;return row?this.ticket(row):null;});}
  request(actor:SessionIdentity,documentId:string,kind:SyncActionKind,value:unknown):SyncActionTicket{
   return transaction(this.db,()=>{
    this.actor(actor.userId,actor.tokenHash);const doc=this.document(actor.userId,documentId),body=input(value);if(!['check','apply','discard'].includes(kind))throw new DocumentError('INVALID_REQUEST');
@@ -35,6 +39,7 @@ export class SyncActions {
    this.db.prepare("INSERT INTO provider_sync_actions(id,document_id,kind,author_id,session_hash,base_local_revision,base_provider_revision,snapshot_id,connection_revision,binding_generation,job_id,state,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,'queued',?)").run(body.requestId,documentId,kind,actor.userId,actor.tokenHash,doc.local_revision,doc.provider_revision,body.snapshotId,binding.revision,binding.generation,jobId,now);
    const previous=this.db.prepare('SELECT sequence FROM provider_sync_checks WHERE document_id=?').get(documentId) as {sequence:number}|undefined;
    this.db.prepare('INSERT INTO provider_sync_checks VALUES(?,?,?,?) ON CONFLICT(document_id) DO UPDATE SET sequence=excluded.sequence,due_at=excluded.due_at,job_id=excluded.job_id').run(documentId,(previous?.sequence??0)+1,now+30000,jobId);
+   this.db.prepare("INSERT INTO events(kind,document_id,payload,created_at) VALUES('provider.ingress',?,'{}',?)").run(documentId,now);
    return this.ticket(this.db.prepare('SELECT * FROM provider_sync_actions WHERE id=?').get(body.requestId) as SyncActionRow);
   });
  }
