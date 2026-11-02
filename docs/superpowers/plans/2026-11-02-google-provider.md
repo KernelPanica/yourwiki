@@ -2,7 +2,7 @@
 
 > **For agentic workers:** Use superpowers:executing-plans inline with RED→GREEN and one fresh whole-rewrite review at the actual end. Execution is already authorized by the user; continue without per-task approval.
 
-**Status:** Task1 COMPLETE (2026-11-02); Task2 IN PROGRESS (durable refresh serialization verified; HTTP exchange pending); Tasks3–6 pending. No Google network adapter/callback/grant acceptance yet.
+**Status:** Task1 COMPLETE (2026-11-02); Task2 IN PROGRESS (durable refresh serialization verified; bounded HTTP exchange verified; worker auth lifetime integration pending); Tasks3–6 pending. No Google network adapter/callback/grant acceptance yet.
 
 **Goal:** Restore Google Drive, native Docs/Sheets/Slides, central-account authorization, original-object access, permission delivery and external lifecycle synchronization in the TS runtime without losing legacy conflict/session behavior.
 
@@ -40,7 +40,7 @@ Interface: `OAuthConfigs(db,configs).lease(connectionId,revision)` returns worke
 
 ## Task2: Bounded Google token exchange
 
-Durable foundation (2026-11-02): append36 + `oauth-refresh.ts`/companion atomic config rotation verified by10 refresh tests,5 credentials tests,5 populated upgrades, full native712/web158/types/build. Unknown same-token requests stay blocked across cosmetic revisions; real token HTTP exchange remains pending.
+Durable foundation (2026-11-02): append36 + `oauth-refresh.ts`/companion atomic config rotation verified by10 refresh tests,5 credentials tests,5 populated upgrades, full native712/web158/types/build. Unknown same-token requests stay blocked across cosmetic revisions. Bounded token exchange now has19 focused tests including3 native loopback HTTP cases; full native731/web158/types/build pass; resolver/cache lifetime integration remains pending.
 
 Files: create `google-tokens.ts`, bounded token-response helper if needed, `provider-google-tokens.test.ts`.
 Interface: one worker auth session per current lease, `access(options:ProviderCheck):Promise<string>`, `invalidate(accessToken)`, `close()`. POST fixed `https://oauth2.googleapis.com/token`, form refresh grant, manual redirect refusal,64KiB maximum JSON, finite timeout+abort, valid nonempty bearer token/finite expires_in. Cache lifetime begins before exchange with safety margin; exhausted/short-lived tokens never get extended. Singleflight concurrent refresh plus a durable per-connection refresh lease across worker processes (append migration if needed); CAS alone must not discard a concurrently issued rotating refresh token. A cancelled waiter must not poison other callers. Persist new refresh token via Task1 before exposing access token. Stale401 invalidation must not clear newer token. Errors static, no provider body/URL/secrets. Ignore unrecognized JSON fields; no refresh/write retry loop.
