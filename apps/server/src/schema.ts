@@ -732,7 +732,30 @@ CREATE TABLE provider_sync_checks (
 CREATE TABLE provider_sync_cursor(id INTEGER PRIMARY KEY CHECK(id=1),after_document_id TEXT);
 INSERT INTO provider_sync_cursor VALUES(1,NULL);
 `;
+const providerSyncActions = `
+CREATE TABLE provider_sync_actions (
+ id TEXT PRIMARY KEY,document_id TEXT NOT NULL REFERENCES provider_source_bindings(document_id) ON DELETE RESTRICT,
+ kind TEXT NOT NULL CHECK(kind IN ('check','apply','discard')),
+ author_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,session_hash TEXT NOT NULL CHECK(length(session_hash)=64 AND session_hash NOT GLOB '*[^0-9a-f]*'),
+ base_local_revision INTEGER NOT NULL CHECK(base_local_revision>0),base_provider_revision INTEGER NOT NULL CHECK(base_provider_revision>0),
+ snapshot_id TEXT REFERENCES provider_ingress_snapshots(id) ON DELETE RESTRICT,
+ connection_revision INTEGER NOT NULL CHECK(connection_revision>0),binding_generation INTEGER NOT NULL CHECK(binding_generation>0),
+ job_id TEXT NOT NULL UNIQUE REFERENCES jobs(id) ON DELETE RESTRICT,
+ state TEXT NOT NULL CHECK(state IN ('queued','done','refused')),error_code TEXT,
+ created_at INTEGER NOT NULL,completed_at INTEGER,
+ FOREIGN KEY(document_id,base_local_revision) REFERENCES document_versions(document_id,revision) ON DELETE RESTRICT,
+ FOREIGN KEY(document_id,base_provider_revision) REFERENCES document_versions(document_id,revision) ON DELETE RESTRICT,
+ CHECK(kind='check' OR snapshot_id IS NOT NULL),
+ CHECK((state='queued' AND completed_at IS NULL AND error_code IS NULL) OR (state='done' AND completed_at IS NOT NULL AND error_code IS NULL) OR (state='refused' AND completed_at IS NOT NULL AND error_code IS NOT NULL)),
+ CHECK(error_code IS NULL OR (length(error_code) BETWEEN 1 AND 64 AND error_code NOT GLOB '*[^A-Z0-9_]*'))
+);
+CREATE UNIQUE INDEX provider_sync_action_pending ON provider_sync_actions(document_id) WHERE state='queued';
+CREATE TRIGGER provider_sync_action_insert BEFORE INSERT ON provider_sync_actions WHEN NEW.state!='queued' OR (NEW.snapshot_id IS NOT NULL AND NOT EXISTS(SELECT 1 FROM provider_ingress_snapshots WHERE id=NEW.snapshot_id AND document_id=NEW.document_id)) BEGIN SELECT RAISE(ABORT,'Invalid sync action context'); END;
+CREATE TRIGGER provider_sync_action_identity BEFORE UPDATE OF id,document_id,kind,author_id,session_hash,base_local_revision,base_provider_revision,snapshot_id,connection_revision,binding_generation,job_id,created_at ON provider_sync_actions BEGIN SELECT RAISE(ABORT,'Sync action identity is immutable'); END;
+CREATE TRIGGER provider_sync_action_terminal BEFORE UPDATE ON provider_sync_actions WHEN OLD.state!='queued' BEGIN SELECT RAISE(ABORT,'Sync action receipt is immutable'); END;
+CREATE TRIGGER provider_sync_action_delete BEFORE DELETE ON provider_sync_actions BEGIN SELECT RAISE(ABORT,'Sync action receipt is retained'); END;
+`;
 /** Parent-table rebuilds run atomically with FK actions suspended, checked before commit, then enforced again. */
 export const migrationForeignKeyRebuilds:readonly number[]=[23,31];
-export const migrations = [core + epochTriggers, authInvalidation, authSettings, jobs, documents, workerSlots, uploads, pdfLayers, saveJournal, officeSessions, officeIngress, officeCleanup, officeRecovery, officePrepared, officePreparedBindings, officeSaveIntents, officeOpenings, officeHandoff, documentVisits, versionHistory, historyPreviews, historyRestores, legacyHistory, historyImports, historyCatalogue, providerConnections, providerSourceRequests, providerDeliveryAttempts, providerDeliveryRecoveryIndex, providerDeliveryRequestJob, providerVersionOrigins, providerIngressInbox, providerIngressScheduling] as const;
+export const migrations = [core + epochTriggers, authInvalidation, authSettings, jobs, documents, workerSlots, uploads, pdfLayers, saveJournal, officeSessions, officeIngress, officeCleanup, officeRecovery, officePrepared, officePreparedBindings, officeSaveIntents, officeOpenings, officeHandoff, documentVisits, versionHistory, historyPreviews, historyRestores, legacyHistory, historyImports, historyCatalogue, providerConnections, providerSourceRequests, providerDeliveryAttempts, providerDeliveryRecoveryIndex, providerDeliveryRequestJob, providerVersionOrigins, providerIngressInbox, providerIngressScheduling, providerSyncActions] as const;
 export const applicationId = 0x5957494b; // YWIK; legacy Django uses no marker.
