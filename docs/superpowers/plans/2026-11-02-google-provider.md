@@ -2,7 +2,7 @@
 
 > **For agentic workers:** Use superpowers:executing-plans inline with RED→GREEN and one fresh whole-rewrite review at the actual end. Execution is already authorized by the user; continue without per-task approval.
 
-**Status:** Tasks1–2 COMPLETE (2026-11-02); Tasks3–6 pending. OAuth verification: `docs/audits/2026-11-02-google-oauth-verification.md`. No Google file/network-account acceptance yet.
+**Status:** Tasks1–2 COMPLETE (2026-11-02); Task3 IN PROGRESS (bounded GET transport verified); Tasks4–6 pending. OAuth verification: `docs/audits/2026-11-02-google-oauth-verification.md`. No Google file/network-account acceptance yet.
 
 **Goal:** Restore Google Drive, native Docs/Sheets/Slides, central-account authorization, original-object access, permission delivery and external lifecycle synchronization in the TS runtime without losing legacy conflict/session behavior.
 
@@ -52,6 +52,8 @@ Interface: one worker auth session per current lease, `access(options:ProviderCh
 ## Task3: Verified Google metadata and streamed source reads
 
 Files: Google transport/metadata/read adapter modules and worker resolver, focused fakeHTTP and native worker tests.
+
+Transport checkpoint (2026-11-02, base4107beb): `google-read-http.ts` provides fixed-origin file/permission GET, one bounded401 GET retry, fresh source authority,256KiB JSON/30s/eight-active-read limits and cancellation/static errors. `google-json.ts` now shares fixed-buffer control JSON decoding with token exchange.21 transport +10 vault composition cases pass, including native OAuth→Drive GET chain and4native metadataHTTP modes; final native765/web158/types/build pass. This is no ownership/root/sharing acceptance yet. Complete those guards (including trusted managed grant receipts from legacy state) before enabling any source adapter; native export/bytes remain pending.
 - [ ] Pin file ID/private central ownership/managed-sharing/root ancestry/type/version; bounded metadata and timeouts, static errors; no credential forwarding on redirects. Legacy managed sharing remains supported.
 - [ ] Binary alt=media streamed<=4GiB with size/hash/after-read version checks. Native Docs/Sheets/Slides export to explicit supported formats with provider export limit and version-fenced snapshot; never infer native type from filename.
 - [ ] Existing worker stages/commits authenticated sources without echo; offline/error retains old preview; native file is refused at binary-write boundary until supported native operation path is ready. Test real protocol via owned HTTP; preserve Local regression.
