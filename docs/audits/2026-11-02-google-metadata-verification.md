@@ -1,0 +1,15 @@
+# Google metadata gate verification
+
+Scope: internal Task3 metadata gate, not a Google source adapter or production cutover.
+
+`apps/server/src/providers/google-metadata.ts` composes the fixed-origin read transport with central ownership, non-trashed My Drive files, canonical root resolution, exact source identity, bounded single-parent ancestry and folder checks. Decimal uint64 versions remain strings, avoiding JS integer rounding. Binary size must be a decimal string within the 4GiB source limit and download capability must be true. Google document/spreadsheet/presentation MIME types produce distinct native kinds with unknown exported byte length; filenames and native metadata size do not choose the binary path. Shortcuts/other native kinds refuse safely. Returned snapshots and parent arrays are frozen.
+
+Yourwiki-managed sharing is an explicit trusted worker lookup dependency scoped to the reader's connection. Shared files/folders must have managed recipients and a complete bounded permission list; only the owner or named managed user reader/writer/commenter entries pass. Public/domain/group/unknown recipients, malformed or paginated lists refuse. This preserves the legacy named-sharing rule without importing provider permissions into local ACL. No default private-only adapter is activated. Durable grant storage/import and real adapter wiring remain required.
+
+Current authority is checked before/after transport and grant lookup and before return; existing session exceptions retain identity. Abort refuses with a static cancellation error. Ancestor traversal stops at34 intermediate steps; transport already bounds each actual request. No source writes, grants, deletion decisions, public routes or credential DTOs are added. The eventual streaming adapter must verify again after content transfer and fence the version/ancestry; this preflight alone cannot authorize a commit or eliminate a Google-side race.
+
+RED: missing production module observed as ERR_MODULE_NOT_FOUND before implementation. GREEN: nine metadata tests, including actual owned loopback HTTP composed with GoogleReadHttp. Cases cover root alias, mismatched IDs, ownership/trash/shared-drive failures, malformed size/version, native MIME mapping, download restrictions, intermediate folders/outside-root/cycles/depth, managed and unmanaged sharing and revocation during grant lookup. No real Google account/endpoints were contacted.
+
+Reference checked2026-11-02: https://developers.google.com/workspace/drive/api/reference/rest/v3/files documents ownedByMe, trashed, parents, version, size and capabilities. Native source size is not the size of exported content.
+
+Full regression results are recorded in the rewrite progress ledger. No target-hardware/500ms or native round-trip acceptance claim.
