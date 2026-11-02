@@ -1,0 +1,97 @@
+import {BrowserDeliveryControls} from './provider-browser-controls.ts';
+import {HistorySettings} from '../../src/history-settings.ts';
+/** Synthetic loopback-only PDF browser fixture. Never use against production data. */
+import {OfficeOpenings} from '../../src/office/openings.ts';
+import {OfficeSessions} from '../../src/office/sessions.ts';
+import {OfficeIngress} from '../../src/office/ingress.ts';
+import {createSession,revokeSession} from '../../src/auth/sessions.ts';
+import {createInterface} from 'node:readline';
+import {PdfLayerService} from '../../src/pdf-layers.ts';
+import { createReadStream } from 'node:fs';
+import { mkdtemp, rm, readFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { openDatabase } from '../../src/database.ts';
+import { BlobStore } from '../../src/storage/blobs.ts';
+import { DocumentService } from '../../src/documents.ts';
+import { PreviewWorker } from '../../src/worker/preview-worker.ts';
+import { buildApp } from '../../src/app.ts';
+import { hashPassword } from '../../src/auth/passwords.ts';
+const root=await mkdtemp(join(tmpdir(),'yourwiki-pdf-browser-')),db=openDatabase(':memory:');
+db.prepare("INSERT INTO users(id,username,display_name,password_hash,admin_role) VALUES('qa','qa','PDF tester',?,'giga')").run(await hashPassword('yourwiki-qa'));
+db.prepare("INSERT INTO users(id,username,display_name,password_hash) VALUES('other','other','Other viewer',?)").run(await hashPassword('yourwiki-other'));
+db.exec("INSERT INTO groups VALUES('qa','Test group'); INSERT INTO memberships VALUES('qa','qa'),('other','qa')");
+const store=await BlobStore.open(root),docs=new DocumentService(db,store);
+const fixture=process.env.YOURWIKI_BROWSER_PDF_FIXTURE??new URL('../fixtures/pdf/form.pdf',import.meta.url);
+const initial=await docs.create({userId:'qa',title:'PDF forms',format:'pdf',groupId:'qa',parentId:null},createReadStream(fixture));
+const notes=process.env.YOURWIKI_BROWSER_CONTROL==='1'?await docs.create({userId:'qa',title:'Live notes',format:'md',groupId:'qa',parentId:null},(async function*(){yield Buffer.from('# Initial live notes');})()):null;
+const worker=new PreviewWorker(db,store,process.env.YOURWIKI_TEST_OFFICE_ROOT?{office:{officeRoot:process.env.YOURWIKI_TEST_OFFICE_ROOT}}:{});while(await worker.runOnce()!=='idle'){}
+const sourceControls=new BrowserDeliveryControls(db,store,docs,root,initial.documentId,notes?.documentId,async()=>{while(await worker.runOnce()!=='idle'){};});
+const port=Number(process.env.YOURWIKI_BROWSER_PORT??39077);
+if(!Number.isSafeInteger(port)||port<1024||port>65535)throw new Error('Invalid test port');
+let releaseDiscovery=()=>{};const discoveryGate=process.env.YOURWIKI_BROWSER_HOLD_OFFICE==='1'?new Promise<void>(resolve=>{releaseDiscovery=resolve;}):Promise.resolve();
+const app=buildApp({database:db,storage:store,webRoot:fileURLToPath(new URL('../../../web/dist',import.meta.url)),publicUrl:`http://127.0.0.1:${port}`,...(process.env.YOURWIKI_BROWSER_OFFICE==='1'?{office:{publicUrl:`http://127.0.0.1:${port}/collabora`,fetch:async()=>{await discoveryGate;return new Response('<wopi-discovery><action ext="md" name="edit" urlsrc="https://ignored/collabora/browser/build/cool.html?"/></wopi-discovery>');}}}:{})});
+await app.listen({port,host:'127.0.0.1'});console.log(`Synthetic PDF test server: http://127.0.0.1:${port}`);
+// Test-only stdin control: no HTTP control surface is registered.
+if(process.env.YOURWIKI_BROWSER_CONTROL==='1'){
+ const input=createInterface({input:process.stdin});let chain=Promise.resolve();
+ input.on('line',line=>{chain=chain.then(async()=>{
+  try{
+   const command=JSON.parse(line) as {action:string;title?:string};let result:Record<string,unknown>={};
+   const sourceResult=await sourceControls.handle(command.action);
+   if(sourceResult!==undefined)result=sourceResult;
+   else if(command.action==='history-fixtures'){
+    if(!notes)throw new Error('Notes fixture required');const policy=new HistorySettings(db);policy.update('qa',{enabled:true,baseRevision:policy.read('qa').revision});
+    await docs.save({userId:'qa',documentId:notes.documentId,baseRevision:1},(async function*(){yield Buffer.from('# Current live notes');})());
+    const layers=new PdfLayerService(db,store);await layers.save({userId:'qa',documentId:initial.documentId,baseRevision:1,layerRevision:0},(async function*(){yield Buffer.concat([await readFile(fixture),Buffer.from('\n%current layer\n')]);})());
+    for(let index=0;index<55;index++){const payload=await store.put((async function*(){yield Buffer.from('# Archived note '+index);})(),{maxBytes:1024});db.prepare("INSERT INTO history_entries(document_id,kind,source_revision,digest,size,title,format,captured_by_name,created_at) VALUES(?,'source',1,?,?,?,'md','Archive author',?)").run(notes.documentId,payload.digest,payload.size,'Archive '+index,Date.now()+index);}
+    const slides=await docs.create({userId:'qa',title:'History slides',format:'pptx',groupId:'qa',parentId:null},createReadStream(new URL('../fixtures/office/slides.pptx',import.meta.url)));while(await worker.runOnce()!=='idle'){}
+    db.prepare("INSERT INTO history_entries(document_id,kind,source_revision,digest,size,title,format,captured_by_name,created_at) VALUES(?,'source',1,?,?,'Archive slides','pptx','Archive author',?)").run(slides.documentId,slides.blob.digest,slides.blob.size,Date.now());const table=await docs.create({userId:'qa',title:'History table',format:'xlsx',groupId:'qa',parentId:null},createReadStream(new URL('../fixtures/office/table.xlsx',import.meta.url)));while(await worker.runOnce()!=='idle'){}
+    db.prepare("INSERT INTO history_entries(document_id,kind,source_revision,digest,size,title,format,captured_by_name,created_at) VALUES(?,'source',1,?,?,'Archive table','xlsx','Archive author',?)").run(table.documentId,table.blob.digest,table.blob.size,Date.now());result={notes:notes.documentId,pdf:initial.documentId,slides:slides.documentId,table:table.documentId};
+   }else if(command.action==='history-work'){while(await worker.runOnce()!=='idle'){};}
+   else if(command.action==='history-deny-other'){if(!notes)throw new Error('Notes required');db.prepare('UPDATE resources SET user_policies=? WHERE id=?').run(JSON.stringify({other:{read:false}}),notes.documentId);}
+   else if(command.action==='history-save-two'){
+    if(!notes)throw new Error('Notes fixture required');const revision=(db.prepare('SELECT local_revision FROM documents WHERE id=?').get(notes.documentId) as {local_revision:number}).local_revision;
+    await docs.save({userId:'qa',documentId:notes.documentId,baseRevision:revision},(async function*(){yield Buffer.from('# History update '+(revision+1));})());
+    const layers=new PdfLayerService(db,store),state=layers.state('qa',initial.documentId)!,source=Buffer.concat([await readFile(fixture),Buffer.from('\n%history '+(state.layerRevision+1)+'\n')]);
+    await layers.save({userId:'qa',documentId:initial.documentId,baseRevision:state.baseRevision,layerRevision:state.layerRevision},(async function*(){yield source;})());while(await worker.runOnce()!=='idle'){}
+    result={counts:db.prepare('SELECT document_id,COUNT(*) AS count FROM history_entries GROUP BY document_id ORDER BY document_id').all(),documents:[initial.documentId,notes.documentId]};
+   }else if(command.action==='history-state'){result={counts:db.prepare('SELECT document_id,COUNT(*) AS count FROM history_entries GROUP BY document_id ORDER BY document_id').all(),documents:[initial.documentId,notes?.documentId]};}
+   else if(command.action==='recent-state'){result={visits:db.prepare('SELECT * FROM document_visits ORDER BY user_id,document_id').all()};}
+   else if(command.action==='deny-notes'){if(!notes)throw new Error('Notes fixture required');db.prepare("UPDATE users SET admin_role='member' WHERE id='qa'").run();db.prepare('UPDATE resources SET user_policies=? WHERE id=?').run(JSON.stringify({qa:{read:false}}),notes.documentId);}
+   else if(command.action==='release-discovery'){releaseDiscovery();}
+   else if(command.action==='opening-state'){result={openings:db.prepare('SELECT open_id,state,handoff_deadline,claimed_at FROM office_openings').all(),tokens:(db.prepare('SELECT COUNT(*) AS n FROM office_tokens').get() as {n:number}).n};}
+   else if(command.action==='expire-handoffs'){db.prepare('UPDATE office_openings SET handoff_deadline=1 WHERE handoff_deadline IS NOT NULL').run();new OfficeOpenings(db).cleanup();}
+   else if(command.action==='recoveries'){
+    if(!notes||process.env.YOURWIKI_BROWSER_OFFICE!=='1')throw new Error('Office fixture required');
+    const browser=createSession(db,'qa'),office=new OfficeSessions(db),opened=office.open(browser.token,notes.documentId),ingress=new OfficeIngress(db,store);office.lock(opened.sessionId,opened.token,'LOCK','fixture-lock');
+    try{for(let index=0;index<52;index++){const payload=Buffer.from('durable recovery copy '+index);await ingress.receive({sessionId:opened.sessionId,token:opened.token,lock:'fixture-lock',declaredSize:payload.length},(async function*(){yield payload;})());}}finally{await ingress.close();revokeSession(db,browser.token);}
+   }else if(command.action==='export-deny-notes'){
+    if(!notes)throw new Error('Notes fixture required');db.prepare("UPDATE users SET admin_role='member' WHERE id='qa'").run();db.prepare('UPDATE resources SET export_disabled=1 WHERE id=?').run(notes.documentId);
+   }else if(command.action==='readonly-notes'){
+    if(!notes)throw new Error('Notes fixture required');db.prepare('UPDATE resources SET user_policies=? WHERE id=?').run(JSON.stringify({qa:{read:true,write:false}}),notes.documentId);
+   }else if(command.action==='create'){
+    await docs.create({userId:'qa',title:command.title??'Live PDF',format:'pdf',groupId:'qa',parentId:null},createReadStream(fixture));
+    while(await worker.runOnce()!=='idle'){}
+   }else if(command.action==='layer'){
+    const layers=new PdfLayerService(db,store),state=layers.state('qa',initial.documentId)!;
+    await layers.save({userId:'qa',documentId:initial.documentId,baseRevision:state.baseRevision,layerRevision:state.layerRevision},createReadStream(fixture));
+   }else if(command.action==='notes'){
+    const revision=(db.prepare('SELECT local_revision AS revision FROM documents WHERE id=?').get(notes!.documentId) as {revision:number}).revision;
+    await docs.save({userId:'qa',documentId:notes!.documentId,baseRevision:revision},(async function*(){yield Buffer.from('# Updated live notes');})());
+    while(await worker.runOnce()!=='idle'){}
+   }else if(command.action==='deny'){
+    db.prepare('UPDATE resources SET user_policies=? WHERE id=?').run(JSON.stringify({qa:{read:false,write:false}}),initial.documentId);
+   }else if(command.action==='readonly'){
+    db.prepare("UPDATE users SET admin_role='member' WHERE id='qa'").run();
+    db.prepare('UPDATE resources SET user_policies=? WHERE id=?').run(JSON.stringify({qa:{read:true,write:false}}),initial.documentId);
+   }else if(command.action==='expire')db.prepare("DELETE FROM sessions WHERE user_id='qa'").run();
+   else throw new Error('Unknown fixture command');
+   console.log(JSON.stringify({ok:true,action:command.action,...result}));
+  }catch(error){console.log(JSON.stringify({ok:false,error:String(error)}));}
+ });});
+}
+let closing=false;
+async function close(){if(closing)return;closing=true;await app.close();sourceControls.close();db.close();await rm(root,{recursive:true,force:true});process.exit(0);}
+process.on('SIGTERM',()=>void close());process.on('SIGINT',()=>void close());

@@ -1,0 +1,27 @@
+import type {FastifyInstance,FastifyRequest,FastifyReply} from 'fastify';
+import type {Database} from './database.ts';
+import type {BlobStore} from './storage/blobs.ts';
+import {HistoryRestore} from './history-restore.ts';
+import {DocumentError} from './document-errors.ts';
+import {authenticateSession,validCsrf} from './auth/sessions.ts';
+import {sessionCookie} from './auth/routes.ts';
+import {errorEnvelope} from './errors.ts';
+const id={type:'string',minLength:1,maxLength:128},entry={type:'string',pattern:'^[1-9][0-9]{0,15}$'},operation={type:'string',pattern:'^[a-zA-Z0-9_-]{8,128}$'};
+type Params={id:string;entryId:string;operationId:string};
+export function registerHistoryRestore(app:FastifyInstance,db:Database,store:BlobStore,publicUrl:string,maxFileBytes?:number){
+ const service=new HistoryRestore(db,store,{maxFileBytes}),origin=new URL(publicUrl).origin,active=new Set<AbortController>();app.addHook('preClose',async()=>{for(const controller of active)controller.abort(new DocumentError('HISTORY_CLOSED'));await service.close();});
+ function body(request:FastifyRequest,keys:string[]){const body=request.body;if(request.headers['content-type']?.split(';')[0].trim().toLowerCase()!=='application/json'||!body||typeof body!=='object'||Array.isArray(body)||Object.keys(body).some(key=>!keys.includes(key))||keys.some(key=>!(key in body)))throw new DocumentError('INVALID_REQUEST');return body as Record<string,unknown>;}
+ async function handle(request:FastifyRequest<{Params:Params}>,reply:FastifyReply,write:boolean,action:(user:string,options:{signal:AbortSignal;authorize:()=>void})=>unknown){
+  const controller=new AbortController();active.add(controller);const abort=()=>controller.abort(new DocumentError('HISTORY_INTERRUPTED')),closed=()=>{if(!reply.raw.writableFinished)abort();};request.raw.once('aborted',abort);reply.raw.once('close',closed);
+  try{const token=sessionCookie(request),actor=authenticateSession(db,token);if(!actor)throw new DocumentError('SESSION_REQUIRED');if(write&&(request.headers.origin!==origin||typeof request.headers['x-csrf-token']!=='string'||!validCsrf(actor,request.headers['x-csrf-token'])))throw new DocumentError('CSRF_REJECTED');if(Object.keys(request.query as object).length)throw new DocumentError('INVALID_REQUEST');const authorize=()=>{const current=authenticateSession(db,token);if(!current||current.userId!==actor.userId)throw new DocumentError('SESSION_REQUIRED');};return await action(actor.userId,{signal:controller.signal,authorize});}
+  catch(error){if(!(error instanceof DocumentError))throw error;const status=({SESSION_REQUIRED:401,CSRF_REJECTED:403,ACCESS_DENIED:403,NOT_FOUND:404,INVALID_REQUEST:400,OPERATION_MISMATCH:409,CONFLICT:409,SAVE_DISCARDED:409,SAVE_PENDING:409,OFFICE_ACTIVE:409,HISTORY_LIMIT:409,HISTORY_FORMAT_MISMATCH:409,HISTORY_FORMAT_UNSUPPORTED:422,HISTORY_CORRUPT:422,INVALID_PDF:422,INVALID_OFFICE_FILE:422,OFFICE_FILE_BUDGET:422,PAYLOAD_TOO_LARGE:413,PENDING_LIMIT:429,HISTORY_BUSY:503,HISTORY_CLOSED:503,HISTORY_INTERRUPTED:503,HISTORY_UNAVAILABLE:503,HISTORY_VERIFY_LEASE_LOST:503,HISTORY_VERIFY_TIMEOUT:504,OFFICE_VALIDATOR_BUSY:503,OFFICE_VALIDATOR_UNAVAILABLE:503,OFFICE_VALIDATOR_FAILED:503,OFFICE_VALIDATOR_LEASE_LOST:503,OFFICE_VALIDATION_TIMEOUT:504} as Record<string,number>)[error.code]??500;const result=errorEnvelope(status===500?'INTERNAL_ERROR':error.code,request.id);if(status===409)result.recoveryActions=['refresh_history','keep_current_changes'];if(status===503||status===429)reply.header('retry-after','5');return reply.code(status).send(result);}
+  finally{request.raw.removeListener('aborted',abort);reply.raw.removeListener('close',closed);active.delete(controller);}
+ }
+ app.get<{Params:Params}>('/api/documents/:id/history/:entryId/restore',{schema:{params:{type:'object',required:['id','entryId'],properties:{id,entryId:entry}}}},(request,reply)=>handle(request,reply,false,user=>service.describe(user,request.params.id,Number(request.params.entryId))));
+ app.post<{Params:Params}>('/api/documents/:id/history/:entryId/restore',{bodyLimit:2048,schema:{params:{type:'object',required:['id','entryId'],properties:{id,entryId:entry}}}},(request,reply)=>handle(request,reply,true,user=>{const value=body(request,['operationId','baseRevision','baseDigest','layerRevision','layerDigest']);const result=service.request({...value,userId:user,documentId:request.params.id,entryId:Number(request.params.entryId)} as Parameters<typeof service.request>[0]);reply.code(result.state==='staged'?202:200);return result;}));
+ const base='/api/documents/:id/history-restores/:operationId',schema={params:{type:'object',required:['id','operationId'],properties:{id,operationId:operation}}};
+ function scoped(user:string,params:Params){const value=service.status(user,params.operationId);if(value.documentId!==params.id)throw new DocumentError('NOT_FOUND');return value;}
+ app.get<{Params:Params}>(base,{schema},(request,reply)=>handle(request,reply,false,user=>scoped(user,request.params)));
+ app.post<{Params:Params}>(base+'/commit',{bodyLimit:1024,schema},(request,reply)=>handle(request,reply,true,(user,options)=>{body(request,[]);scoped(user,request.params);return service.commit(user,request.params.operationId,options);}));
+ app.post<{Params:Params}>(base+'/discard',{bodyLimit:1024,schema},(request,reply)=>handle(request,reply,true,user=>{body(request,[]);scoped(user,request.params);return service.discard(user,request.params.operationId);}));
+}

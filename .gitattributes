@@ -1,0 +1,2 @@
+# PDF xref tables contain meaningful padding; fixtures are binary artifacts.
+apps/server/test/fixtures/pdf/*.pdf binary

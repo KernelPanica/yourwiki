@@ -1,0 +1,7 @@
+import assert from 'node:assert/strict';
+import {createHash} from 'node:crypto';
+import {decodeHistoryArchive,encodeHistoryArchive} from '../../src/history-archive.ts';
+const size=Number(process.argv[2]??64*1024**2);assert.ok(Number.isSafeInteger(size)&&size>0);const block=Buffer.alloc(65536,0xab),sourceHash=createHash('sha256');for(let left=size;left>0;left-=block.length)sourceHash.update(block.subarray(0,Math.min(left,block.length)));const digest=sourceHash.digest('hex');
+async function* source(){for(let left=size;left>0;left-=block.length)yield block.subarray(0,Math.min(left,block.length));}
+const metadata={saved_at:'2026-11-01T00:00:00+00:00',revision:0,kind:'file',file_format:'',title:'Streaming archive',author:null,sha256:digest,state_reference:'legacy:source'};
+const output=encodeHistoryArchive((async function*(){yield {metadata,content:source()};})());let accepted=false;const result=await decodeHistoryArchive(output,{consume:async content=>{let count=0;const hash=createHash('sha256');for await(const chunk of content){assert.ok(chunk.length<=65536);count+=chunk.length;hash.update(chunk);}return {count,digest:hash.digest('hex')};},accept:async(meta,content)=>{assert.equal(content.count,size);assert.equal(content.digest,digest);assert.deepEqual(meta,metadata);accepted=true;}});assert.equal(accepted,true);assert.equal(result.totalBytes,size);console.log(JSON.stringify({...result,maxRssKiB:process.resourceUsage().maxRSS}));

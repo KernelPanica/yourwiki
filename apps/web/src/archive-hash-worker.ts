@@ -1,0 +1,3 @@
+import {hashArchive} from './archive-hash.ts';
+const scope=globalThis as unknown as {onmessage:((event:MessageEvent)=>void)|null;postMessage:(value:unknown)=>void};let started=false;
+scope.onmessage=event=>{if(started)return;started=true;const blob=event.data;if(!(blob instanceof Blob)){scope.postMessage({type:'error'});return;}let last=0;void hashArchive(blob,new AbortController().signal,bytes=>{const now=performance.now();if(bytes===blob.size||now-last>=100){last=now;scope.postMessage({type:'progress',bytes});}}).then(digest=>scope.postMessage({type:'done',digest}),()=>scope.postMessage({type:'error'}));};

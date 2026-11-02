@@ -40,7 +40,8 @@ def test_recursive_deletion_confirmation_and_mobile_layout(realtime_server,works
         page.locator('[name=confirm]').check()
         with page.expect_response(lambda response:response.request.method=='POST') as saved:
             page.get_by_role('button',name='Move folder and files to trash',exact=True).click()
-        assert saved.value.status==302
+        assert saved.value.status==200
+        assert 'application/json' in saved.value.headers['content-type']
         page.wait_for_url(realtime_server+'/folders/')
         expect(page.locator('main')).not_to_contain_text('Delete parent')
         assert (workspace['root']/'Delete parent').exists()

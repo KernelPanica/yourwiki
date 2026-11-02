@@ -1,0 +1,14 @@
+import assert from 'node:assert/strict';
+import {test} from 'node:test';
+import {spawn} from 'node:child_process';
+import {createInterface} from 'node:readline';
+import {once} from 'node:events';
+import {join} from 'node:path';
+import {fileURLToPath} from 'node:url';
+import {HistoryRestore} from '../src/history-restore.ts';
+import {historyFixture,bytes} from './support/history-fixture.ts';
+import {privateHistoryFixture} from './support/private-history-fixture.ts';
+for(const aliased of [false,true])for(const mode of ['staged','verifying','saved'])test('SIGKILL restore '+(aliased?'aliased ':'')+mode+' restarts without losing archived bytes or applying twice',async t=>{
+ const f=await (async()=>{if(!aliased)return {...await historyFixture(t),expectedHistory:2};const base=await privateHistoryFixture(t,1),next=await base.docs.save({userId:'writer',documentId:base.other.documentId,baseRevision:1},bytes('current')),range=base.publishPrivate();assert.notEqual(range.first,base.privateIds[0]);return {...base,first:{...base.other,blob:base.privateBlob},next,entryId:range.first!,expectedHistory:3};})(),service=new HistoryRestore(f.db,f.store);t.after(()=>service.close());const child=spawn(process.execPath,[fileURLToPath(new URL('./support/history-restore-crash-child.ts',import.meta.url)),f.path,join(f.root,'store'),f.first.documentId,String(f.entryId),mode],{stdio:['ignore','pipe','pipe']});t.after(()=>{if(child.exitCode===null&&!child.signalCode)child.kill('SIGKILL');});const lines=createInterface({input:child.stdout});let errors='';child.stderr.on('data',chunk=>{errors+=String(chunk).slice(0,1000);});const reached=await new Promise<string>((resolve,reject)=>{const timer=setTimeout(()=>reject(new Error('Restore child timeout '+errors)),10000);lines.once('line',line=>{clearTimeout(timer);resolve(line);});child.once('error',error=>{clearTimeout(timer);reject(error);});child.once('exit',()=>{clearTimeout(timer);reject(new Error('Restore child exited '+errors));});});assert.equal(reached,mode);const exited=once(child,'exit');child.kill('SIGKILL');assert.equal((await exited)[1],'SIGKILL');lines.close();
+ if(mode==='verifying')f.db.prepare("UPDATE worker_slots SET lease_until=1 WHERE name='history-integrity'").run();assert.equal(service.status('writer','restore-crash').state,mode==='saved'?'saved':'staged');const result=await service.commit('writer','restore-crash');assert.equal(result.state,'saved');assert.equal(result.entryId,f.entryId);assert.equal(result.receipt!.entryId,f.entryId);assert.equal(result.receipt!.revision,3);assert.deepEqual(await service.commit('writer','restore-crash'),result);assert.equal((f.db.prepare('SELECT COUNT(*) AS n FROM document_versions WHERE document_id=?').get(f.first.documentId) as any).n,3);assert.equal(f.reader.list('writer',f.first.documentId).items.length,f.expectedHistory);assert.equal(await f.store.verify(f.first.blob),true);assert.equal(await f.store.verify(f.next.blob),true);
+});
