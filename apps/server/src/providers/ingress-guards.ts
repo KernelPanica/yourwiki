@@ -1,3 +1,4 @@
+import {googleLifecyclePending} from './google-lifecycle-guard.ts';
 import type {Database} from '../database.ts';
 import {DocumentError} from '../document-errors.ts';
 import {providerOriginContext} from './version-origins.ts';
@@ -10,6 +11,7 @@ export function ingressContext(db:Database,id:string){
 }
 /** Source acceptance policy, separate from permission to finish a private read snapshot. */
 export function ingressGuard(db:Database,base:IngressBaseline,now:number):'CONFLICT'|'OFFICE_ACTIVE'|'SAVE_PENDING'|null{
+ if(googleLifecyclePending(db,base.document_id))return 'CONFLICT';
  const current=ingressContext(db,base.document_id);if(current.connection_id!==base.connection_id||current.connection_revision!==base.connection_revision||current.binding_generation!==base.binding_generation)throw new DocumentError('INGRESS_SCOPE_CHANGED');
  if(current.local_revision!==base.base_local_revision||current.provider_revision!==base.base_provider_revision||current.digest!==base.base_digest||current.fingerprint!==base.base_fingerprint||current.local_revision!==current.provider_revision)return 'CONFLICT';
  if(db.prepare("SELECT 1 FROM provider_delivery_attempts WHERE document_id=? AND state NOT IN ('confirmed','retired') LIMIT 1").get(base.document_id))return 'CONFLICT';

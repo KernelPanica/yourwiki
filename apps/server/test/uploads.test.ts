@@ -14,7 +14,7 @@ async function setup(t: any, options = {}) {
   const root = await mkdtemp(join(tmpdir(), 'yourwiki-upload-'));
   const path = join(root, 'db.sqlite');
   const db = openDatabase(path);
-  db.exec("INSERT INTO users(id,username,display_name,password_hash) VALUES('owner','owner','Owner','!'),('other','other','Other','!'); INSERT INTO groups VALUES('team','Team'); INSERT INTO memberships VALUES('owner','team'),('other','team');");
+  db.exec("INSERT INTO users(id,username,display_name,password_hash) VALUES('owner','owner','Owner','!'),('other','other','Other','!'); INSERT INTO groups(id,name) VALUES('team','Team'); INSERT INTO memberships VALUES('owner','team'),('other','team');");
   const store = await BlobStore.open(join(root, 'storage'));
   let now = 1000;
   const config = { maxFileBytes: 100, maxPendingBytes: 100, chunkBytes: 3, ttlMs: 1000, clock: () => now, ...options };

@@ -1,45 +1,66 @@
 name: yourwiki
-x-app: &app
+x-runtime: &runtime
   build: .
-  image: yourwiki:local
+  image: yourwiki:npm-local
+  user: "10001:10001"
   volumes:
-    - database:/data
-    - secrets:/secrets
-    - documents:/documents
-  ports:
-    - "127.0.0.1:${YOURWIKI_PORT:-3000}:8000"
+    - workspace:/data
   security_opt:
     - no-new-privileges:true
-  cap_drop:
-    - ALL
+  cap_drop: [ALL]
   tmpfs:
-    - /tmp:mode=1777,size=256m
+    - /tmp:mode=1777,size=512m
   read_only: true
   init: true
+  stop_grace_period: 45s
 services:
   web:
-    <<: *app
+    <<: *runtime
+    command: [web]
     restart: unless-stopped
     environment:
-      COLLABORA_URL: ${COLLABORA_URL:-}
-      COLLABORA_INTERNAL_URL: ${COLLABORA_INTERNAL_URL:-http://collabora:9980/collabora}
-      COLLABORA_WOPI_URL: ${COLLABORA_WOPI_URL:-}
+      YOURWIKI_PUBLIC_URL: ${YOURWIKI_PUBLIC_URL:-http://127.0.0.1:3000}
+    ports:
+      - "127.0.0.1:${YOURWIKI_PORT:-3000}:3100"
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/', timeout=5)"]
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:3100/ready/').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
       interval: 30s
       timeout: 6s
       retries: 3
       start_period: 20s
+    mem_limit: 512m
+  provider:
+    <<: *runtime
+    command: [provider]
+    restart: unless-stopped
+    mem_limit: 384m
+    depends_on:
+      web: {condition: service_healthy}
+  conversion:
+    <<: *runtime
+    command: [conversion]
+    restart: unless-stopped
+    mem_limit: 1536m
+    pids_limit: 128
+    depends_on:
+      web: {condition: service_healthy}
   setup:
-    <<: *app
+    <<: *runtime
     profiles: [setup]
+    command: [setup]
     environment:
       SETUP_BIND: 0.0.0.0
+      SETUP_PORT: 3100
       SETUP_BROWSER_URL: http://127.0.0.1:${YOURWIKI_PORT:-3000}
-    entrypoint: ["python", "install.py"]
-    stdin_open: true
-    tty: true
+    ports:
+      - "127.0.0.1:${YOURWIKI_PORT:-3000}:3100"
+  maintenance:
+    <<: *runtime
+    profiles: [maintenance]
+    command: [verify-backup, /backups/snapshot]
+    volumes:
+      - workspace:/data
+      - ${YOURWIKI_BACKUPS:-./backups}:/backups
+      - ${YOURWIKI_MIGRATION_SOURCE:-./migration-source}:/migration-source:ro
 volumes:
-  database:
-  secrets:
-  documents:
+  workspace:

@@ -4,7 +4,7 @@ import type {BlobStore} from '../storage/blobs.ts';
 export type ProviderSyncStatus={documentId:string;kind:'incoming';state:'local_only'|'idle'|'scheduled'|'checking'|'staged'|'conflict'|'applied'|'failed'|'interrupted'|'cleanup'|'blocked';localRevision:number;providerRevision:number|null;snapshotId:string|null;errorCode:string|null};
 type Snapshot={id:string;state:string;error_code:string|null;connection_revision:number;lease_job_id:string;lease_until:number;slot_token:string};
 type Job={state:string;lease_until:number|null;error_code:string|null};
-const codes=['CONFLICT','OFFICE_ACTIVE','SAVE_PENDING','INGRESS_INTERRUPTED','INGRESS_QUOTA','PROVIDER_CONFIG_CHANGED','PROVIDER_SOURCE_CHANGED','PROVIDER_CONFLICT','PROVIDER_UNAVAILABLE'];
+const codes=['CONFLICT','OFFICE_ACTIVE','SAVE_PENDING','INGRESS_INTERRUPTED','INGRESS_QUOTA','PROVIDER_CONFIG_CHANGED','PROVIDER_SOURCE_CHANGED','PROVIDER_CONFLICT','PROVIDER_UNAVAILABLE','PROVIDER_EXPORT_LIMIT'];
 function safeCode(value:string|null,fallback:string|null=null){return value&&codes.includes(value)?value:fallback;}
 /** Current local authorization and cached metadata only. Never owns credentials or reads source bytes. */
 export class ProviderSync {
@@ -34,6 +34,10 @@ export class ProviderSync {
   if(job?.state==='queued')return {...base,state:'scheduled',errorCode:safeCode(job.error_code)};
   if(job?.state==='running')return {...base,state:Number(job.lease_until)>now?'checking':'interrupted',errorCode:Number(job.lease_until)>now?null:'INGRESS_INTERRUPTED'};
   if(job?.state==='failed'){const code=safeCode(job.error_code,'PROVIDER_UNAVAILABLE');return {...base,state:['PROVIDER_CONFIG_CHANGED','INGRESS_QUOTA'].includes(code!)?'blocked':'failed',errorCode:code};}
+  // A completed explicit action may have refused its source operation. Preserve that
+  // receipt in fresh page metadata even after the browser no longer remembers its UUID.
+  const refused=job?.state==='succeeded'&&scheduled?this.db.prepare("SELECT error_code FROM provider_sync_actions WHERE job_id=? AND state='refused'").get(scheduled.job_id) as {error_code:string}|undefined:undefined;
+  if(refused){const code=safeCode(refused.error_code,'PROVIDER_UNAVAILABLE');return {...base,state:['PROVIDER_CONFIG_CHANGED','INGRESS_QUOTA'].includes(code!)?'blocked':'failed',errorCode:code};}
   return {...base,state:snapshot?.state==='applied'?'applied':'idle'};
  });}
 }

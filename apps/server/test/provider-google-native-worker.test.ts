@@ -1,0 +1,31 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {createServer} from 'node:http';
+import {once} from 'node:events';
+import {readFile} from 'node:fs/promises';
+import {buffer} from 'node:stream/consumers';
+import {historyFixture,bytes} from './support/history-fixture.ts';
+import {FernetCodec} from '../src/providers/fernet.ts';
+import {SecretConfigs} from '../src/providers/secret-config.ts';
+import {ProviderConnections} from '../src/providers/connections.ts';
+import {CredentialVault} from '../src/providers/credential-vault.ts';
+import {bindExistingSource} from '../src/providers/source-bindings.ts';
+import {createProviderResolvers} from '../src/providers/provider-resolvers.ts';
+import {googleExportMaxBytes} from '../src/providers/google-content-http.ts';
+import {IngressWorker} from '../src/providers/ingress-worker.ts';
+import {IngressScheduler} from '../src/providers/ingress-scheduler.ts';
+import {PreviewWorker} from '../src/worker/preview-worker.ts';
+const officeRoot=process.env.YOURWIKI_TEST_OFFICE_ROOT,integration=officeRoot?test:test.skip;
+for(const [kind,format,name,previewKind] of [['document','docx','document.docx','document'],['spreadsheet','ods','table.ods','table'],['presentation','pptx','slides.pptx','presentation']] as const)integration('native '+kind+' actual HTTP→reserved inbox→real prepared preview',async t=>{
+ const f=await historyFixture(t),content=await readFile(new URL('./fixtures/office/'+name,import.meta.url)),eocd=content.lastIndexOf(Buffer.from([0x50,0x4b,5,6]));assert.ok(eocd>=0);const comment=Buffer.from('owned old export'),old=Buffer.concat([content.subarray(0,eocd+22),comment]);old.writeUInt16LE(comment.length,eocd+20);
+ const doc=await f.docs.create({userId:'writer',parentId:null,groupId:'g',title:'Owned native '+kind,format},bytes(old)),previews=new PreviewWorker(f.db,f.store,{office:{officeRoot}});assert.equal(await previews.runOnce(),'published');
+ const codec=new FernetCodec('cw_0x689RpI-jtRR7oE8h_eQsKImvJapLeSbXpwF4e4='),configs=new SecretConfigs(codec);t.after(()=>codec.close());new ProviderConnections(f.db,configs).create('admin',{id:'google',provider:'google',label:'Owned native',path:'/',folderId:null,config:{root:'rootId',client_id:'synthetic',client_secret:'SYNTHETIC',refresh_token:'SYNTHETIC'}});bindExistingSource(f.db,{documentId:doc.documentId,connectionId:'google',reference:'native',fingerprint:'legacy-native',confirmedRevision:1,confirmedDigest:doc.blob.digest,confirmedSize:doc.blob.size,now:Date.now()});let tokens=0,exports=0,requests=0;
+ const server=createServer((req,res)=>{requests++;if(req.url==='/token'){tokens++;assert.equal(req.method,'POST');req.resume();res.setHeader('content-type','application/json');res.end(JSON.stringify({access_token:'SYNTHETIC',token_type:'Bearer',expires_in:3600}));return;}assert.equal(req.method,'GET');assert.equal(req.headers.authorization,'Bearer SYNTHETIC');const url=new URL(req.url!,'http://owned.invalid'),id=url.pathname.split('/').at(-1);
+  if(id==='export'){exports++;assert.equal(url.searchParams.has('alt'),false);assert.deepEqual(f.db.prepare('SELECT declared_size,reserved_bytes,sizing_mode,state FROM provider_ingress_snapshots WHERE document_id=?').get(doc.documentId),{declared_size:googleExportMaxBytes,reserved_bytes:googleExportMaxBytes,sizing_mode:'bounded',state:'receiving'});res.setHeader('content-type','application/octet-stream');res.write(content.subarray(0,2));res.end(content.subarray(2));return;}
+  res.setHeader('content-type','application/json');res.end(JSON.stringify({id,mimeType:id==='rootId'?'application/vnd.google-apps.folder':'application/vnd.google-apps.'+kind,version:'2',size:'99999999999',parents:id==='rootId'?[]:['rootId'],ownedByMe:true,shared:false,trashed:false,capabilities:{canDownload:true}}));
+ });server.listen(0,'127.0.0.1');await once(server,'listening');const port=(server.address() as {port:number}).port;t.after(async()=>{server.closeAllConnections();await new Promise<void>(r=>server.close(()=>r()));});
+ const request:typeof fetch=async(url,init)=>{const parsed=new URL(String(url));assert.ok(['https://oauth2.googleapis.com','https://www.googleapis.com'].includes(parsed.origin));return fetch('http://127.0.0.1:'+port+parsed.pathname+parsed.search,init);},vault=new CredentialVault(f.db,configs,{google:{fetch:request}});t.after(()=>vault.close());
+ const worker=new IngressWorker(f.db,f.store,vault,createProviderResolvers(vault,{google:{fetch:request}}).incoming);new IngressScheduler(f.db).tick();assert.equal(await worker.runOnce(),'applied');assert.equal(tokens,1);assert.equal(exports,1);
+ assert.deepEqual(f.db.prepare('SELECT local_revision,provider_revision,published_revision FROM documents WHERE id=?').get(doc.documentId),{local_revision:2,provider_revision:2,published_revision:1});assert.equal((f.db.prepare('SELECT size FROM document_versions WHERE document_id=? AND revision=2').get(doc.documentId) as any).size,content.length);assert.equal((f.db.prepare('SELECT pending_bytes FROM provider_ingress_usage').get() as any).pending_bytes,0);assert.equal((f.db.prepare("SELECT count(*) AS n FROM jobs WHERE kind='provider.deliver'").get() as any).n,0);
+ const before=requests;assert.equal((await f.app.inject({url:'/api/documents/'+doc.documentId+'/view',headers:f.headers()})).statusCode,200);assert.equal(requests,before);assert.equal(await previews.runOnce(),'published');const view=f.docs.getPublished('reader',doc.documentId),manifest=JSON.parse((await buffer(await f.store.read(view!.manifestDigest))).toString());assert.equal(manifest.kind,previewKind);const primary=manifest.artifacts.find((item:any)=>item.name===manifest.primary);const artifact=(await buffer(await f.store.read(primary.digest))).toString();if(kind==='document'){assert.match(artifact,/Yourwiki\s+DOCX fixture/);assert.match(artifact,/colspan="2"/);}if(kind==='spreadsheet')assert.match(artifact,/>7</);if(kind==='presentation')assert.equal(JSON.parse(artifact).slides.length,2);
+});

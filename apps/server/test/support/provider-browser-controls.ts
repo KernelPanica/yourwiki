@@ -1,6 +1,8 @@
 import {randomUUID} from 'node:crypto';
 import {JobQueue} from '../../src/jobs.ts';
 import {ProviderIngress} from '../../src/providers/ingress-inbox.ts';
+import {SyncActions} from '../../src/providers/sync-actions.ts';
+import {createSession,authenticateSession} from '../../src/auth/sessions.ts';
 import {IngressWorker} from '../../src/providers/ingress-worker.ts';
 /** Owned loopback-browser fixture only. No HTTP control routes or live accounts. */
 import {mkdir,writeFile,readFile} from 'node:fs/promises';
@@ -45,6 +47,11 @@ export class BrowserDeliveryControls {
     }finally{await adapter.close();}
    }
    else if(action==='source-incoming-work'){incomingResult=await new IngressWorker(this.db,this.store,new CredentialVault(this.db,new SecretConfigs(this.codec!)),async connection=>LocalAdapter.open(String(connection.config.root))).runOnce();if(incomingResult==='applied')await this.previews();}
+   else if(action==='source-export-limit'||action==='source-read-conflict'){
+    const session=createSession(this.db,'qa'),actor=authenticateSession(this.db,session.token)!,latest=this.db.prepare('SELECT id,state FROM provider_ingress_snapshots WHERE document_id=? ORDER BY generation DESC LIMIT 1').get(this.notes) as {id:string;state:string}|undefined;
+    new SyncActions(this.db,this.store).request(actor,this.notes,'check',{requestId:randomUUID(),baseLocalRevision:this.current(this.notes).local_revision,snapshotId:latest&&latest.state!=='discarded'?latest.id:null});
+    const vault=new CredentialVault(this.db,new SecretConfigs(this.codec!));try{incomingResult=await new IngressWorker(this.db,this.store,vault,async()=>({read:async()=>{throw new ProviderError(action==='source-export-limit'?'PROVIDER_EXPORT_LIMIT':'PROVIDER_CONFLICT');},replace:async()=>{throw new Error('Owned export must not replace');},retire:async()=>{},close:async()=>{}})).runOnce();}finally{await vault.close();}
+   }
    else if(action!=='source-state')throw new Error('Unknown source fixture action');
   }
   const notes=this.current(this.notes),pdf=this.current(this.pdf);return {incomingResult,notes:this.notes,pdf:this.pdf,notesRevision:notes.local_revision,notesProviderRevision:notes.provider_revision,pdfRevision:pdf.local_revision,pdfProviderRevision:pdf.provider_revision,writes:this.writes,pdfDeliveryState:(this.db.prepare("SELECT state FROM provider_delivery_attempts WHERE document_id=? AND state NOT IN ('confirmed','retired')").get(this.pdf) as {state:string}|undefined)?.state??null,notesText:await readFile(join(this.root,'notes.md'),'utf8')};

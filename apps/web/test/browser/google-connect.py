@@ -1,0 +1,40 @@
+"""Actual cross-site redirect + Strict cookies + one-shot callback/lost-ACK recovery. Owned providers only."""
+import asyncio,json,os
+from pathlib import Path
+from playwright.async_api import async_playwright,expect
+ROOT=Path(__file__).resolve().parents[4]
+async def main():
+ server=await asyncio.create_subprocess_exec('node','apps/server/test/support/google-connect-browser-server.ts',cwd=ROOT,stdin=asyncio.subprocess.PIPE,stdout=asyncio.subprocess.PIPE,stderr=asyncio.subprocess.PIPE)
+ async def stats():
+  server.stdin.write(b'stats\n');await server.stdin.drain();return json.loads(await asyncio.wait_for(server.stdout.readline(),10))
+ try:
+  assert b'Owned Google' in await asyncio.wait_for(server.stdout.readline(),20)
+  async with async_playwright() as p:
+   browser=await p.chromium.launch(executable_path=os.environ['PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH'],headless=True,args=['--no-sandbox']);context=await browser.new_context(locale='ru-RU',viewport={'width':393,'height':852});origin='http://localhost:39099'
+   login=await context.request.post(origin+'/api/auth/login',headers={'origin':origin},data={'username':'qa','password':'yourwiki-qa'});assert login.status==200;assert 'SameSite=Strict' in login.headers['set-cookie'];account=await (await context.request.get(origin+'/api/account')).json();headers={'origin':origin,'x-csrf-token':account['csrf']}
+   page=await context.new_page();errors=[];completions=[];page.on('pageerror',lambda e:errors.append(str(e)));page.on('request',lambda req:completions.append(req.url) if req.method=='POST' and req.url.endswith('/connect/complete') else None)
+   async def begin(revision):
+    response=await context.request.post(origin+'/api/admin/google/connect/start',headers=headers,data={'connectionId':'google','baseRevision':revision});assert response.status==200;from urllib.parse import urlparse,parse_qs;return parse_qs(urlparse((await response.json())['authorizationUrl']).query)['state'][0]
+   await page.goto(origin+'/settings');await expect(page.get_by_role('heading',name='Google Drive',exact=True)).to_be_visible();await expect(page.get_by_role('heading',name='Owned Google',exact=True)).to_be_visible()
+   await page.get_by_role('heading',name='Google Drive',exact=True).evaluate("el=>el.scrollIntoView({block:'start'})")
+   target=ROOT/'output/playwright/google-connect-settings-mobile.png';target.parent.mkdir(parents=True,exist_ok=True);await page.screenshot(path=str(target),full_page=True)
+   await page.get_by_text('Добавить подключение Google',exact=True).click();await page.get_by_label('Название',exact=True).fill('Created Google');await page.get_by_label('ID папки в Google Drive',exact=True).fill('rootId');await page.get_by_label('OAuth Client ID',exact=True).fill('owned-new');await page.get_by_label('OAuth Client Secret',exact=True).fill('OWNED_NEW_SECRET');await page.get_by_label('Путь подключения в YourWiki',exact=True).fill('/Created');await page.get_by_label('ID существующей папки YourWiki (если путь отличается от /)',exact=True).fill('qa-folder');await page.get_by_role('button',name='Сохранить подключение',exact=True).click();await expect(page.get_by_role('heading',name='Created Google',exact=True)).to_be_visible();await expect(page.get_by_label('OAuth Client Secret',exact=True)).to_have_value('');assert (await stats())['tokens']==0
+   metadata=await (await context.request.get(origin+'/api/admin/google/connections')).json();assert len(metadata['items'])==2;assert 'OWNED_NEW_SECRET' not in json.dumps(metadata);assert (await stats())['tokens']==0
+   captured=[]
+   async def consent(route):
+    from urllib.parse import urlparse,parse_qs
+    captured.append(parse_qs(urlparse(route.request.url).query)['state'][0]);await route.fulfill(content_type='text/html',body='<a href="http://127.0.0.1:39100/start?state='+captured[-1]+'">Owned consent</a>')
+   await page.route('https://accounts.google.com/o/oauth2/v2/auth?**',consent);await page.get_by_role('heading',name='Owned Google',exact=True).locator('..').get_by_role('button',name='Подключить Google',exact=True).click();await expect(page.get_by_role('link',name='Owned consent')).to_be_visible();assert len(captured)==1;await page.get_by_role('link',name='Owned consent').click()
+   state=captured[0];await page.goto('http://127.0.0.1:39100/start?state='+state);await page.get_by_role('link',name='Return to Yourwiki').click();await expect(page.get_by_role('status')).to_have_text('Google подключён. Можно вернуться в настройки.');await expect(page.get_by_role('button',name='Проверить результат')).to_be_hidden();assert page.url==origin+'/api/admin/google/oauth/callback';assert len(completions)==1;first=await stats();assert first=={'tokens':1,'gets':2,'callbackCookies':[False],'revision':2},first
+   dropped=asyncio.Event()
+   async def lost_ack(route):
+    response=await route.fetch();assert response.status==200;await route.abort('failed');dropped.set()
+   await page.route('**/api/admin/google/connect/complete',lost_ack);state=await begin(2);await page.goto('http://127.0.0.1:39100/start?state='+state);await page.get_by_role('link',name='Return to Yourwiki').click();await asyncio.wait_for(dropped.wait(),10);await expect(page.get_by_role('status')).to_have_text('Google подключён. Можно вернуться в настройки.');await page.unroute('**/api/admin/google/connect/complete',lost_ack);assert len(completions)==2;second=await stats();assert second=={'tokens':2,'gets':4,'callbackCookies':[False,False],'revision':3},second
+   await page.reload();await expect(page.get_by_role('status')).to_have_text('Google подключён. Можно вернуться в настройки.');assert len(completions)==2;assert await stats()==second;storage=await page.evaluate('JSON.stringify(sessionStorage)');assert 'OWNED_CODE' not in storage and 'SYNTHETIC' not in storage;assert not errors,errors
+   target=ROOT/'output/playwright/google-connect-callback-mobile.png';target.parent.mkdir(parents=True,exist_ok=True);await page.screenshot(path=str(target));await page.goto(origin+'/api/admin/google/oauth/callback?error=access_denied&error_description=PRIVATE');await expect(page.get_by_role('alert')).to_have_text('Подключение не разрешено. Вернитесь в настройки.');assert 'PRIVATE' not in await page.locator('body').inner_text();assert (await stats())['tokens']==2
+   print(json.dumps({'strictCrossSiteCallback':True,'lostAckReadOnlyRecovery':True,'reloadNoCodeReplay':True,'noCodeInStorage':True,'tokenPosts':2,'configurationCreatedFromForm':True,'configurationSecretCleared':True,'pageErrors':errors}));await browser.close()
+ finally:
+  if server.returncode is None:server.terminate()
+  try:await asyncio.wait_for(server.wait(),15)
+  except asyncio.TimeoutError:server.kill();await server.wait()
+asyncio.run(main())

@@ -12,7 +12,7 @@ npm --prefix apps/server run typecheck
 npm --prefix apps/server start
 ```
 
-The development server binds only to `127.0.0.1:3100`:
+Without arguments, the development server binds only to `127.0.0.1:3100`:
 
 - `GET /health/`: process liveness; does not claim workspace readiness.
 - `GET /ready/`: returns 503 until local migrations/storage checks are wired in.
@@ -27,6 +27,42 @@ Errors contain server-generated request IDs and explicit recovery metadata.
 Unknown outcomes never imply a safe retry. Exception messages, raw parser
 inputs and request URLs are not returned in error bodies. Structured production
 logging and React SSR remain subsequent implementation steps; this server is not a production replacement yet.
+
+## Explicit configured workspace
+
+For an already initialized **v2 workspace**, the same entrypoint serves the
+built React app, login, document/history APIs and central Google settings:
+
+```sh
+npm --prefix apps/web run build
+npm --prefix apps/server start -- /srv/yourwiki-v2/workspace.sqlite3 /srv/yourwiki-v2/storage /srv/yourwiki-v2/secret.key https://wiki.example.com /srv/yourwiki/apps/web/dist --port 3100
+```
+
+The five positional arguments are absolute database/storage/key paths, the public
+origin, and the absolute built-web path; `--port` is optional (default3100).
+The listener remains `127.0.0.1`, suitable for the configured reverse proxy.
+Public origin must be HTTPS, except loopback HTTP during local development.
+Use exactly the public origin in the OAuth client's callback URL.
+
+This mode requires an existing marked v2 database, storage directory, built
+manifest/index, and existing0600 installation key. It does not create an account,
+key or workspace and does not discover/import a Django database. Foreign/empty
+or missing databases, invalid frontend, unsafe key and connection decryption
+failure refuse startup with a fixed error. Migrations/checksums still use the
+normal v2 database opener. Keep a backup before upgrading a workspace.
+
+`/ready/` becomes200 after local initialization; it does not prove Google
+availability or source delivery. Google settings are advertised only to current
+Gigaadmins. Configuration/authorization work independently of source workers:
+Google source writes, native edit operations, grants/discovery/lifecycle and
+real-account acceptance are still incomplete. Preview and provider workers
+remain separate explicitly started processes; this entrypoint does not spawn
+workers or configure Collabora. The configured app owns its database/key and
+releases them after services drain on shutdown.
+
+Docker/Compose currently starts Django. The required release target is an npm/
+TypeScript runtime in Docker. This opt-in command is not yet that production
+cutover or a finished installer/data migration.
 
 ## Database, identity and access core
 
@@ -43,8 +79,9 @@ const db = openDatabase('/private/new-yourwiki-v2.sqlite3');
 const app = buildApp({ database: db, publicUrl: 'https://wiki.example.com' });
 ```
 
-The caller owns the database lifetime. The development entrypoint does not
-open/import any database automatically. There is no initial administrator,
+The caller of `buildApp` owns the database lifetime. `openConfiguredApp` owns
+its explicitly supplied workspace. The entrypoint never discovers/imports a
+database automatically. There is no initial administrator,
 installer or migration importer yet; do not switch an existing installation.
 Readiness stays false until a separate local workspace check is supplied.
 
@@ -270,3 +307,25 @@ than retaining unbounded buffers; application shutdown closes streams. Transient
 read failures disconnect streams while allowing a fresh subscription after recovery.
 No provider is called. The React client is not wired to this endpoint yet: dirty
 editor/session-switch protections are required before enabling client invalidation.
+
+## Bound Google source reading
+
+The separate explicitly started worker now resolves Google reads as well as
+Local reads/writes:
+
+```sh
+npm --prefix apps/server run provider-worker -- /srv/yourwiki-v2/workspace.sqlite3 /srv/yourwiki-v2/storage /srv/yourwiki-v2/secret.key
+```
+
+For existing bound Google files, the reader uses canonical encrypted credentials,
+verified private/managed ownership and ancestry, current local scope, bounded
+streaming/checksums and before/after source versions. Native Docs/Sheets/Slides
+export to the pinned DOCX/ODS/PPTX format and retain the old preview until the
+new one is prepared. Pages do not perform this cloud IO.
+
+This enables incoming updates for existing bindings; it does not discover or
+create bindings. Direction-specific resolvers keep a reader from acquiring
+replace/retire methods. Google outgoing delivery remains unavailable pending
+the supported safe-write implementation and acceptance. Do not interpret local
+saving or a queued delivery as confirmation that the Google original changed.
+Live-account acceptance and remaining Google obligations remain open.

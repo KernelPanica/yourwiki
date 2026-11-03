@@ -1,0 +1,14 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {readFile} from 'node:fs/promises';
+import {GoogleSourceReader} from '../src/providers/google-reader.ts';
+import {googleExportMaxBytes} from '../src/providers/google-content-http.ts';
+const auth={access:async()=> 'SYNTHETIC',invalidate(){}};
+async function collect(source:AsyncIterable<Uint8Array>){const chunks:Buffer[]=[];for await(const value of source)chunks.push(Buffer.from(value));return Buffer.concat(chunks);}
+for(const [kind,format,name] of [['document','docx','document.docx'],['spreadsheet','ods','table.ods'],['presentation','pptx','slides.pptx']] as const)test('native '+kind+' exports lazily with bounded actual length and version fence',async t=>{
+ const bytes=await readFile(new URL('./fixtures/office/'+name,import.meta.url));let version='1',exports=0;const request:typeof fetch=async(url)=>{const parsed=new URL(String(url)),id=parsed.pathname.split('/').at(-1);if(id==='export'){exports++;assert.equal(parsed.searchParams.has('alt'),false);return new Response(bytes);}return Response.json({id,mimeType:id==='rootId'?'application/vnd.google-apps.folder':'application/vnd.google-apps.'+kind,version,size:'999999999999',parents:id==='rootId'?[]:['rootId'],ownedByMe:true,shared:false,trashed:false,capabilities:{canDownload:true}});};const reader=new GoogleSourceReader('rootId',auth,async()=>[],{fetch:request,format});t.after(()=>reader.close());const result=await reader.read('native',{check(){}});assert.equal(result.size,null);if(result.size!==null)throw new Error('must be bounded');assert.equal(result.maxSize,googleExportMaxBytes);assert.equal(exports,0);assert.deepEqual(await collect(result.bytes),bytes);assert.equal(exports,1);assert.equal(await reader.changed('native',result.fingerprint,{check(){}}),false);assert.equal(exports,1);
+ const stale=await reader.read('native',{check(){}});version='2';await assert.rejects(collect(stale.bytes),{code:'PROVIDER_CONFLICT'});
+});
+test('native export cannot silently change the local document format and invalid archive is not accepted',async t=>{
+ for(const mode of ['format','archive'] as const){let exports=0;const reader=new GoogleSourceReader('rootId',auth,async()=>[],{format:mode==='format'?'md':'docx',fetch:async(url)=>{const id=new URL(String(url)).pathname.split('/').at(-1);if(id==='export'){exports++;return new Response('not a document');}return Response.json({id,mimeType:id==='rootId'?'application/vnd.google-apps.folder':'application/vnd.google-apps.document',version:'1',parents:id==='rootId'?[]:['rootId'],ownedByMe:true,shared:false,trashed:false,capabilities:{canDownload:true}});}});t.after(()=>reader.close());if(mode==='format'){await assert.rejects(reader.read('native',{check(){}}),{code:'PROVIDER_SOURCE_CHANGED'});assert.equal(exports,0);}else await assert.rejects(collect((await reader.read('native',{check(){}})).bytes),{code:'PROVIDER_SOURCE_CHANGED'});}
+});

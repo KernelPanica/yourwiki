@@ -1,10 +1,9 @@
-# Optional overlay: docker compose -f compose.yaml -f compose.collabora.yaml up -d --build web collabora
+# Optional npm runtime overlay: docker compose -f compose.yaml -f compose.collabora.yaml up -d --build web collabora
 services:
   web:
     volumes:
       - ${COLLABORA_CUSTOM_FONTS:-./instance/office-fonts}:/opt/yourwiki-fonts:ro
     environment:
-      GOOGLE_FONTS_DIR: /opt/yourwiki-fonts
       COLLABORA_URL: ${COLLABORA_URL:?Set COLLABORA_URL to your public HTTPS URL with /collabora}
       COLLABORA_INTERNAL_URL: http://collabora:9980/collabora
       COLLABORA_WOPI_URL: ${COLLABORA_WOPI_URL:?Set COLLABORA_WOPI_URL to your public Yourwiki HTTPS URL}

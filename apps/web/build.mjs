@@ -3,6 +3,7 @@ import { readFile,writeFile,mkdir,rename,copyFile,readdir } from 'node:fs/promis
 import { createHash } from 'node:crypto';
 import { basename,resolve,dirname,extname } from 'node:path';
 import { gzipSync,brotliCompressSync,constants } from 'node:zlib';
+import {modulePreloads} from './module-preloads.ts';
 const root=resolve(import.meta.dirname),dist=resolve(root,'dist');
 await mkdir(resolve(dist,'assets'),{recursive:true});
 const pdfRoot=resolve(root,'node_modules/pdfjs-dist'),pdfFiles=[];
@@ -40,7 +41,10 @@ for(const item of pdfFiles){
  assets[name]={type,size:item.content.length,gzipSize:gzip.length,brSize:br.length};
 }
 if(!script||!css||!font)throw new Error('Incomplete web build');
-const html=`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#f6f7f9"><title>Yourwiki</title><link rel="preload" href="/assets/${font}" as="font" type="font/woff2" crossorigin><link rel="stylesheet" href="/assets/${css}"><script type="module" src="/assets/${script}"></script></head><body><div id="root"></div><noscript>Enable JavaScript to open Yourwiki.</noscript></body></html>`;
+const mainOutput=Object.entries(result.metafile.outputs).find(([name,meta])=>meta.entryPoint==='src/main.tsx'&&name.endsWith('.js'))?.[0];
+if(!mainOutput)throw new Error('Missing main module output');
+const preloads=modulePreloads(result.metafile.outputs,mainOutput).map(name=>`<link rel="modulepreload" href="/assets/${name}">`).join('');
+const html=`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#f6f7f9"><title>Yourwiki</title><link rel="preload" href="/assets/${font}" as="font" type="font/woff2" crossorigin><link rel="stylesheet" href="/assets/${css}">${preloads}<script type="module" src="/assets/${script}"></script></head><body><div id="root"></div><noscript>Enable JavaScript to open Yourwiki.</noscript></body></html>`;
 await writeFile(resolve(dist,'manifest.json.next'),JSON.stringify({assets,script,css,font},null,2));
 await rename(resolve(dist,'manifest.json.next'),resolve(dist,'manifest.json'));
 await writeFile(resolve(dist,'index.html.next'),html);await rename(resolve(dist,'index.html.next'),resolve(dist,'index.html'));

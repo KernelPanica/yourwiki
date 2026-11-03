@@ -6,7 +6,11 @@
     "nanoid": "5.1.16"
   },
   "scripts": {
-    "build": "node frontend/build.mjs"
+    "build": "node frontend/build.mjs",
+    "release": "node apps/server/src/release/cli.ts",
+    "setup": "npm run release -- setup",
+    "start": "npm --prefix apps/server run start --",
+    "build:v2": "npm run build --prefix apps/web"
   },
   "dependencies": {
     "@tiptap/core": "3.31.3",

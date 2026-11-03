@@ -12,7 +12,7 @@ Actual SIGKILL tests exercise reserved, dispatched-marker and accepted boundarie
 
 ## Bounded token exchange
 
-`GoogleTokens` uses one fixed Google HTTPS token endpoint, form refresh grant, manual redirect handling,<=30s whole exchange/body deadline and<=64KiB/65536-chunk fatal-UTF8 JSON parsing. It never automatically repeats a POST. Known complete OAuth errors without credential fields are resolved unchanged-token responses; transport failure/redirect/truncated or contradictory response is unknown and remains fenced.
+`GoogleTokens` uses one fixed Google HTTPS token endpoint, form refresh grant, manual redirect handling,<=30s whole exchange/body deadline and<=64KiB fixed-buffer fatal-UTF8 JSON parsing with capped empty-chunk work. It never automatically repeats a POST. Known complete OAuth errors without credential fields are resolved unchanged-token responses; transport failure/redirect/truncated or contradictory response is unknown and remains fenced.
 
 Parallel callers share one in-process exchange. A cancelled waiter does not cancel another waiter or discard issued credentials. A returned valid refresh token is durably saved before access is released, even if the access fields/lifetime are unusable. Expiry begins before exchange and includes a safety margin; slow/short-lived tokens are never extended. Matching-token invalidation does not erase a newer token. Current caller rights and exact returned-cache identity are checked again after async waits. Close cancels transport and even a pre-refresh async authority wait; its completion can be awaited before closing SQLite.
 
@@ -33,3 +33,5 @@ Initial integration gate: native741/741, web158/158,0skip/0cancelled; both typec
 No browser source or animation/dependency changes. No whole-page500ms,2CPU/4GiB/15-user/device/Safari or4GiB Google-native export claim. Unknown refresh after a genuinely ambiguous outage may require reauthorization; local prepared documents remain readable. Root/ownership/type/version enforcement and native Google preservation, public reconnect status/UI, provider grants and actual Google acceptance remain tasks of the continuing provider plan. No push/deploy/cutover is included.
 
 Tasks1–2 complete for this scoped worker OAuth foundation. Tasks3–6 and the full approved rewrite remain active. SQL36 unchanged fromd276074; no source or public frontend flow was enabled by this checkpoint.
+
+Subsequent Drive transport checkpoint: OAuth and Drive control responses now share `google-json.ts`, with fixed-capacity buffers and65536 maximum empty reads instead of retaining an array per chunk. Existing token protocol remains verified; native minted OAuth→Drive GET composition added. Latest full native765/web158/types/build pass; see progress ledger for this separate Task3 checkpoint.

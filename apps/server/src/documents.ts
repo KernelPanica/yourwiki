@@ -3,6 +3,7 @@ import {requestSourceDelivery,assertSourceDeliveryWritable} from './providers/de
 import {DocumentError} from './document-errors.ts';
 import {captureSourceHistory} from './history-capture.ts';
 import {officeWriteAllowed} from './office/fence.ts';
+import {hasIncomingSourceConflict} from './providers/source-conflict.ts';
 import { randomUUID } from 'node:crypto';
 import { AccessService } from './access.ts';
 import { transaction } from './database.ts';
@@ -47,7 +48,7 @@ export class DocumentService {
       if (!this.access.allows(input.userId, input.parentId, 'write')) throw new DocumentError('ACCESS_DENIED');
       return parent.group_id;
     }
-    if (!input.groupId || !this.db.prepare('SELECT id FROM groups WHERE id=?').get(input.groupId)) throw new DocumentError('ACCESS_DENIED');
+    if (!input.groupId || !this.db.prepare('SELECT id FROM groups WHERE id=? AND trashed_at IS NULL AND purged_at IS NULL').get(input.groupId)) throw new DocumentError('ACCESS_DENIED');
     if (actor.admin_role === 'member' && !this.db.prepare('SELECT user_id FROM memberships WHERE user_id=? AND group_id=?').get(input.userId, input.groupId)) throw new DocumentError('ACCESS_DENIED');
     return input.groupId;
   }
@@ -62,6 +63,7 @@ export class DocumentService {
     if (!this.access.allows(input.userId, input.documentId, 'write')) throw new DocumentError('ACCESS_DENIED');
     if (doc.local_revision !== input.baseRevision) throw new DocumentError('CONFLICT');
     assertSourceDeliveryWritable(this.db,doc.id,this.clock());
+    if(input.officeSessionId&&hasIncomingSourceConflict(this.db,doc.id))throw new DocumentError('CONFLICT');
     if (!officeWriteAllowed(this.db,doc.id,input.officeSessionId,this.clock())) throw new DocumentError('OFFICE_ACTIVE');
     return doc;
   }
@@ -108,8 +110,9 @@ export class DocumentService {
     if (!Number.isSafeInteger(input.baseRevision) || input.baseRevision < 0) throw new DocumentError('INVALID_REQUEST');
     this.writable(input);
   }
+  private effectiveMax():number {return Math.min(this.maxBytes,(this.db.prepare('SELECT document_limit_bytes FROM administration_state WHERE id=1').get() as {document_limit_bytes:number}).document_limit_bytes);}
   private prepared(blob: BlobRef): void {
-    if (!/^[a-f0-9]{64}$/.test(blob.digest) || !Number.isSafeInteger(blob.size) || blob.size < 0 || blob.size > this.maxBytes) throw new DocumentError('INVALID_REQUEST');
+    if (!/^[a-f0-9]{64}$/.test(blob.digest) || !Number.isSafeInteger(blob.size) || blob.size < 0 || blob.size > this.effectiveMax()) throw new DocumentError('INVALID_REQUEST');
   }
   /** Internal commit API: caller must have durably stored/verified this BlobRef. */
   commitPreparedCreate(input: CreateInput, blob: BlobRef, id = randomUUID()) {
@@ -135,14 +138,14 @@ export class DocumentService {
   async create(input: CreateInput, source: AsyncIterable<Uint8Array>) {
     this.checkCreate(input);
     const id = randomUUID();
-    const blob = await this.store.put(source, { maxBytes: this.maxBytes, signal: input.signal });
+    const blob = await this.store.put(source, { maxBytes: this.effectiveMax(), signal: input.signal });
     try { return this.commitPreparedCreate(input, blob, id); }
     catch (error) { return this.retain(id, input.userId, blob, error); }
   }
 
   async save(input: SaveInput, source: AsyncIterable<Uint8Array>) {
     this.checkSave(input);
-    const blob = await this.store.put(source, { maxBytes: this.maxBytes, signal: input.signal });
+    const blob = await this.store.put(source, { maxBytes: this.effectiveMax(), signal: input.signal });
     try { return this.commitPreparedSave(input, blob); }
     catch (error) { return this.retain(input.documentId, input.userId, blob, error); }
   }

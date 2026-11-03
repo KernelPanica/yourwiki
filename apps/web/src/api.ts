@@ -1,14 +1,15 @@
 import { sessionSnapshot,sessionGenerationIsCurrent } from './session-fence.ts';
-export interface Account { user: { id: string; username: string; displayName: string; adminRole: string; groups: {id:string;name:string}[] }; csrf: string }
-export interface DocumentInfo { id: string; title: string; format: string; revision: number; manifestDigest: string; capabilities: {write:boolean;export:boolean;office?:boolean} }
+export interface Account { features?: {googleConnect?:boolean;googleDiscovery?:boolean;googleImport?:boolean;googleTrash?:boolean;googleIdentity?:boolean;googleLifecycle?:boolean}; user: { id: string; username: string; displayName: string; adminRole: string; groups: {id:string;name:string}[] }; csrf: string }
+export interface DocumentInfo { id: string; title: string; format: string; revision: number; manifestDigest: string; capabilities: {write:boolean;export:boolean;office?:boolean;googleTrash?:boolean} }
 export interface Artifact { name:string;digest:string;size:number;mimeType:string }
-export interface DocumentView { sourceSync?:unknown; sourceSyncAction?:unknown; sourceDelivery?:unknown; document: DocumentInfo; manifest: {kind:string;primary:string;artifacts:Artifact[]}; presentation: unknown }
+export type GoogleOriginal={available:boolean;reason?:string;write?:boolean;url?:string};
+export interface DocumentView { googleOriginal?:GoogleOriginal; sourceSync?:unknown; sourceSyncAction?:unknown; sourceDelivery?:unknown; document: DocumentInfo; manifest: {kind:string;primary:string;artifacts:Artifact[]}; presentation: unknown }
 export class ApiError extends Error {
   code: string; requestId: string; operationId: string|null;
   constructor(code: string, requestId='', operationId:string|null=null) { super(code); this.code=code; this.requestId=requestId; this.operationId=operationId; }
 }
 export async function api<T>(url:string, init:RequestInit={}):Promise<T> {
-  const fence=sessionSnapshot(),control=/^\/api\/(?:auth\/(?:login|logout|office-revoke|office-opening-cancel)|account)(?:[?#]|$)/.test(url);
+  const fence=sessionSnapshot(),control=/^\/api\/(?:auth\/(?:login|logout|accept-invitation|office-revoke|office-opening-cancel)|account)(?:[?#]|$)/.test(url);
   if(fence.blocked&&!control)throw new ApiError('SESSION_REQUIRED');
   const controller=new AbortController();
   const signals=control?[init.signal]:[init.signal,fence.signal];

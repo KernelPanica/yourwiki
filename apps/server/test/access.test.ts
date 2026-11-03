@@ -8,7 +8,7 @@ import { AccessService } from '../src/access.ts';
 
 function fixture(t: any, path = ':memory:') {
   const db = openDatabase(path); t.after(() => db.close());
-  db.exec(`INSERT INTO groups VALUES('team','Team'),('other','Other');
+  db.exec(`INSERT INTO groups(id,name) VALUES('team','Team'),('other','Other');
     INSERT INTO users(id,username,display_name,password_hash,admin_role) VALUES
     ('owner','owner','Owner','!', 'member'),('reader','reader','Reader','!','member'),
     ('simple','simple','Simple','!','simple'),('giga','giga','Giga','!','giga');

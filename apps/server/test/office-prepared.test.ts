@@ -12,7 +12,7 @@ import {OfficeSessions} from '../src/office/sessions.ts';
 import {OfficePrepared} from '../src/office/prepared.ts';
 async function* bytes(value:string){yield Buffer.from(value);}
 async function fixture(t:any,worker?:any){
- const root=await mkdtemp(join(tmpdir(),'yourwiki-prepared-')),db=openDatabase(join(root,'db'));db.exec("INSERT INTO users(id,username,display_name,password_hash) VALUES('u','u','User','!');INSERT INTO groups VALUES('g','Group');INSERT INTO memberships VALUES('u','g')");
+ const root=await mkdtemp(join(tmpdir(),'yourwiki-prepared-')),db=openDatabase(join(root,'db'));db.exec("INSERT INTO users(id,username,display_name,password_hash) VALUES('u','u','User','!');INSERT INTO groups(id,name) VALUES('g','Group');INSERT INTO memberships VALUES('u','g')");
  const store=await BlobStore.open(join(root,'store')),source=JSON.stringify({format:'yourwiki',version:1,kind:'document',data:{type:'doc',content:[{type:'paragraph',content:[{type:'text',text:'Prepared'}]}]}}),doc=await new DocumentService(db,store).create({userId:'u',groupId:'g',parentId:null,title:'Old',format:'md'},bytes(source));db.prepare('UPDATE documents SET published_revision=1 WHERE id=?').run(doc.documentId);
  const browser=createSession(db,'u'),office=new OfficeSessions(db),opened=office.open(browser.token,doc.documentId),prepared=new OfficePrepared(db,store,{maxFileBytes:1000,maxPendingBytes:2000,worker});t.after(async()=>{await prepared.close();db.close();await rm(root,{recursive:true,force:true});});return {root,db,store,doc,browser,office,opened,prepared};
 }

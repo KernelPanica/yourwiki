@@ -7,8 +7,10 @@ export type GoogleAuthPoolOptions={limit?:number;fetch?:typeof fetch;clock?:()=>
 type Entry={revision:number;tokens:GoogleTokens;uses:number};
 /** Worker-owned bounded LRU. Adapters borrow authority, never own the shared client's close(). */
 export class GoogleAuthPool{
+ private database:Database;
+ belongsToDatabase(db:Database){return this.database===db&&!this.closed;}
  private refreshes:OAuthRefreshes;private options:GoogleAuthPoolOptions;private limit:number;private entries=new Map<string,Entry>();private retiring=new Set<Promise<void>>();private closed=false;private draining:Promise<void>|undefined;
- constructor(db:Database,configs:SecretConfigs,options:GoogleAuthPoolOptions={}){this.options={...options};this.limit=options.limit??32;if(!Number.isSafeInteger(this.limit)||this.limit<1||this.limit>256)throw new ProviderError('PROVIDER_CONFIG_CHANGED');this.refreshes=new OAuthRefreshes(db,configs);}
+ constructor(db:Database,configs:SecretConfigs,options:GoogleAuthPoolOptions={}){this.database=db;this.options={...options};this.limit=options.limit??32;if(!Number.isSafeInteger(this.limit)||this.limit<1||this.limit>256)throw new ProviderError('PROVIDER_CONFIG_CHANGED');this.refreshes=new OAuthRefreshes(db,configs);}
  private retire(entry:Entry){const pending=entry.tokens.inFlight,end=entry.tokens.close();if(pending){this.retiring.add(end);void end.then(()=>this.retiring.delete(end));}}
  private entry(id:string,revision:number){
   if(this.closed)throw new ProviderError('PROVIDER_CANCELLED');const old=this.entries.get(id);

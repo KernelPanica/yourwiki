@@ -1,3 +1,5 @@
+import {contentParityMigration} from './content-parity/migration.ts';
+import {administrationMigration} from './administration/schema.ts';
 /** Immutable migrations: append new versions, never edit applied SQL. */
 const core = `
 CREATE TABLE app_state (
@@ -776,7 +778,333 @@ CREATE TRIGGER provider_oauth_refresh_update BEFORE UPDATE ON provider_oauth_ref
 END;
 CREATE TRIGGER provider_oauth_refresh_delete BEFORE DELETE ON provider_oauth_refreshes BEGIN SELECT RAISE(ABORT,'OAuth refresh outcome is retained'); END;
 `;
+const providerGoogleGrantImports = `
+CREATE TABLE provider_google_grant_imports (
+ legacy_key TEXT PRIMARY KEY CHECK(length(legacy_key) BETWEEN 1 AND 256),
+ connection_legacy_key TEXT NOT NULL REFERENCES provider_connection_imports(legacy_key) ON DELETE RESTRICT,
+ connection_id TEXT NOT NULL REFERENCES provider_connections(id) ON DELETE RESTRICT,
+ reference TEXT NOT NULL CHECK(length(reference) BETWEEN 1 AND 256 AND reference NOT GLOB '*[^A-Za-z0-9_-]*'),
+ object_key TEXT NOT NULL CHECK(length(object_key)=64 AND object_key NOT GLOB '*[^0-9a-f]*'),
+ legacy_user_key TEXT CHECK(legacy_user_key IS NULL OR length(legacy_user_key) BETWEEN 1 AND 256),
+ recipient TEXT NOT NULL CHECK(length(recipient)<=320),
+ desired_role TEXT NOT NULL CHECK(desired_role IN ('','read','write')),
+ applied_role TEXT NOT NULL CHECK(applied_role IN ('','read','write')),
+ permission_id TEXT NOT NULL CHECK(length(permission_id)<=255),
+ status TEXT NOT NULL CHECK(status IN ('pending','synced','failed','revoked')),
+ attempted_at INTEGER CHECK(attempted_at IS NULL OR attempted_at BETWEEN 0 AND 9007199254740991),
+ source_fingerprint TEXT NOT NULL CHECK(length(source_fingerprint)=64 AND source_fingerprint NOT GLOB '*[^0-9a-f]*'),
+ created_at INTEGER NOT NULL CHECK(created_at BETWEEN 0 AND 9007199254740991)
+);
+CREATE INDEX provider_google_grant_object ON provider_google_grant_imports(reference,legacy_key);
+CREATE TRIGGER provider_google_grant_import_context BEFORE INSERT ON provider_google_grant_imports WHEN NOT EXISTS(SELECT 1 FROM provider_connection_imports i JOIN provider_connections c ON c.id=i.connection_id WHERE i.legacy_key=NEW.connection_legacy_key AND c.id=NEW.connection_id AND c.provider='google' AND c.enabled=1) BEGIN SELECT RAISE(ABORT,'Invalid Google grant import context'); END;
+CREATE TRIGGER provider_google_grant_import_update BEFORE UPDATE ON provider_google_grant_imports BEGIN SELECT RAISE(ABORT,'Google grant import is immutable'); END;
+CREATE TRIGGER provider_google_grant_import_delete BEFORE DELETE ON provider_google_grant_imports BEGIN SELECT RAISE(ABORT,'Google grant import is retained'); END;
+`;
+// Rebuild only the inbox parent table; preserve its existing quota counter and child receipts.
+const providerIngressBounded = `DROP TRIGGER provider_sync_action_insert;\n`+
+ providerIngressInbox.slice(0,providerIngressInbox.indexOf('CREATE INDEX provider_ingress_active'))
+ .replace('CREATE TABLE provider_ingress_snapshots (','CREATE TABLE provider_ingress_snapshots_rebuilt (')
+ .replace('created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL,',"created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL,\n sizing_mode TEXT NOT NULL DEFAULT 'exact' CHECK(sizing_mode IN ('exact','bounded')),")
+ .replace('(digest IS NOT NULL AND size=declared_size)',"(digest IS NOT NULL AND size IS NOT NULL AND size BETWEEN 0 AND declared_size AND (sizing_mode='bounded' OR size=declared_size))")+
+ `INSERT INTO provider_ingress_snapshots_rebuilt SELECT *, 'exact' FROM provider_ingress_snapshots;
+DROP TABLE provider_ingress_snapshots;
+ALTER TABLE provider_ingress_snapshots_rebuilt RENAME TO provider_ingress_snapshots;
+`+
+ providerIngressInbox.slice(providerIngressInbox.indexOf('CREATE INDEX provider_ingress_active'),providerIngressInbox.indexOf('CREATE TABLE provider_ingress_usage'))+
+ providerIngressInbox.slice(providerIngressInbox.indexOf('CREATE TRIGGER provider_ingress_insert')).replace('declared_size,observed_at,namespace_id,created_at ON','declared_size,sizing_mode,observed_at,namespace_id,created_at ON')+
+ providerAcceptedJobIndex+
+ providerSyncActions.slice(providerSyncActions.indexOf('CREATE TRIGGER provider_sync_action_insert'),providerSyncActions.indexOf('CREATE TRIGGER provider_sync_action_identity'));
+const providerGoogleUploads = `
+CREATE TABLE provider_google_uploads (
+ attempt_id TEXT PRIMARY KEY REFERENCES provider_delivery_attempts(id) ON DELETE RESTRICT,
+ connection_id TEXT NOT NULL REFERENCES provider_connections(id) ON DELETE RESTRICT,
+ connection_revision INTEGER NOT NULL CHECK(connection_revision>0),
+ reference TEXT NOT NULL CHECK(length(reference) BETWEEN 1 AND 256 AND reference NOT GLOB '*[^A-Za-z0-9_-]*'),
+ phase TEXT NOT NULL CHECK(phase IN ('reserved','initiating','ready','dispatched','unknown')),
+ encrypted_session TEXT CHECK(encrypted_session IS NULL OR (length(encrypted_session) BETWEEN 1 AND 65536 AND encrypted_session NOT GLOB '*[^A-Za-z0-9_=-]*')),
+ created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL,
+ CHECK((phase IN ('reserved','initiating') AND encrypted_session IS NULL) OR (phase IN ('ready','dispatched') AND encrypted_session IS NOT NULL) OR phase='unknown')
+);
+CREATE TRIGGER provider_google_upload_context BEFORE INSERT ON provider_google_uploads BEGIN
+ SELECT CASE WHEN NEW.phase!='reserved' OR NEW.encrypted_session IS NOT NULL OR NOT EXISTS(
+  SELECT 1 FROM provider_delivery_attempts a JOIN provider_source_bindings b ON b.document_id=a.document_id JOIN provider_connections c ON c.id=b.connection_id
+  WHERE a.id=NEW.attempt_id AND a.state='writing' AND c.provider='google' AND c.enabled=1 AND c.id=NEW.connection_id
+   AND c.revision=NEW.connection_revision AND a.connection_revision=c.revision AND b.reference=NEW.reference
+   AND b.generation=a.binding_generation AND b.fingerprint=a.baseline AND b.confirmed_revision=a.base_revision
+ ) THEN RAISE(ABORT,'Google upload context mismatch') END;
+END;
+CREATE TRIGGER provider_google_upload_identity BEFORE UPDATE OF attempt_id,connection_id,connection_revision,reference,created_at ON provider_google_uploads BEGIN
+ SELECT RAISE(ABORT,'Google upload identity is immutable');
+END;
+CREATE TRIGGER provider_google_upload_capability BEFORE UPDATE OF encrypted_session ON provider_google_uploads
+ WHEN OLD.encrypted_session IS NOT NULL OR OLD.phase!='initiating' OR NEW.phase!='ready' OR NEW.encrypted_session IS NULL BEGIN
+ SELECT RAISE(ABORT,'Google upload capability is immutable');
+END;
+CREATE TRIGGER provider_google_upload_transition BEFORE UPDATE OF phase ON provider_google_uploads WHEN NEW.phase!=OLD.phase AND NOT (
+ (OLD.phase='reserved' AND NEW.phase='initiating') OR (OLD.phase='initiating' AND NEW.phase IN ('ready','unknown')) OR
+ (OLD.phase='ready' AND NEW.phase IN ('dispatched','unknown')) OR (OLD.phase='dispatched' AND NEW.phase='unknown')
+) BEGIN SELECT RAISE(ABORT,'Invalid Google upload transition'); END;
+CREATE TRIGGER provider_google_upload_delete BEFORE DELETE ON provider_google_uploads BEGIN
+ SELECT RAISE(ABORT,'Google upload is retained');
+END;
+`;
+const providerGoogleConnectStates = `
+CREATE TABLE provider_google_connect_states (
+ state_hash TEXT PRIMARY KEY CHECK(length(state_hash)=64 AND state_hash NOT GLOB '*[^a-f0-9]*'),
+ user_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+ session_hash TEXT NOT NULL CHECK(length(session_hash)=64 AND session_hash NOT GLOB '*[^a-f0-9]*'),
+ connection_id TEXT NOT NULL REFERENCES provider_connections(id) ON DELETE RESTRICT,
+ connection_revision INTEGER NOT NULL CHECK(connection_revision>0),
+ encrypted_context TEXT NOT NULL CHECK(length(encrypted_context) BETWEEN 1 AND 262144 AND encrypted_context NOT GLOB '*[^A-Za-z0-9_=-]*'),
+ phase TEXT NOT NULL CHECK(phase IN ('pending','claimed')),
+ created_at INTEGER NOT NULL,expires_at INTEGER NOT NULL CHECK(expires_at>created_at AND expires_at<=created_at+600000)
+);
+CREATE INDEX provider_google_connect_expiry ON provider_google_connect_states(expires_at,state_hash);
+CREATE INDEX provider_google_connect_actor ON provider_google_connect_states(user_id,expires_at);
+CREATE TRIGGER provider_google_connect_insert BEFORE INSERT ON provider_google_connect_states BEGIN
+ SELECT CASE WHEN NEW.phase!='pending' OR NOT EXISTS(SELECT 1 FROM provider_connections c JOIN sessions s ON s.token_hash=NEW.session_hash JOIN users u ON u.id=s.user_id
+ WHERE c.id=NEW.connection_id AND c.provider='google' AND c.enabled=1 AND c.revision=NEW.connection_revision
+ AND s.user_id=NEW.user_id AND s.expires_at>=NEW.expires_at AND u.active=1 AND u.admin_role='giga' AND s.auth_version=u.auth_version
+ ) THEN RAISE(ABORT,'Google connect context mismatch') END;
+END;
+CREATE TRIGGER provider_google_connect_identity BEFORE UPDATE OF state_hash,user_id,session_hash,connection_id,connection_revision,encrypted_context,created_at,expires_at ON provider_google_connect_states BEGIN
+ SELECT RAISE(ABORT,'Google connect identity is immutable');
+END;
+CREATE TRIGGER provider_google_connect_transition BEFORE UPDATE OF phase ON provider_google_connect_states
+ WHEN NEW.phase!=OLD.phase AND NOT (OLD.phase='pending' AND NEW.phase='claimed') BEGIN
+ SELECT RAISE(ABORT,'Invalid Google connect transition');
+END;
+`;
+const providerGoogleConnectResults = `
+CREATE TABLE provider_google_connect_results (
+ state_hash TEXT PRIMARY KEY REFERENCES provider_google_connect_states(state_hash) ON DELETE CASCADE,
+ connection_id TEXT NOT NULL REFERENCES provider_connections(id) ON DELETE RESTRICT,
+ previous_revision INTEGER NOT NULL CHECK(previous_revision>0),
+ revision INTEGER NOT NULL CHECK(typeof(revision)='integer' AND revision=previous_revision+1 AND revision<=9007199254740991),
+ account_id TEXT NOT NULL CHECK(length(account_id) BETWEEN 1 AND 256 AND account_id NOT GLOB '*[^A-Za-z0-9_-]*'),
+ root_id TEXT NOT NULL CHECK(length(root_id) BETWEEN 1 AND 256 AND root_id NOT GLOB '*[^A-Za-z0-9_-]*'),
+ completed_at INTEGER NOT NULL
+);
+CREATE TRIGGER provider_google_connect_result_context BEFORE INSERT ON provider_google_connect_results BEGIN
+ SELECT CASE WHEN NOT EXISTS(SELECT 1 FROM provider_google_connect_states s JOIN provider_connections c ON c.id=s.connection_id
+ WHERE s.state_hash=NEW.state_hash AND s.phase='claimed' AND s.connection_id=NEW.connection_id AND s.connection_revision=NEW.previous_revision
+ AND c.provider='google' AND c.enabled=1 AND c.revision=NEW.revision AND NEW.completed_at>=s.created_at AND NEW.completed_at<s.expires_at
+ ) THEN RAISE(ABORT,'Google connect result mismatch') END;
+END;
+CREATE TRIGGER provider_google_connect_result_immutable BEFORE UPDATE ON provider_google_connect_results BEGIN
+ SELECT RAISE(ABORT,'Google connect result is immutable');
+END;
+`;
+const providerGoogleNativeCommands = `
+CREATE TABLE provider_google_native_usage (
+ id INTEGER PRIMARY KEY CHECK(id=1),reserved_bytes INTEGER NOT NULL DEFAULT 0 CHECK(reserved_bytes BETWEEN 0 AND 134217728),
+ active_records INTEGER NOT NULL DEFAULT 0 CHECK(active_records BETWEEN 0 AND 4096)
+);
+INSERT INTO provider_google_native_usage(id) VALUES(1);
+CREATE TABLE provider_google_native_commands (
+ attempt_id TEXT PRIMARY KEY REFERENCES provider_delivery_attempts(id) ON DELETE RESTRICT,
+ connection_id TEXT NOT NULL REFERENCES provider_connections(id) ON DELETE RESTRICT,connection_revision INTEGER NOT NULL CHECK(connection_revision>0),
+ reference TEXT NOT NULL CHECK(length(reference) BETWEEN 1 AND 256 AND reference NOT GLOB '*[^A-Za-z0-9_-]*'),
+ kind TEXT NOT NULL CHECK(kind IN ('document','presentation')),command_version INTEGER NOT NULL CHECK(command_version=1),
+ request_digest TEXT NOT NULL CHECK(length(request_digest)=64 AND request_digest NOT GLOB '*[^a-f0-9]*'),request_count INTEGER NOT NULL CHECK(request_count BETWEEN 1 AND 1000),
+ encrypted_command TEXT CHECK(encrypted_command IS NULL OR (length(encrypted_command) BETWEEN 1 AND 2097152 AND encrypted_command NOT GLOB '*[^A-Za-z0-9_=-]*')),
+ command_bytes INTEGER NOT NULL CHECK(command_bytes>=0 AND ((encrypted_command IS NULL AND command_bytes=0) OR (encrypted_command IS NOT NULL AND command_bytes=length(encrypted_command)))),
+ phase TEXT NOT NULL CHECK(phase IN ('reserved','dispatched','unknown','acknowledged','rejected')),
+ execution_nonce TEXT CHECK(execution_nonce IS NULL OR (length(execution_nonce)=36 AND execution_nonce NOT GLOB '*[^a-f0-9-]*')),
+ encrypted_ack TEXT CHECK(encrypted_ack IS NULL OR (length(encrypted_ack) BETWEEN 1 AND 32768 AND encrypted_ack NOT GLOB '*[^A-Za-z0-9_=-]*')),
+ reject_code TEXT CHECK(reject_code IS NULL OR (length(reject_code) BETWEEN 1 AND 64 AND reject_code NOT GLOB '*[^A-Z0-9_]*')),
+ created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL CHECK(updated_at>=created_at),
+ CHECK((phase='acknowledged')=(encrypted_ack IS NOT NULL)),CHECK((phase='rejected')=(reject_code IS NOT NULL)),
+ CHECK(phase IN ('reserved','rejected') OR execution_nonce IS NOT NULL),CHECK(phase!='reserved' OR execution_nonce IS NULL),
+ CHECK(encrypted_command IS NOT NULL OR phase IN ('acknowledged','rejected'))
+);
+CREATE TRIGGER provider_native_insert BEFORE INSERT ON provider_google_native_commands BEGIN
+ SELECT CASE WHEN NEW.phase!='reserved' OR NEW.encrypted_command IS NULL OR NEW.execution_nonce IS NOT NULL OR NOT EXISTS(
+  SELECT 1 FROM provider_delivery_attempts a JOIN provider_source_bindings b ON b.document_id=a.document_id JOIN provider_connections c ON c.id=b.connection_id JOIN documents d ON d.id=a.document_id
+  WHERE a.id=NEW.attempt_id AND a.state='writing' AND c.provider='google' AND c.enabled=1 AND c.id=NEW.connection_id AND c.revision=NEW.connection_revision AND a.connection_revision=c.revision
+   AND b.reference=NEW.reference AND b.fingerprint=a.baseline AND b.confirmed_revision=a.base_revision AND b.generation=a.binding_generation
+   AND json_extract(CASE WHEN json_valid(a.baseline) THEN a.baseline ELSE '[]' END,'$[0]')='google-native-v1'
+   AND ((NEW.kind='document' AND d.format='docx') OR (NEW.kind='presentation' AND d.format='pptx'))
+ ) THEN RAISE(ABORT,'Native command context mismatch') END;
+ SELECT CASE WHEN (SELECT reserved_bytes FROM provider_google_native_usage WHERE id=1)+NEW.command_bytes>134217728 OR (SELECT active_records FROM provider_google_native_usage WHERE id=1)>=4096 THEN RAISE(ABORT,'Native command quota') END;
+END;
+CREATE TRIGGER provider_native_reserve AFTER INSERT ON provider_google_native_commands BEGIN
+ UPDATE provider_google_native_usage SET reserved_bytes=reserved_bytes+NEW.command_bytes,active_records=active_records+1 WHERE id=1;
+END;
+CREATE TRIGGER provider_native_identity BEFORE UPDATE OF attempt_id,connection_id,connection_revision,reference,kind,command_version,request_digest,request_count,created_at ON provider_google_native_commands BEGIN
+ SELECT RAISE(ABORT,'Native command identity is immutable');
+END;
+CREATE TRIGGER provider_native_payload BEFORE UPDATE OF encrypted_command,command_bytes ON provider_google_native_commands
+ WHEN OLD.encrypted_command IS NULL OR NEW.encrypted_command IS NOT NULL OR NEW.command_bytes!=0 OR NEW.phase!=OLD.phase OR NOT (
+  OLD.phase='rejected' OR (OLD.phase='acknowledged' AND EXISTS(SELECT 1 FROM provider_delivery_attempts a WHERE a.id=OLD.attempt_id AND a.state IN ('confirmed','retired')))
+ ) BEGIN SELECT RAISE(ABORT,'Native command payload is immutable'); END;
+CREATE TRIGGER provider_native_release AFTER UPDATE OF encrypted_command ON provider_google_native_commands WHEN OLD.encrypted_command IS NOT NULL AND NEW.encrypted_command IS NULL BEGIN
+ UPDATE provider_google_native_usage SET reserved_bytes=reserved_bytes-OLD.command_bytes,active_records=active_records-1 WHERE id=1;
+END;
+CREATE TRIGGER provider_native_execution BEFORE UPDATE OF execution_nonce ON provider_google_native_commands
+ WHEN OLD.execution_nonce IS NOT NULL OR OLD.phase!='reserved' OR NEW.phase!='dispatched' OR NEW.execution_nonce IS NULL BEGIN SELECT RAISE(ABORT,'Native execution is immutable'); END;
+CREATE TRIGGER provider_native_ack BEFORE UPDATE OF encrypted_ack ON provider_google_native_commands
+ WHEN OLD.encrypted_ack IS NOT NULL OR NEW.encrypted_ack IS NULL OR OLD.phase NOT IN ('dispatched','unknown') OR NEW.phase!='acknowledged' BEGIN SELECT RAISE(ABORT,'Native acknowledgement is immutable'); END;
+CREATE TRIGGER provider_native_reject BEFORE UPDATE OF reject_code ON provider_google_native_commands
+ WHEN OLD.reject_code IS NOT NULL OR NEW.reject_code IS NULL OR OLD.phase NOT IN ('reserved','dispatched','unknown') OR NEW.phase!='rejected' BEGIN SELECT RAISE(ABORT,'Native rejection is immutable'); END;
+CREATE TRIGGER provider_native_transition BEFORE UPDATE OF phase ON provider_google_native_commands WHEN NEW.phase!=OLD.phase AND NOT (
+ (OLD.phase='reserved' AND NEW.phase IN ('dispatched','rejected')) OR (OLD.phase='dispatched' AND NEW.phase IN ('unknown','acknowledged','rejected')) OR (OLD.phase='unknown' AND NEW.phase IN ('acknowledged','rejected'))
+) BEGIN SELECT RAISE(ABORT,'Invalid native command transition'); END;
+CREATE TRIGGER provider_native_delete BEFORE DELETE ON provider_google_native_commands BEGIN SELECT RAISE(ABORT,'Native command is retained'); END;
+`;
+const providerGoogleDiscovery = `
+CREATE TABLE provider_google_discovery_jobs (
+ job_id TEXT PRIMARY KEY REFERENCES jobs(id) ON DELETE CASCADE,
+ actor_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+ connection_id TEXT NOT NULL REFERENCES provider_connections(id) ON DELETE RESTRICT,
+ connection_revision INTEGER NOT NULL CHECK(connection_revision>0),
+ folder_id TEXT CHECK(folder_id IS NULL OR (length(folder_id) BETWEEN 1 AND 256 AND folder_id NOT GLOB '*[^A-Za-z0-9_-]*')),
+ previous_job_id TEXT,encrypted_page TEXT CHECK(encrypted_page IS NULL OR length(encrypted_page) BETWEEN 1 AND 2097152),
+ created_at INTEGER NOT NULL,expires_at INTEGER NOT NULL CHECK(expires_at>created_at AND expires_at<=created_at+1800000)
+);
+CREATE INDEX provider_google_discovery_expiry ON provider_google_discovery_jobs(expires_at);
+CREATE TRIGGER provider_discovery_identity BEFORE UPDATE OF job_id,actor_id,connection_id,connection_revision,folder_id,previous_job_id,created_at,expires_at ON provider_google_discovery_jobs BEGIN
+ SELECT RAISE(ABORT,'Discovery context is immutable'); END;
+CREATE TRIGGER provider_discovery_page_once BEFORE UPDATE OF encrypted_page ON provider_google_discovery_jobs WHEN OLD.encrypted_page IS NOT NULL OR NEW.encrypted_page IS NULL BEGIN
+ SELECT RAISE(ABORT,'Discovery result is immutable'); END;
+`;
+const providerGoogleImports = `
+CREATE TABLE provider_google_imports (
+ job_id TEXT PRIMARY KEY REFERENCES jobs(id) ON DELETE RESTRICT,actor_id TEXT NOT NULL,
+ connection_id TEXT NOT NULL REFERENCES provider_connections(id) ON DELETE RESTRICT,connection_revision INTEGER NOT NULL CHECK(connection_revision>0),
+ reference TEXT NOT NULL CHECK(length(reference) BETWEEN 1 AND 256 AND reference NOT GLOB '*[^A-Za-z0-9_-]*'),
+ parent_id TEXT,group_id TEXT NOT NULL,title TEXT NOT NULL CHECK(length(title) BETWEEN 1 AND 200),format TEXT NOT NULL,
+ expected_fingerprint TEXT NOT NULL CHECK(length(expected_fingerprint) BETWEEN 1 AND 1024),document_id TEXT NOT NULL UNIQUE,
+ namespace_id TEXT NOT NULL UNIQUE,state TEXT NOT NULL DEFAULT 'queued' CHECK(state IN ('queued','receiving','staged','committed','failed')),
+ reserved_bytes INTEGER NOT NULL DEFAULT 0 CHECK(reserved_bytes BETWEEN 0 AND 4294967296),
+ digest TEXT CHECK(digest IS NULL OR (length(digest)=64 AND digest NOT GLOB '*[^a-f0-9]*')),size INTEGER CHECK(size IS NULL OR size BETWEEN 0 AND 4294967296),
+ observed_at INTEGER,cleanup_job_id TEXT REFERENCES jobs(id) ON DELETE RESTRICT,error_code TEXT,
+ created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL,
+ CHECK((digest IS NULL)=(size IS NULL)),CHECK(state NOT IN ('staged','committed') OR digest IS NOT NULL)
+);
+CREATE UNIQUE INDEX provider_import_active_source ON provider_google_imports(connection_id,reference) WHERE state IN ('queued','receiving','staged');
+CREATE TRIGGER provider_import_identity BEFORE UPDATE OF job_id,actor_id,connection_id,connection_revision,reference,parent_id,group_id,title,format,expected_fingerprint,document_id,namespace_id,created_at ON provider_google_imports BEGIN
+ SELECT RAISE(ABORT,'Import context is immutable'); END;
+CREATE TRIGGER provider_import_quota_insert BEFORE INSERT ON provider_google_imports BEGIN
+ SELECT CASE WHEN (SELECT COUNT(*) FROM provider_google_imports)>=100000 THEN RAISE(ABORT,'Import record quota') END;
+END;
+CREATE TRIGGER provider_import_quota_update BEFORE UPDATE OF reserved_bytes ON provider_google_imports BEGIN
+ SELECT CASE WHEN (SELECT COALESCE(SUM(reserved_bytes),0) FROM provider_google_imports WHERE job_id!=NEW.job_id)+NEW.reserved_bytes>17179869184 THEN RAISE(ABORT,'Import byte quota') END;
+END;
+CREATE TRIGGER provider_import_committed BEFORE UPDATE ON provider_google_imports WHEN OLD.state='committed' AND (NEW.state!=OLD.state OR NEW.digest!=OLD.digest OR NEW.size!=OLD.size OR NEW.observed_at!=OLD.observed_at) BEGIN
+ SELECT RAISE(ABORT,'Imported source is immutable'); END;
+`;
+const providerGoogleTrash = `
+CREATE TABLE provider_google_trash (
+ job_id TEXT PRIMARY KEY REFERENCES jobs(id) ON DELETE RESTRICT,request_id TEXT NOT NULL,actor_id TEXT NOT NULL,
+ document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE RESTRICT,
+ connection_id TEXT NOT NULL REFERENCES provider_connections(id) ON DELETE RESTRICT,connection_revision INTEGER NOT NULL CHECK(connection_revision>0),
+ binding_generation INTEGER NOT NULL CHECK(binding_generation>0),reference TEXT NOT NULL,baseline TEXT NOT NULL,
+ base_revision INTEGER NOT NULL CHECK(base_revision>0),target_trashed INTEGER NOT NULL CHECK(target_trashed IN (0,1)),
+ state TEXT NOT NULL DEFAULT 'queued' CHECK(state IN ('queued','dispatched','unknown','acknowledged','confirmed','failed')),
+ confirmed_trashed INTEGER CHECK(confirmed_trashed IN (0,1)),confirmed_fingerprint TEXT,error_code TEXT,
+ watch_sequence INTEGER NOT NULL DEFAULT 0 CHECK(watch_sequence>=0),next_check_at INTEGER NOT NULL DEFAULT 0,external_restored_at INTEGER,
+ created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL,
+ UNIQUE(actor_id,request_id),CHECK((state='confirmed')=(confirmed_trashed IS NOT NULL)),CHECK((confirmed_trashed IS NULL)=(confirmed_fingerprint IS NULL)),
+ FOREIGN KEY(document_id,base_revision) REFERENCES document_versions(document_id,revision) ON DELETE RESTRICT
+);
+CREATE UNIQUE INDEX provider_google_trash_pending ON provider_google_trash(document_id) WHERE state NOT IN ('confirmed','failed');
+CREATE UNIQUE INDEX provider_google_trash_pending_reference ON provider_google_trash(reference) WHERE state NOT IN ('confirmed','failed');
+CREATE INDEX provider_google_trash_document ON provider_google_trash(document_id);
+CREATE INDEX provider_google_trash_recent ON provider_google_trash(created_at DESC,job_id DESC);
+CREATE INDEX provider_google_trash_watch ON provider_google_trash(state,confirmed_trashed,next_check_at);
+CREATE TRIGGER provider_trash_identity BEFORE UPDATE OF job_id,request_id,actor_id,document_id,connection_id,connection_revision,binding_generation,reference,baseline,base_revision,target_trashed,created_at ON provider_google_trash BEGIN SELECT RAISE(ABORT,'Trash context is immutable'); END;
+CREATE TRIGGER provider_trash_transition BEFORE UPDATE OF state ON provider_google_trash WHEN NEW.state!=OLD.state AND NOT (
+ (OLD.state='queued' AND NEW.state IN ('dispatched','confirmed','failed')) OR
+ (OLD.state='dispatched' AND NEW.state IN ('unknown','acknowledged','confirmed','failed')) OR
+ (OLD.state='unknown' AND NEW.state IN ('acknowledged','confirmed')) OR
+ (OLD.state='acknowledged' AND NEW.state IN ('unknown','confirmed'))
+) BEGIN SELECT RAISE(ABORT,'Invalid trash transition'); END;
+CREATE TRIGGER provider_trash_quota BEFORE INSERT ON provider_google_trash WHEN (SELECT COUNT(*) FROM provider_google_trash)>=100000 BEGIN SELECT RAISE(ABORT,'Trash record quota'); END;
+CREATE TRIGGER provider_trash_confirmed BEFORE UPDATE OF confirmed_trashed,confirmed_fingerprint ON provider_google_trash WHEN OLD.state='confirmed' BEGIN SELECT RAISE(ABORT,'Trash observation is immutable'); END;
+`;
+const providerGoogleAccess = `
+CREATE TABLE provider_google_identities (
+ user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE RESTRICT,subject TEXT NOT NULL,email TEXT NOT NULL,
+ active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0,1)),revision INTEGER NOT NULL DEFAULT 1,verified_at INTEGER NOT NULL
+);
+CREATE UNIQUE INDEX provider_google_identity_subject ON provider_google_identities(subject) WHERE active=1;
+CREATE UNIQUE INDEX provider_google_identity_email ON provider_google_identities(email) WHERE active=1;
+CREATE TABLE provider_google_identity_states (
+ state_hash TEXT PRIMARY KEY,user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,session_hash TEXT NOT NULL,
+ connection_id TEXT NOT NULL REFERENCES provider_connections(id) ON DELETE RESTRICT,connection_revision INTEGER NOT NULL,
+ encrypted_context TEXT NOT NULL,phase TEXT NOT NULL CHECK(phase IN ('pending','claimed','completed')),
+ created_at INTEGER NOT NULL,expires_at INTEGER NOT NULL,completed_at INTEGER
+);
+CREATE TABLE provider_google_object_metadata (
+ reference TEXT PRIMARY KEY,connection_id TEXT NOT NULL,connection_revision INTEGER NOT NULL,kind TEXT NOT NULL,
+ title TEXT NOT NULL DEFAULT '',mime_type TEXT NOT NULL,version TEXT NOT NULL,parents TEXT NOT NULL,checked_at INTEGER NOT NULL
+);
+CREATE TABLE provider_google_grants (
+ reference TEXT NOT NULL,recipient TEXT NOT NULL,connection_id TEXT NOT NULL REFERENCES provider_connections(id) ON DELETE RESTRICT,
+ connection_revision INTEGER NOT NULL,desired_role TEXT NOT NULL DEFAULT '' CHECK(desired_role IN ('','reader','writer')),
+ applied_role TEXT NOT NULL DEFAULT '' CHECK(applied_role IN ('','reader','writer','owner')),permission_id TEXT,
+ state TEXT NOT NULL DEFAULT 'pending' CHECK(state IN ('pending','unknown','synced','failed')),
+ pending_action TEXT CHECK(pending_action IN ('create','update','delete')),pending_role TEXT,pending_previous TEXT,acknowledged INTEGER NOT NULL DEFAULT 0 CHECK(acknowledged IN (0,1)),
+ error_code TEXT,checked_at INTEGER NOT NULL DEFAULT 0,job_id TEXT REFERENCES jobs(id),PRIMARY KEY(reference,recipient)
+);
+CREATE INDEX provider_google_grant_pending ON provider_google_grants(state,checked_at);
+CREATE TABLE provider_google_export_rules (
+ reference TEXT PRIMARY KEY,connection_id TEXT NOT NULL REFERENCES provider_connections(id),connection_revision INTEGER NOT NULL,
+ desired INTEGER NOT NULL CHECK(desired IN (0,1)),applied INTEGER CHECK(applied IN (0,1)),original TEXT,pending_target TEXT,acknowledged INTEGER NOT NULL DEFAULT 0 CHECK(acknowledged IN (0,1)),state TEXT NOT NULL DEFAULT 'pending' CHECK(state IN ('pending','unknown','synced','failed')),error_code TEXT,checked_at INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE provider_google_acl_scan(id INTEGER PRIMARY KEY CHECK(id=1),epoch TEXT NOT NULL DEFAULT '',cursor TEXT NOT NULL DEFAULT '',next_scan_at INTEGER NOT NULL DEFAULT 0);
+INSERT INTO provider_google_acl_scan(id) VALUES(1);
+CREATE TRIGGER provider_google_identity_state_cap BEFORE INSERT ON provider_google_identity_states
+WHEN (SELECT COUNT(*) FROM provider_google_identity_states)>=256 BEGIN SELECT RAISE(ABORT,'identity state limit'); END;
+CREATE TRIGGER provider_google_grant_cap BEFORE INSERT ON provider_google_grants
+WHEN (SELECT COUNT(*) FROM provider_google_grants)>=1000000 BEGIN SELECT RAISE(ABORT,'grant limit'); END;
+
+`;
+const providerGoogleLifecycle = `
+CREATE TABLE provider_google_trash_aliases (
+ job_id TEXT NOT NULL REFERENCES provider_google_trash(job_id),document_id TEXT NOT NULL REFERENCES documents(id),
+ connection_id TEXT NOT NULL REFERENCES provider_connections(id),connection_revision INTEGER NOT NULL,
+ baseline TEXT NOT NULL,base_revision INTEGER NOT NULL,was_trashed INTEGER NOT NULL CHECK(was_trashed IN (0,1)),
+ PRIMARY KEY(job_id,document_id)
+);
+INSERT INTO provider_google_trash_aliases(job_id,document_id,connection_id,connection_revision,baseline,base_revision,was_trashed)
+ SELECT job_id,document_id,connection_id,connection_revision,baseline,base_revision,0 FROM provider_google_trash;
+CREATE TABLE provider_google_original_sessions (
+ id TEXT PRIMARY KEY,request_id TEXT NOT NULL,user_id TEXT NOT NULL REFERENCES users(id),session_hash TEXT NOT NULL,
+ document_id TEXT NOT NULL REFERENCES documents(id),base_revision INTEGER NOT NULL,opened_at INTEGER NOT NULL,expires_at INTEGER NOT NULL,closed_at INTEGER,
+ UNIQUE(user_id,request_id)
+);
+CREATE INDEX provider_google_original_sessions_active ON provider_google_original_sessions(document_id,expires_at);
+CREATE TABLE provider_google_folders (
+ resource_id TEXT PRIMARY KEY REFERENCES resources(id),connection_id TEXT NOT NULL REFERENCES provider_connections(id),
+ reference TEXT NOT NULL,title TEXT NOT NULL,created_at INTEGER NOT NULL,UNIQUE(connection_id,reference)
+);
+CREATE TABLE provider_google_operations (
+ job_id TEXT PRIMARY KEY REFERENCES jobs(id),request_id TEXT NOT NULL,actor_id TEXT NOT NULL REFERENCES users(id),
+ action TEXT NOT NULL CHECK(action IN ('create','move')),connection_id TEXT NOT NULL REFERENCES provider_connections(id),connection_revision INTEGER NOT NULL,
+ document_id TEXT REFERENCES documents(id),reference TEXT,kind TEXT NOT NULL CHECK(kind IN ('document','spreadsheet','presentation','folder','binary')),
+ title TEXT NOT NULL,parent_id TEXT REFERENCES resources(id),group_id TEXT NOT NULL REFERENCES groups(id),
+ expected_parent_id TEXT,baseline TEXT,base_revision INTEGER,destination_reference TEXT,
+ state TEXT NOT NULL DEFAULT 'queued' CHECK(state IN ('queued','dispatched','unknown','remote_ready','importing','confirmed','failed')),
+ discovery_job_id TEXT REFERENCES jobs(id),import_job_id TEXT REFERENCES jobs(id),local_id TEXT,
+ error_code TEXT,created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL,UNIQUE(actor_id,request_id)
+);
+CREATE TRIGGER provider_google_operation_context BEFORE UPDATE OF request_id,actor_id,action,connection_id,connection_revision,document_id,kind,title,parent_id,group_id,expected_parent_id,baseline,base_revision,destination_reference,created_at ON provider_google_operations
+BEGIN SELECT RAISE(ABORT,'Google operation context is immutable'); END;
+CREATE TRIGGER provider_google_operation_reference BEFORE UPDATE OF reference ON provider_google_operations WHEN OLD.reference IS NOT NULL AND NEW.reference IS NOT OLD.reference
+BEGIN SELECT RAISE(ABORT,'Google original identity is immutable'); END;
+CREATE TRIGGER provider_google_operation_phase BEFORE UPDATE OF state ON provider_google_operations WHEN NOT(
+ OLD.state=NEW.state OR OLD.state='queued' AND NEW.state IN ('dispatched','failed') OR
+ OLD.state='dispatched' AND NEW.state IN ('unknown','remote_ready','failed') OR OLD.state='unknown' AND NEW.state='remote_ready' OR
+ OLD.state='remote_ready' AND NEW.state IN ('importing','confirmed'))
+BEGIN SELECT RAISE(ABORT,'Google operation cannot regress'); END;
+CREATE UNIQUE INDEX provider_google_move_pending ON provider_google_operations(document_id) WHERE action='move' AND state NOT IN ('confirmed','failed');
+CREATE INDEX provider_google_operations_recent ON provider_google_operations(actor_id,created_at);
+CREATE TRIGGER provider_google_operations_cap BEFORE INSERT ON provider_google_operations WHEN (SELECT COUNT(*) FROM provider_google_operations)>=100000
+BEGIN SELECT RAISE(ABORT,'Google operation limit'); END;
+`;
 /** Parent-table rebuilds run atomically with FK actions suspended, checked before commit, then enforced again. */
-export const migrationForeignKeyRebuilds:readonly number[]=[23,31];
-export const migrations = [core + epochTriggers, authInvalidation, authSettings, jobs, documents, workerSlots, uploads, pdfLayers, saveJournal, officeSessions, officeIngress, officeCleanup, officeRecovery, officePrepared, officePreparedBindings, officeSaveIntents, officeOpenings, officeHandoff, documentVisits, versionHistory, historyPreviews, historyRestores, legacyHistory, historyImports, historyCatalogue, providerConnections, providerSourceRequests, providerDeliveryAttempts, providerDeliveryRecoveryIndex, providerDeliveryRequestJob, providerVersionOrigins, providerIngressInbox, providerIngressScheduling, providerSyncActions, providerAcceptedJobIndex, providerOAuthRefreshes] as const;
+export const migrationForeignKeyRebuilds:readonly number[]=[23,31,38];
+export const migrations = [core + epochTriggers, authInvalidation, authSettings, jobs, documents, workerSlots, uploads, pdfLayers, saveJournal, officeSessions, officeIngress, officeCleanup, officeRecovery, officePrepared, officePreparedBindings, officeSaveIntents, officeOpenings, officeHandoff, documentVisits, versionHistory, historyPreviews, historyRestores, legacyHistory, historyImports, historyCatalogue, providerConnections, providerSourceRequests, providerDeliveryAttempts, providerDeliveryRecoveryIndex, providerDeliveryRequestJob, providerVersionOrigins, providerIngressInbox, providerIngressScheduling, providerSyncActions, providerAcceptedJobIndex, providerOAuthRefreshes, providerGoogleGrantImports, providerIngressBounded, providerGoogleUploads, providerGoogleConnectStates, providerGoogleConnectResults, providerGoogleNativeCommands, providerGoogleDiscovery, providerGoogleImports, providerGoogleTrash, providerGoogleAccess, providerGoogleLifecycle, administrationMigration, contentParityMigration] as const;
 export const applicationId = 0x5957494b; // YWIK; legacy Django uses no marker.

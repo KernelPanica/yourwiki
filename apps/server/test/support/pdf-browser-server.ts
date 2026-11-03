@@ -1,3 +1,4 @@
+import {addGuardianGiga} from './guardian-giga.ts';
 import {BrowserDeliveryControls} from './provider-browser-controls.ts';
 import {HistorySettings} from '../../src/history-settings.ts';
 /** Synthetic loopback-only PDF browser fixture. Never use against production data. */
@@ -20,8 +21,9 @@ import { buildApp } from '../../src/app.ts';
 import { hashPassword } from '../../src/auth/passwords.ts';
 const root=await mkdtemp(join(tmpdir(),'yourwiki-pdf-browser-')),db=openDatabase(':memory:');
 db.prepare("INSERT INTO users(id,username,display_name,password_hash,admin_role) VALUES('qa','qa','PDF tester',?,'giga')").run(await hashPassword('yourwiki-qa'));
+addGuardianGiga(db);
 db.prepare("INSERT INTO users(id,username,display_name,password_hash) VALUES('other','other','Other viewer',?)").run(await hashPassword('yourwiki-other'));
-db.exec("INSERT INTO groups VALUES('qa','Test group'); INSERT INTO memberships VALUES('qa','qa'),('other','qa')");
+db.exec("INSERT INTO groups(id,name) VALUES('qa','Test group'); INSERT INTO memberships VALUES('qa','qa'),('other','qa')");
 const store=await BlobStore.open(root),docs=new DocumentService(db,store);
 const fixture=process.env.YOURWIKI_BROWSER_PDF_FIXTURE??new URL('../fixtures/pdf/form.pdf',import.meta.url);
 const initial=await docs.create({userId:'qa',title:'PDF forms',format:'pdf',groupId:'qa',parentId:null},createReadStream(fixture));

@@ -1,0 +1,31 @@
+"""Configured app, actual import/preview workers and synthetic Google HTTP only."""
+import asyncio,json,os
+from pathlib import Path
+from playwright.async_api import async_playwright,expect
+ROOT=Path(__file__).resolve().parents[4]
+async def main():
+ server=await asyncio.create_subprocess_exec('node','apps/server/test/support/google-connect-browser-server.ts',cwd=ROOT,env={**os.environ,'YOURWIKI_TEST_GOOGLE_AUTHORIZED':'1'},stdin=asyncio.subprocess.PIPE,stdout=asyncio.subprocess.PIPE,stderr=asyncio.subprocess.PIPE)
+ async def command(value):
+  server.stdin.write((value+'\n').encode());await server.stdin.drain();return json.loads(await asyncio.wait_for(server.stdout.readline(),45))
+ try:
+  assert b'Owned Google' in await asyncio.wait_for(server.stdout.readline(),20)
+  async with async_playwright() as p:
+   browser=await p.chromium.launch(executable_path=os.environ['PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH'],headless=True,args=['--no-sandbox']);context=await browser.new_context(locale='ru-RU',viewport={'width':393,'height':852});page=await context.new_page();errors=[];page.on('pageerror',lambda e:errors.append(str(e)));origin='http://localhost:39099'
+   login=await context.request.post(origin+'/api/auth/login',headers={'origin':origin},data={'username':'qa','password':'yourwiki-qa'});assert login.status==200
+   await page.goto(origin+'/settings');await expect(page.get_by_role('heading',name='Owned Google',exact=True)).to_be_visible();await page.get_by_text('Файлы Google',exact=True).click();panel=page.get_by_role('region',name='Файлы Google — Owned Google',exact=True);imports=page.get_by_role('region',name='Импорт в YourWiki',exact=True)
+   assert await command('discovery-stats')=={'tokens':0,'gets':0,'lists':0,'jobs':0}
+   await panel.get_by_role('button',name='Найти файлы',exact=True).click();await expect(panel.get_by_text('Поиск ожидает выполнения…',exact=True)).to_be_visible();assert await command('discover')=={'result':'discovered'};await expect(panel.get_by_text('Страница результатов готова.',exact=True)).to_be_visible()
+   await panel.locator('.google-discovery-list li').filter(has_text='Заметки.xlsx').get_by_role('button',name='Импортировать',exact=True).click();await imports.get_by_label('Название в YourWiki',exact=True).fill('Google импорт');await imports.get_by_label('Группа доступа',exact=True).select_option(label='Owned group')
+   formshot=ROOT/'output/playwright/google-import-mobile-form.png';formshot.parent.mkdir(parents=True,exist_ok=True);await imports.scroll_into_view_if_needed();await page.screenshot(path=str(formshot),full_page=True);assert await page.evaluate('document.documentElement.scrollWidth<=innerWidth')
+   posts=[]
+   async def lost(route):
+    posts.append(route.request.post_data);response=await route.fetch();assert response.status==202;await route.abort('failed')
+   await page.route('**/api/admin/google/imports',lost);await imports.get_by_role('button',name='Начать импорт',exact=True).click();await expect(imports.get_by_role('alert')).to_contain_text('Ответ о запуске не подтверждён');await page.unroute('**/api/admin/google/imports',lost);await imports.get_by_role('button',name='Проверить импорт',exact=True).click();await expect(imports.get_by_text('В очереди',exact=True)).to_be_visible();assert len(posts)==1
+   await expect(imports.get_by_role('link',name='Открыть',exact=True)).to_have_count(0);assert await command('import')=={'result':'imported'};await imports.get_by_role('button',name='Проверить импорт',exact=True).click();await expect(imports.get_by_text('Подготовка предпросмотра',exact=True)).to_be_visible();await expect(imports.get_by_role('link',name='Открыть',exact=True)).to_have_count(0)
+   await page.reload();await page.get_by_text('Файлы Google',exact=True).click();await expect(imports.get_by_text('Подготовка предпросмотра',exact=True)).to_be_visible();await expect(imports.get_by_text('Google импорт',exact=True)).to_be_visible();assert await command('preview')=={'result':'published'};await imports.get_by_role('button',name='Проверить импорт',exact=True).click();await expect(imports.get_by_role('link',name='Открыть',exact=True)).to_be_visible()
+   target=ROOT/'output/playwright/google-import-mobile-ready.png';target.parent.mkdir(parents=True,exist_ok=True);await imports.scroll_into_view_if_needed();await page.screenshot(path=str(target),full_page=True);assert await page.evaluate('document.documentElement.scrollWidth<=innerWidth');before=await command('discovery-stats');await imports.get_by_role('link',name='Открыть',exact=True).click();await expect(page.get_by_role('heading',name='Google импорт',exact=True)).to_be_visible();await expect(page.locator('iframe')).to_be_visible();assert await command('discovery-stats')==before;await page.goto(origin+'/settings');await page.get_by_text('Файлы Google',exact=True).click();await expect(imports.get_by_role('link',name='Открыть',exact=True)).to_be_visible();assert await command('deny-discovery')=={'ok':True};await imports.get_by_role('button',name='Проверить импорт',exact=True).click();await expect(imports.get_by_role('alert')).to_contain_text('Доступ или подключение изменились');await expect(imports.get_by_text('Google импорт',exact=True)).to_have_count(0);await expect(imports.get_by_role('link',name='Открыть',exact=True)).to_have_count(0);assert not errors,errors;assert 'SYNTHETIC_REFRESH' not in await page.content();print(json.dumps({'googleImport':'passed','lostAckRecoveredWithoutRepost':True,'previewBeforeOpen':True,'reloadRecovery':True,'mobileOverflow':False,'errors':errors}));await browser.close()
+ finally:
+  if server.returncode is None:server.terminate()
+  try:await asyncio.wait_for(server.wait(),15)
+  except asyncio.TimeoutError:server.kill();await server.wait()
+asyncio.run(main())

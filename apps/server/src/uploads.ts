@@ -53,7 +53,7 @@ export class ResumableUploads {
     const copied = JSON.parse(JSON.stringify(value)) as UploadMetadata;
     const metadata:UploadMetadata = copied.mode==='save'?{mode:'save',size:copied.size,documentId:copied.documentId,baseRevision:copied.baseRevision}:copied.mode==='create'?{mode:'create',size:copied.size,title:copied.title,format:copied.format,parentId:copied.parentId,groupId:copied.groupId}:copied;
     if (!Number.isSafeInteger(metadata.size) || metadata.size < 0) throw new UploadError('INVALID_REQUEST');
-    if (metadata.size > this.maxFile) throw new BlobTooLargeError();
+    if (metadata.size > Math.min(this.maxFile,(this.db.prepare('SELECT document_limit_bytes FROM administration_state WHERE id=1').get() as {document_limit_bytes:number}).document_limit_bytes)) throw new BlobTooLargeError();
     if (Math.ceil(metadata.size / this.chunkBytes) > 4096) throw new UploadError('TOO_MANY_CHUNKS');
     return transaction(this.db, () => {
       this.check(userId, metadata);
