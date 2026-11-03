@@ -76,6 +76,8 @@ Native ingress checkpoint (2026-11-03): shared verified source reader handles ex
 - [ ] Preserve source ID, read back accepted hash/version, handle412/stale parent/config/session/401/quota; unknown ACK reconciles read-only after process death, never blind retransmit. Native MIME always rejected by this path.
 - [ ] Native HTTP worker/restart/full-source tests, explicit actions/browser and controlled large transfer; full gates/ledger/commit. Real provider acceptance remains a separate gate.
 
+Status-protocol checkpoint (2026-11-03, base6270b26): `GoogleUploadStatus` implements an empty PUT probe with canonical fixed-origin session validation before auth, strict308 offsets, bounded200/201 identity, explicit404 expiry and quota/access distinction. Fifteen focused cases include five actual owned HTTP modes and shutdown/admission/late-response guards. No session creation, byte upload or public resolver activation yet. See `docs/audits/2026-11-03-google-upload-status-verification.md`. Pending: durable encrypted attempt-bound session receipts, verified conditional final commit and session quiescence before readback, whole worker/restart/large-source integration and real-provider acceptance. Do not infer v3 guarantees from unrelated Google APIs or old GData.
+
 ## Task5: Native documents and editing sessions
 
 - [ ] Map existing Google-native corpus and supported lossless operations for Docs/Sheets/Slides; port structural Sheets batch semantics/merged cells/formulas/results and all conflict/session/error UI. Keep native ID and source version.

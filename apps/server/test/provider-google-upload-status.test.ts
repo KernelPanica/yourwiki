@@ -1,0 +1,45 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {createServer} from 'node:http';
+import {once} from 'node:events';
+import {GoogleUploadStatus} from '../src/providers/google-upload-status.ts';
+const session='https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&upload_id=OWNED_SESSION';
+const input={reference:'file',sessionUrl:session,size:100},allowed={check(){}};
+const auth=()=>({access:async()=> 'SYNTHETIC',invalidate(_token:string){}});
+test('upload status polls without file bytes and validates received offsets',async t=>{
+ for(const [range,want] of [[null,0],['bytes=0-0',1],['bytes=0-42',43],['bytes=0-99',100]] as const){let calls=0;const http=new GoogleUploadStatus(auth(),{fetch:async(url,init)=>{calls++;assert.equal(String(url),session);assert.equal(init?.method,'PUT');assert.equal(init?.redirect,'manual');assert.equal(new Headers(init?.headers).get('content-length'),'0');assert.equal(new Headers(init?.headers).get('content-range'),'bytes */100');assert.equal(init?.body,undefined);return new Response(null,{status:308,headers:range?{range}:undefined});}});t.after(()=>http.close());assert.deepEqual(await http.query(input,allowed),{state:'pending',received:want});assert.equal(calls,1);}
+});
+test('session capability cannot forward credentials to another origin, object or protocol',async t=>{
+ let calls=0,tokens=0;const http=new GoogleUploadStatus({access:async()=>{tokens++;return 'SYNTHETIC';},invalidate(){}},{fetch:async()=>{calls++;return new Response(null,{status:404});}});t.after(()=>http.close());
+ for(const sessionUrl of ['http://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&upload_id=x','https://evil.invalid/upload/drive/v3/files?uploadType=resumable&upload_id=x',session.replace('www.googleapis.com','www.googleapis.com.evil.invalid'),session.replace('/files?','/files/other?'),session+'&upload_id=second',session+'&access_token=PRIVATE',session+'#fragment',session.replace('https://','https://user@'),session.replace('/upload/','/upload/../upload/'),session.replace('OWNED_SESSION','bad%0Avalue'),session.replace('resumable','media'),session.replace('OWNED_SESSION','')])await assert.rejects(http.query({...input,sessionUrl},allowed),{code:'PROVIDER_INVALID_REFERENCE'});
+ for(const size of [-1,NaN,Infinity,4294967297,0.5])await assert.rejects(http.query({...input,size},allowed),{code:'PROVIDER_INVALID_REFERENCE'});assert.equal(calls,0);assert.equal(tokens,0);
+});
+test('status never treats malformed ranges or a redirected capability as upload completion',async t=>{
+ for(const headers of ([{range:'bytes=1-42'},{range:'bytes=0-100'},{range:'bytes=0-9007199254740992'},{range:'bytes=0-01'},{range:'bytes=0-2,4-6'},{location:'https://evil.invalid/private'},{location:session+'&fields=id'}] as Record<string,string>[])){const http=new GoogleUploadStatus(auth(),{fetch:async()=>new Response(null,{status:308,headers})});t.after(()=>http.close());await assert.rejects(http.query(input,allowed),{code:'PROVIDER_UNAVAILABLE'});}
+});
+test('completed status must identify the bound file and does not confirm its content hash',async t=>{
+ for(const status of [200,201]){const http=new GoogleUploadStatus(auth(),{fetch:async()=>Response.json({id:'file',privateProviderField:'discarded'},{status})});t.after(()=>http.close());assert.deepEqual(await http.query(input,allowed),{state:'complete'});}
+ for(const body of [{id:'other'},[],{},{id:'file',padding:'x'.repeat(262144)}]){const http=new GoogleUploadStatus(auth(),{fetch:async()=>Response.json(body)});t.after(()=>http.close());await assert.rejects(http.query(input,allowed),{code:'PROVIDER_UNAVAILABLE'});}
+});
+test('expired status is explicit and authorization failures never retry a session request',async t=>{
+ for(const [status,code] of [[404,null],[401,'PROVIDER_CONFIG_CHANGED'],[403,'ACCESS_DENIED'],[412,'PROVIDER_CONFLICT'],[429,'PROVIDER_UNAVAILABLE'],[500,'PROVIDER_UNAVAILABLE'],[307,'PROVIDER_UNAVAILABLE']] as const){let calls=0,invalidated=0;const http=new GoogleUploadStatus({access:async()=> 'SYNTHETIC',invalidate(){invalidated++;}},{fetch:async()=>{calls++;return status===403?Response.json({error:{errors:[{reason:'insufficientFilePermissions'}]}},{status}):new Response('PRIVATE',{status});}});t.after(()=>http.close());if(code)await assert.rejects(http.query(input,allowed),{code});else assert.deepEqual(await http.query(input,allowed),{state:'expired'});assert.equal(calls,1);assert.equal(invalidated,status===401?1:0);}
+});
+test('Google quota denial remains retryable unavailability rather than an access revocation',async t=>{
+ const http=new GoogleUploadStatus(auth(),{fetch:async()=>Response.json({error:{errors:[{reason:'userRateLimitExceeded'}]}},{status:403})});t.after(()=>http.close());await assert.rejects(http.query(input,allowed),{code:'PROVIDER_UNAVAILABLE'});
+});
+test('current authority and shutdown fence pending status checks before IO',async t=>{
+ let calls=0;const http=new GoogleUploadStatus(auth(),{fetch:async()=>{calls++;return new Response(null,{status:404});}});t.after(()=>http.close());await assert.rejects(http.query(input,{check(){throw Object.assign(new Error('owned denial'),{code:'ACCESS_DENIED'});}}),{code:'ACCESS_DENIED'});let ready!:()=>void,release!:()=>void;const entered=new Promise<void>(r=>ready=r),gate=new Promise<void>(r=>release=r),pending=http.query(input,{check:async()=>{ready();await gate;}}),rejected=assert.rejects(pending,{code:'PROVIDER_CANCELLED'});await entered;await http.close();release();await rejected;assert.equal(calls,0);
+});
+test('status admission is bounded and shutdown cancels all admitted authority waits',async t=>{
+ let calls=0,entered=0,ready!:()=>void,release!:()=>void;const gate=new Promise<void>(r=>release=r),allEntered=new Promise<void>(r=>ready=r),http=new GoogleUploadStatus(auth(),{fetch:async()=>{calls++;return new Response(null,{status:404});}});t.after(()=>http.close());
+ const work=Array.from({length:8},()=>http.query(input,{check:async()=>{if(++entered===8)ready();await gate;}}));const outcomes=Promise.all(work.map(p=>assert.rejects(p,{code:'PROVIDER_CANCELLED'})));await allEntered;await assert.rejects(http.query(input,allowed),{code:'PROVIDER_UNAVAILABLE'});await http.close();release();await outcomes;assert.equal(calls,0);
+});
+test('late status response is cancelled when transport ignores shutdown',async t=>{
+ let entered!:()=>void,release!:(value:Response)=>void,cancelled=false;const ready=new Promise<void>(r=>entered=r),gate=new Promise<Response>(r=>release=r),http=new GoogleUploadStatus(auth(),{fetch:async()=>{entered();return gate;}});t.after(()=>http.close());const pending=http.query(input,allowed),rejected=assert.rejects(pending,{code:'PROVIDER_CANCELLED'});await ready;await http.close();await rejected;release(new Response(new ReadableStream({cancel(){cancelled=true;}})));await new Promise(r=>setImmediate(r));assert.equal(cancelled,true);
+});
+test('status handles zero and full supported file size without allocating a file buffer',async t=>{
+ for(const [size,range,want] of [[0,null,0],[4294967296,'bytes=0-4294967295',4294967296]] as const){const http=new GoogleUploadStatus(auth(),{fetch:async(_url,init)=>{assert.equal(new Headers(init?.headers).get('content-range'),'bytes */'+size);return new Response(null,{status:308,headers:range?{range}:undefined});}});t.after(()=>http.close());assert.deepEqual(await http.query({...input,size},allowed),{state:'pending',received:want});}
+});
+for(const mode of ['pending','complete','expired','redirect','stalled'] as const)test('actual HTTP upload status '+mode,async t=>{
+ let calls=0,bytes=0;const server=createServer(async(req,res)=>{calls++;for await(const chunk of req)bytes+=chunk.length;assert.equal(req.method,'PUT');assert.equal(req.headers['content-range'],'bytes */100');assert.equal(req.headers.authorization,'Bearer SYNTHETIC');if(mode==='pending'){res.writeHead(308,{range:'bytes=0-42'});res.end();}else if(mode==='complete'){res.setHeader('content-type','application/json');res.end('{"id":"file"}');}else if(mode==='expired'){res.writeHead(404);res.end();}else if(mode==='redirect'){res.writeHead(307,{location:'/must-not-follow'});res.end();}else{res.writeHead(200,{'content-type':'application/json'});res.write('{');}});server.listen(0,'127.0.0.1');await once(server,'listening');const port=(server.address() as {port:number}).port,http=new GoogleUploadStatus(auth(),{timeoutMs:mode==='stalled'?100:3000,fetch:async(url,init)=>{const parsed=new URL(String(url));return fetch('http://127.0.0.1:'+port+parsed.pathname+parsed.search,init);}});t.after(async()=>{await http.close();server.closeAllConnections();await new Promise<void>(r=>server.close(()=>r()));});if(mode==='pending')assert.deepEqual(await http.query(input,allowed),{state:'pending',received:43});else if(mode==='complete')assert.deepEqual(await http.query(input,allowed),{state:'complete'});else if(mode==='expired')assert.deepEqual(await http.query(input,allowed),{state:'expired'});else await assert.rejects(http.query(input,allowed),{code:'PROVIDER_UNAVAILABLE'});assert.equal(calls,1);assert.equal(bytes,0);
+});
