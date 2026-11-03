@@ -812,7 +812,41 @@ ALTER TABLE provider_ingress_snapshots_rebuilt RENAME TO provider_ingress_snapsh
  providerIngressInbox.slice(providerIngressInbox.indexOf('CREATE TRIGGER provider_ingress_insert')).replace('declared_size,observed_at,namespace_id,created_at ON','declared_size,sizing_mode,observed_at,namespace_id,created_at ON')+
  providerAcceptedJobIndex+
  providerSyncActions.slice(providerSyncActions.indexOf('CREATE TRIGGER provider_sync_action_insert'),providerSyncActions.indexOf('CREATE TRIGGER provider_sync_action_identity'));
+const providerGoogleUploads = `
+CREATE TABLE provider_google_uploads (
+ attempt_id TEXT PRIMARY KEY REFERENCES provider_delivery_attempts(id) ON DELETE RESTRICT,
+ connection_id TEXT NOT NULL REFERENCES provider_connections(id) ON DELETE RESTRICT,
+ connection_revision INTEGER NOT NULL CHECK(connection_revision>0),
+ reference TEXT NOT NULL CHECK(length(reference) BETWEEN 1 AND 256 AND reference NOT GLOB '*[^A-Za-z0-9_-]*'),
+ phase TEXT NOT NULL CHECK(phase IN ('reserved','initiating','ready','dispatched','unknown')),
+ encrypted_session TEXT CHECK(encrypted_session IS NULL OR (length(encrypted_session) BETWEEN 1 AND 65536 AND encrypted_session NOT GLOB '*[^A-Za-z0-9_=-]*')),
+ created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL,
+ CHECK((phase IN ('reserved','initiating') AND encrypted_session IS NULL) OR (phase IN ('ready','dispatched') AND encrypted_session IS NOT NULL) OR phase='unknown')
+);
+CREATE TRIGGER provider_google_upload_context BEFORE INSERT ON provider_google_uploads BEGIN
+ SELECT CASE WHEN NEW.phase!='reserved' OR NEW.encrypted_session IS NOT NULL OR NOT EXISTS(
+  SELECT 1 FROM provider_delivery_attempts a JOIN provider_source_bindings b ON b.document_id=a.document_id JOIN provider_connections c ON c.id=b.connection_id
+  WHERE a.id=NEW.attempt_id AND a.state='writing' AND c.provider='google' AND c.enabled=1 AND c.id=NEW.connection_id
+   AND c.revision=NEW.connection_revision AND a.connection_revision=c.revision AND b.reference=NEW.reference
+   AND b.generation=a.binding_generation AND b.fingerprint=a.baseline AND b.confirmed_revision=a.base_revision
+ ) THEN RAISE(ABORT,'Google upload context mismatch') END;
+END;
+CREATE TRIGGER provider_google_upload_identity BEFORE UPDATE OF attempt_id,connection_id,connection_revision,reference,created_at ON provider_google_uploads BEGIN
+ SELECT RAISE(ABORT,'Google upload identity is immutable');
+END;
+CREATE TRIGGER provider_google_upload_capability BEFORE UPDATE OF encrypted_session ON provider_google_uploads
+ WHEN OLD.encrypted_session IS NOT NULL OR OLD.phase!='initiating' OR NEW.phase!='ready' OR NEW.encrypted_session IS NULL BEGIN
+ SELECT RAISE(ABORT,'Google upload capability is immutable');
+END;
+CREATE TRIGGER provider_google_upload_transition BEFORE UPDATE OF phase ON provider_google_uploads WHEN NEW.phase!=OLD.phase AND NOT (
+ (OLD.phase='reserved' AND NEW.phase='initiating') OR (OLD.phase='initiating' AND NEW.phase IN ('ready','unknown')) OR
+ (OLD.phase='ready' AND NEW.phase IN ('dispatched','unknown')) OR (OLD.phase='dispatched' AND NEW.phase='unknown')
+) BEGIN SELECT RAISE(ABORT,'Invalid Google upload transition'); END;
+CREATE TRIGGER provider_google_upload_delete BEFORE DELETE ON provider_google_uploads BEGIN
+ SELECT RAISE(ABORT,'Google upload is retained');
+END;
+`;
 /** Parent-table rebuilds run atomically with FK actions suspended, checked before commit, then enforced again. */
 export const migrationForeignKeyRebuilds:readonly number[]=[23,31,38];
-export const migrations = [core + epochTriggers, authInvalidation, authSettings, jobs, documents, workerSlots, uploads, pdfLayers, saveJournal, officeSessions, officeIngress, officeCleanup, officeRecovery, officePrepared, officePreparedBindings, officeSaveIntents, officeOpenings, officeHandoff, documentVisits, versionHistory, historyPreviews, historyRestores, legacyHistory, historyImports, historyCatalogue, providerConnections, providerSourceRequests, providerDeliveryAttempts, providerDeliveryRecoveryIndex, providerDeliveryRequestJob, providerVersionOrigins, providerIngressInbox, providerIngressScheduling, providerSyncActions, providerAcceptedJobIndex, providerOAuthRefreshes, providerGoogleGrantImports, providerIngressBounded] as const;
+export const migrations = [core + epochTriggers, authInvalidation, authSettings, jobs, documents, workerSlots, uploads, pdfLayers, saveJournal, officeSessions, officeIngress, officeCleanup, officeRecovery, officePrepared, officePreparedBindings, officeSaveIntents, officeOpenings, officeHandoff, documentVisits, versionHistory, historyPreviews, historyRestores, legacyHistory, historyImports, historyCatalogue, providerConnections, providerSourceRequests, providerDeliveryAttempts, providerDeliveryRecoveryIndex, providerDeliveryRequestJob, providerVersionOrigins, providerIngressInbox, providerIngressScheduling, providerSyncActions, providerAcceptedJobIndex, providerOAuthRefreshes, providerGoogleGrantImports, providerIngressBounded, providerGoogleUploads] as const;
 export const applicationId = 0x5957494b; // YWIK; legacy Django uses no marker.

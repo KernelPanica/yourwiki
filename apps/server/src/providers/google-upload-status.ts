@@ -10,7 +10,7 @@ function interrupt<T>(work:Promise<T>,signal:AbortSignal):Promise<T>{
  if(signal.aborted){void work.catch(()=>{});return Promise.reject(unavailable());}
  return new Promise((resolve,reject)=>{const abort=()=>{signal.removeEventListener('abort',abort);reject(unavailable());};signal.addEventListener('abort',abort,{once:true});work.then(value=>{signal.removeEventListener('abort',abort);resolve(value);},error=>{signal.removeEventListener('abort',abort);reject(error);});});
 }
-function capability(value:Input):string{
+export function googleUploadCapability(value:Input):string{
  googleFileId(value.reference);const invalid=()=>new ProviderError('PROVIDER_INVALID_REFERENCE');
  if(!Number.isSafeInteger(value.size)||value.size<0||value.size>4294967296||typeof value.sessionUrl!=='string'||value.sessionUrl.length>16384||/[^\x21-\x7e]/.test(value.sessionUrl))throw invalid();
  let url:URL;try{url=new URL(value.sessionUrl);}catch{throw invalid();}
@@ -26,7 +26,7 @@ export class GoogleUploadStatus{
   this.auth=auth;this.request=options.fetch??fetch;this.timeoutMs=options.timeoutMs??30000;if(!Number.isSafeInteger(this.timeoutMs)||this.timeoutMs<1||this.timeoutMs>30000)throw new ProviderError('PROVIDER_CONFIG_CHANGED');
  }
  async query(value:Input,options:ProviderCheck):Promise<GoogleUploadState>{
-  const input={...value},url=capability(input);if(this.closed||options.signal?.aborted)throw new ProviderError('PROVIDER_CANCELLED');if(this.active.size>=8)throw unavailable();
+  const input={...value},url=googleUploadCapability(input);if(this.closed||options.signal?.aborted)throw new ProviderError('PROVIDER_CANCELLED');if(this.active.size>=8)throw unavailable();
   const controller=new AbortController();let done!:()=>void;this.active.set(controller,new Promise<void>(r=>done=r));const abort=()=>controller.abort();options.signal?.addEventListener('abort',abort,{once:true});if(options.signal?.aborted)abort();const timer=setTimeout(abort,this.timeoutMs);
   const check=async()=>{if(controller.signal.aborted)throw unavailable();try{await interrupt(Promise.resolve().then(()=>options.check()),controller.signal);}catch(error){if(controller.signal.aborted)throw unavailable();throw new AuthorityFailure(error);}if(controller.signal.aborted)throw unavailable();};
   let response:Response|undefined;

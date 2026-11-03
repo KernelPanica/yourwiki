@@ -8,9 +8,10 @@ import type {Provider} from './connection-types.ts';
 import type {DeliveryAttempt} from './delivery-attempts.ts';
 import {googleManagedRecipients} from './google-grants.ts';
 import {GoogleAuthPool,type GoogleAuthPoolOptions} from './google-auth-pool.ts';
+import {GoogleUploadJournal} from './google-upload-journal.ts';
 export type AdapterConnection={provider:Provider;config:Record<string,unknown>;reference:string};
 export type GoogleAuthorization={access:(options:ProviderCheck)=>Promise<string>;invalidate:(accessToken:string)=>void};
-type Mint={documentId:string;id:string;revision:number;provider:Provider;check:()=>void};
+type Mint={documentId:string;id:string;revision:number;provider:Provider;check:()=>void;attempt?:DeliveryAttempt};
 /** Worker-only credential boundary. Never inject into HTTP routes or DTOs. */
 export class CredentialVault {
  private db:Database;private configs:SecretConfigs;private auth:GoogleAuthPool;private minted=new WeakMap<AdapterConnection,Mint>();private closed=false;
@@ -30,7 +31,19 @@ export class CredentialVault {
  }
  forAttempt(attempt:DeliveryAttempt):AdapterConnection{
   const pinned={authorId:attempt.authorId,documentId:attempt.documentId,connectionRevision:attempt.connectionRevision,bindingGeneration:attempt.bindingGeneration},row=this.outgoing(pinned);
-  try{const connection:AdapterConnection={provider:row.provider,reference:row.reference,config:this.configs.decrypt(row.encrypted_config)};this.minted.set(connection,{documentId:pinned.documentId,id:row.connection_id,revision:row.revision,provider:row.provider,check:()=>{this.outgoing(pinned);}});return connection;}catch{throw new ProviderError('PROVIDER_CONFIG_CHANGED');}
+  try{const connection:AdapterConnection={provider:row.provider,reference:row.reference,config:this.configs.decrypt(row.encrypted_config)};this.minted.set(connection,{documentId:pinned.documentId,id:row.connection_id,revision:row.revision,provider:row.provider,attempt:{...attempt,job:{...attempt.job,payload:{...attempt.job.payload}}},check:()=>{this.outgoing(pinned);}});return connection;}catch{throw new ProviderError('PROVIDER_CONFIG_CHANGED');}
+ }
+ /** Outgoing-only private receipt capability; caller copies cannot select another attempt. */
+ googleUploads(connection:AdapterConnection){
+  this.live();const scope=this.minted.get(connection);if(!scope?.attempt||scope.provider!=='google')throw new ProviderError('PROVIDER_CONFIG_CHANGED');scope.check();const attempt=scope.attempt,journal=new GoogleUploadJournal(this.db,this.configs),check=()=>{this.live();scope.check();};
+  return Object.freeze({
+   reserve:(now?:number)=>{check();return journal.reserve(attempt,now);},
+   load:(now?:number)=>{check();return journal.load(attempt,now);},
+   markInitiating:(now?:number)=>{check();journal.markInitiating(attempt,now);},
+   attach:(url:string,now?:number)=>{check();journal.attach(attempt,url,now);},
+   markDispatched:(now?:number)=>{check();journal.markDispatched(attempt,now);},
+   markUnknown:(now?:number)=>{this.live();journal.markUnknown(attempt,now);}
+  });
  }
  /** Canonical internal source descriptor. Never serialize root/reference as a public DTO. */
  googleSource(connection:AdapterConnection):Readonly<{root:string;reference:string;format:string;check:()=>void}>{
