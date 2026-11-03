@@ -798,7 +798,21 @@ CREATE TRIGGER provider_google_grant_import_context BEFORE INSERT ON provider_go
 CREATE TRIGGER provider_google_grant_import_update BEFORE UPDATE ON provider_google_grant_imports BEGIN SELECT RAISE(ABORT,'Google grant import is immutable'); END;
 CREATE TRIGGER provider_google_grant_import_delete BEFORE DELETE ON provider_google_grant_imports BEGIN SELECT RAISE(ABORT,'Google grant import is retained'); END;
 `;
+// Rebuild only the inbox parent table; preserve its existing quota counter and child receipts.
+const providerIngressBounded = `DROP TRIGGER provider_sync_action_insert;\n`+
+ providerIngressInbox.slice(0,providerIngressInbox.indexOf('CREATE INDEX provider_ingress_active'))
+ .replace('CREATE TABLE provider_ingress_snapshots (','CREATE TABLE provider_ingress_snapshots_rebuilt (')
+ .replace('created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL,',"created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL,\n sizing_mode TEXT NOT NULL DEFAULT 'exact' CHECK(sizing_mode IN ('exact','bounded')),")
+ .replace('(digest IS NOT NULL AND size=declared_size)',"(digest IS NOT NULL AND size IS NOT NULL AND size BETWEEN 0 AND declared_size AND (sizing_mode='bounded' OR size=declared_size))")+
+ `INSERT INTO provider_ingress_snapshots_rebuilt SELECT *, 'exact' FROM provider_ingress_snapshots;
+DROP TABLE provider_ingress_snapshots;
+ALTER TABLE provider_ingress_snapshots_rebuilt RENAME TO provider_ingress_snapshots;
+`+
+ providerIngressInbox.slice(providerIngressInbox.indexOf('CREATE INDEX provider_ingress_active'),providerIngressInbox.indexOf('CREATE TABLE provider_ingress_usage'))+
+ providerIngressInbox.slice(providerIngressInbox.indexOf('CREATE TRIGGER provider_ingress_insert')).replace('declared_size,observed_at,namespace_id,created_at ON','declared_size,sizing_mode,observed_at,namespace_id,created_at ON')+
+ providerAcceptedJobIndex+
+ providerSyncActions.slice(providerSyncActions.indexOf('CREATE TRIGGER provider_sync_action_insert'),providerSyncActions.indexOf('CREATE TRIGGER provider_sync_action_identity'));
 /** Parent-table rebuilds run atomically with FK actions suspended, checked before commit, then enforced again. */
-export const migrationForeignKeyRebuilds:readonly number[]=[23,31];
-export const migrations = [core + epochTriggers, authInvalidation, authSettings, jobs, documents, workerSlots, uploads, pdfLayers, saveJournal, officeSessions, officeIngress, officeCleanup, officeRecovery, officePrepared, officePreparedBindings, officeSaveIntents, officeOpenings, officeHandoff, documentVisits, versionHistory, historyPreviews, historyRestores, legacyHistory, historyImports, historyCatalogue, providerConnections, providerSourceRequests, providerDeliveryAttempts, providerDeliveryRecoveryIndex, providerDeliveryRequestJob, providerVersionOrigins, providerIngressInbox, providerIngressScheduling, providerSyncActions, providerAcceptedJobIndex, providerOAuthRefreshes, providerGoogleGrantImports] as const;
+export const migrationForeignKeyRebuilds:readonly number[]=[23,31,38];
+export const migrations = [core + epochTriggers, authInvalidation, authSettings, jobs, documents, workerSlots, uploads, pdfLayers, saveJournal, officeSessions, officeIngress, officeCleanup, officeRecovery, officePrepared, officePreparedBindings, officeSaveIntents, officeOpenings, officeHandoff, documentVisits, versionHistory, historyPreviews, historyRestores, legacyHistory, historyImports, historyCatalogue, providerConnections, providerSourceRequests, providerDeliveryAttempts, providerDeliveryRecoveryIndex, providerDeliveryRequestJob, providerVersionOrigins, providerIngressInbox, providerIngressScheduling, providerSyncActions, providerAcceptedJobIndex, providerOAuthRefreshes, providerGoogleGrantImports, providerIngressBounded] as const;
 export const applicationId = 0x5957494b; // YWIK; legacy Django uses no marker.

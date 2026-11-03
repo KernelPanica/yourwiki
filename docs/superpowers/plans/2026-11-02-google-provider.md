@@ -68,6 +68,8 @@ Source-integrity checkpoint (2026-11-03): provider SHA256/MD5 and head revision 
 - [ ] Binary alt=media streamed<=4GiB with size/hash/after-read version checks. Native Docs/Sheets/Slides export to explicit supported formats with provider export limit and version-fenced snapshot; never infer native type from filename.
 - [ ] Existing worker stages/commits authenticated sources without echo; offline/error retains old preview; native file is refused at binary-write boundary until supported native operation path is ready. Test real protocol via owned HTTP; preserve Local regression.
 
+Native ingress checkpoint (2026-11-03): shared verified source reader handles explicit DOCX/ODS/PPTX exports, metadata-only unchanged hints and before/after version fences. Schema38 adds quota-owned bounded sizing to the existing inbox while preserving exact observations and migration receipts. Actual owned HTTP→inbox→real LibreOffice tests cover all three formats; actual partial-export SIGKILL/restart proves cleanup before a fresh receive. Native846/web160/types/build and refactored4GiB reader regression pass. See `docs/audits/2026-11-03-google-native-ingress-verification.md`. Public/CLI activation, real native export determinism/corpus/account acceptance and all write/lifecycle work remain open; Task3 is not marked fully complete.
+
 ## Task4: Binary conditional delivery and unknown-result reconciliation
 
 - [ ] Verify current source identity/metadata/full bytes and conditional update semantics against official API; stream resumable upload with durable operation/session capability and size/hash checks, fail closed where no verified conditional primitive exists. No body buffering or implicit SDK write retry.

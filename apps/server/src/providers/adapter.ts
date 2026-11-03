@@ -2,10 +2,11 @@ import type {BlobRef} from '../storage/blobs.ts';
 export type ProviderCheck={signal?:AbortSignal;check:()=>void|Promise<void>};
 export type ProviderReceipt={fingerprint:string;digest:string;size:number};
 export type ReplaceSource=ProviderCheck&{operationId:string;reference:string;baseline:string;target:BlobRef;source:AsyncIterable<Uint8Array>};
+export type ProviderRead={fingerprint:string;bytes:AsyncIterable<Uint8Array>}&({size:number;maxSize?:never}|{size:null;maxSize:number});
 export interface ProviderAdapter {
  /** Scheduling hint only. Never authorizes a source commit or skips replacement integrity checks. */
  changed?(reference:string,baseline:string,options:ProviderCheck):Promise<boolean>;
- read(reference:string,options:ProviderCheck):Promise<{fingerprint:string;size:number;bytes:AsyncIterable<Uint8Array>}>;
+ read(reference:string,options:ProviderCheck):Promise<ProviderRead>;
  replace(input:ReplaceSource):Promise<ProviderReceipt>;
  retire(input:{operationId:string;reference:string;signal?:AbortSignal}):Promise<void>;
  close():Promise<void>;

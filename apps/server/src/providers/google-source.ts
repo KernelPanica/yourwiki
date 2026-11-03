@@ -1,5 +1,6 @@
 import {ProviderError,type ProviderCheck} from './adapter.ts';
 import type {CredentialVault,AdapterConnection} from './credential-vault.ts';
+import {GoogleSourceReader} from './google-reader.ts';
 import {GoogleBinaryReader} from './google-binary-reader.ts';
 const types:Record<string,readonly string[]>={
  md:['text/markdown','text/x-markdown','text/plain'],pdf:['application/pdf'],
@@ -18,10 +19,19 @@ export function googleBinaryMimeMatches(format:string,mime:string):boolean{
 export function createGoogleBinarySource(vault:CredentialVault,connection:AdapterConnection,options:{fetch?:typeof fetch;timeoutMs?:number;totalMs?:number}={}){
  const source=vault.googleSource(connection),reader=new GoogleBinaryReader(source.root,vault.google(connection),vault.googleRecipients(connection),{...options,acceptMime:mime=>googleBinaryMimeMatches(source.format,mime)});
  return Object.freeze({
+  changed:async(reference:string,baseline:string,options:ProviderCheck)=>{source.check();if(reference!==source.reference)throw new ProviderError('PROVIDER_INVALID_REFERENCE');return reader.changed(reference,baseline,{signal:options.signal,check:async()=>{source.check();await options.check();source.check();}});},
   read:async(reference:string,options:ProviderCheck)=>{
    source.check();if(reference!==source.reference)throw new ProviderError('PROVIDER_INVALID_REFERENCE');
    return reader.read(source.reference,{signal:options.signal,check:async()=>{source.check();await options.check();source.check();}});
   },
   close:()=>reader.close()
  });
+}
+
+/** Complete read-side dispatch by verified native MIME, pinned to the canonical local format. */
+export function createGoogleSourceReader(vault:CredentialVault,connection:AdapterConnection,options:{fetch?:typeof fetch;timeoutMs?:number;totalMs?:number}={}){
+ const source=vault.googleSource(connection),reader=new GoogleSourceReader(source.root,vault.google(connection),vault.googleRecipients(connection),{...options,format:source.format,acceptMime:mime=>googleBinaryMimeMatches(source.format,mime)});
+ const scope=(options:ProviderCheck):ProviderCheck=>({signal:options.signal,check:async()=>{source.check();await options.check();source.check();}});
+ const reference=(value:string)=>{source.check();if(value!==source.reference)throw new ProviderError('PROVIDER_INVALID_REFERENCE');};
+ return Object.freeze({read:async(ref:string,options:ProviderCheck)=>{reference(ref);return reader.read(source.reference,scope(options));},changed:async(ref:string,baseline:string,options:ProviderCheck)=>{reference(ref);return reader.changed(source.reference,baseline,scope(options));},close:()=>reader.close()});
 }

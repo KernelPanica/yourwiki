@@ -7,7 +7,7 @@ import type {BlobStore} from '../storage/blobs.ts';
 import {CredentialVault} from './credential-vault.ts';
 import {ingressContext} from './ingress-guards.ts';
 import {ProviderIngress} from './ingress-inbox.ts';
-import {ProviderError,safeProviderError,type ProviderAdapter} from './adapter.ts';
+import {ProviderError,safeProviderError,type ProviderAdapter,type ProviderRead} from './adapter.ts';
 import type {AdapterResolver} from './delivery-worker.ts';
 export type IngressResult='idle'|'unchanged'|'discarded'|'applied'|'conflict'|'blocked'|'deferred'|'interrupted';
 /** Dedicated worker; shares the provider-source lease with outward delivery. No page request performs this IO. */
@@ -15,6 +15,9 @@ export class IngressWorker {
  private db:Database;private vault:CredentialVault;private resolve:AdapterResolver;private clock:()=>number;private queue:JobQueue;private inbox:ProviderIngress;private actions:SyncActions;private busy=false;
  constructor(db:Database,store:BlobStore,vault:CredentialVault,resolve:AdapterResolver,options:{clock?:()=>number}={}){
   if(!vault.belongsToDatabase(db))throw new Error('Provider vault requires the worker database');this.db=db;this.vault=vault;this.resolve=resolve;this.clock=options.clock??Date.now;this.queue=new JobQueue(db);this.inbox=new ProviderIngress(db,store,{clock:this.clock});this.actions=new SyncActions(db,store,{clock:this.clock});
+ }
+ private capacity(remote:ProviderRead):{declaredSize:number;sizingMode:'exact'|'bounded'}{
+  const size=remote.size===null?remote.maxSize:remote.size;if(!Number.isSafeInteger(size)||size<0||size>4294967296)throw new ProviderError('PROVIDER_SOURCE_CHANGED');return {declaredSize:size,sizingMode:remote.size===null?'bounded':'exact'};
  }
  private async verify(bytes:AsyncIterable<Uint8Array>,expected:{digest:string;size:number},check:()=>void):Promise<boolean>{
   const hash=createHash('sha256');let size=0;
@@ -55,13 +58,13 @@ export class IngressWorker {
 
    if(previous?.state==='staged'||previous?.state==='conflict'&&action?.kind==='apply'){
     this.inbox.resume(previous.id,job,slot);activeSnapshot=previous.id;
-    const remote=await adapter.read(connection.reference,options);check();
-    if(remote.fingerprint!==previous.observed_fingerprint||remote.size!==previous.size){this.inbox.park(previous.id,job,'PROVIDER_CONFLICT');complete(action?.kind==='apply'?'PROVIDER_CONFLICT':undefined);return 'conflict';}
+    const remote=await adapter.read(connection.reference,options);check();const capacity=this.capacity(remote);
+    if(remote.fingerprint!==previous.observed_fingerprint||capacity.sizingMode!==previous.sizing_mode||(remote.size===null?previous.size!>capacity.declaredSize:remote.size!==previous.size)){this.inbox.park(previous.id,job,'PROVIDER_CONFLICT');complete(action?.kind==='apply'?'PROVIDER_CONFLICT':undefined);return 'conflict';}
     if(!await this.verify(remote.bytes,{digest:previous.digest!,size:previous.size!},check)){this.inbox.park(previous.id,job,'PROVIDER_SOURCE_CHANGED');complete(action?'PROVIDER_SOURCE_CHANGED':undefined);return 'conflict';}
     await this.inbox.commit(previous.id,job,{signal:controller.signal,authorize:action?()=>this.actions.authorize(job,activeSnapshot):undefined});actionApplied=true;await this.inbox.cleanupApplied(previous.id,job);complete();return 'applied';
    }
    if(adapter.changed&&!await adapter.changed(connection.reference,scope.fingerprint,options)){check();complete();return 'unchanged';}
-   const remote=await adapter.read(connection.reference,options);check();const snapshot=this.inbox.begin({job,slotToken:slot,documentId,connectionRevision:scope.connection_revision,baseLocalRevision:scope.local_revision,baseProviderRevision:scope.provider_revision!,baseFingerprint:scope.fingerprint,observedFingerprint:remote.fingerprint,declaredSize:remote.size,observedAt:this.clock()});
+   const remote=await adapter.read(connection.reference,options);check();const capacity=this.capacity(remote),snapshot=this.inbox.begin({job,slotToken:slot,documentId,connectionRevision:scope.connection_revision,baseLocalRevision:scope.local_revision,baseProviderRevision:scope.provider_revision!,baseFingerprint:scope.fingerprint,observedFingerprint:remote.fingerprint,...capacity,observedAt:this.clock()});
    activeSnapshot=snapshot.id;
    if(snapshot.state==='conflict'||snapshot.state==='staged'){
     const pinned=this.inbox.prepared(snapshot.id,job);
