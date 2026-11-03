@@ -1,7 +1,8 @@
 import {api,ApiError} from './api.ts';
 import {blockSession,onSessionBlocked,sessionIsCurrent,sessionSnapshot} from './session-fence.ts';
 export type GoogleConnection={id:string;label:string;path:string;revision:number;enabled:boolean;configurationReady:boolean;authorizationStored:boolean};
-export type GoogleSettingsSnapshot={items:GoogleConnection[];nextCursor:string|null;phase:'loading'|'ready'|'starting'|'error'|'unknown'|'blocked';busy:boolean};
+export type GoogleConfiguration={id:string;label:string;path:string;folderId:string|null;root:string;clientId:string;clientSecret:string};
+export type GoogleSettingsSnapshot={items:GoogleConnection[];nextCursor:string|null;phase:'loading'|'ready'|'starting'|'saving'|'error'|'unknown'|'blocked';busy:boolean};
 const opaque=/^[A-Za-z0-9_.:-]{1,128}$/;
 function record(value:unknown):Record<string,unknown>{if(!value||typeof value!=='object'||Array.isArray(value))throw new Error('INVALID_GOOGLE_RESPONSE');return value as Record<string,unknown>;}
 export function parseGoogleConnections(value:unknown):{items:GoogleConnection[];nextCursor:string|null}{
@@ -25,6 +26,11 @@ export class GoogleSettingsClient{
  private update(value:Partial<GoogleSettingsSnapshot>){if(this.disposed)return;this.state={...this.state,...value};for(const listener of [...this.listeners]){try{listener();}catch{/* A view failure cannot authorize a request. */}}}
  private denied(error:unknown){if(!(error instanceof ApiError))return false;if(error.code==='SESSION_REQUIRED'){blockSession();this.options.onSessionLost?.();return true;}if(error.code==='ACCESS_DENIED'||error.code==='NOT_FOUND'){this.update({items:[],nextCursor:null,phase:'error'});return true;}return false;}
  async load(more=false){if(!this.current()||this.running)return;const cursor=more?this.state.nextCursor:null;if(more&&!cursor)return;this.running=true;this.update({busy:true,phase:'loading'});try{const result=parseGoogleConnections(await (this.options.request??api)('/api/admin/google/connections'+(cursor?'?after='+encodeURIComponent(cursor):''),{signal:this.lifetime.signal}));if(this.current())this.update({...result,items:more?[...new Map([...this.state.items,...result.items].map(item=>[item.id,item])).values()]:result.items,phase:'ready'});}catch(error){if(this.current()&&!this.denied(error))this.update({phase:'error'});}finally{this.running=false;if(this.current())this.update({busy:false});}}
+ async configure(configuration:GoogleConfiguration):Promise<boolean>{
+  if(!this.current()||this.running||this.state.phase!=='ready')return false;this.running=true;this.update({busy:true,phase:'saving'});
+  try{const result=await (this.options.request??api)('/api/admin/google/connections',{method:'POST',signal:this.lifetime.signal,headers:{'content-type':'application/json','x-csrf-token':this.options.csrf},body:JSON.stringify(configuration)});if(!this.current())return false;const item=parseGoogleConnections({items:[result],nextCursor:null}).items[0]!;if(item.id!==configuration.id)throw new Error('INVALID_GOOGLE_RESPONSE');this.update({items:[...this.state.items.filter(row=>row.id!==item.id),item],phase:'ready'});return true;}
+  catch(error){if(this.current()&&!this.denied(error))this.update({phase:'unknown'});return false;}finally{this.running=false;if(this.current())this.update({busy:false});}
+ }
  async connect(id:string){const item=this.state.items.find(item=>item.id===id);if(!this.current()||this.running||this.state.phase!=='ready'||!item?.enabled||!item.configurationReady)return;this.running=true;this.update({busy:true,phase:'starting'});try{const result=await (this.options.request??api)('/api/admin/google/connect/start',{method:'POST',signal:this.lifetime.signal,headers:{'content-type':'application/json','x-csrf-token':this.options.csrf},body:JSON.stringify({connectionId:id,baseRevision:item.revision})});if(!this.current())return;const url=parseGoogleAuthorization(result,this.options.origin);if(this.current())await this.options.navigate(url);}catch(error){if(this.current()&&!this.denied(error))this.update({phase:'unknown'});}finally{this.running=false;if(this.current())this.update({busy:false});}}
  dispose(){this.disposed=true;this.lifetime.abort();this.removeFence();this.listeners.clear();}
 }

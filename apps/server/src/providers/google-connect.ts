@@ -1,7 +1,9 @@
-import {readTransaction,type Database} from '../database.ts';
-import {authenticateSession} from '../auth/sessions.ts';
+import {transaction,readTransaction,type Database} from '../database.ts';
+import {authenticateSession,validCsrf} from '../auth/sessions.ts';
 import {DocumentError} from '../document-errors.ts';
 import {ProviderError,type ProviderCheck} from './adapter.ts';
+import {ProviderConnections} from './connections.ts';
+import {connectionFields} from './connection-records.ts';
 import {SecretConfigs} from './secret-config.ts';
 import {GoogleConnectStates,type GoogleConnectResult} from './google-connect-state.ts';
 import {GoogleCodeExchange} from './google-code-exchange.ts';
@@ -15,6 +17,14 @@ export class GoogleConnect{
  private live(){if(this.closed)throw new ProviderError('PROVIDER_CANCELLED');}
  begin(input:Actor&{connectionId:string;baseRevision:number}){this.live();return this.states.begin(input);}
  result(input:Actor&{state:string}){this.live();return this.states.result(input);}
+ configure(input:Actor&{configuration:unknown}){
+  this.live();return transaction(this.db,()=>{const session=authenticateSession(this.db,input.sessionToken);if(!session)throw new DocumentError('SESSION_REQUIRED');if(session.adminRole!=='giga')throw new DocumentError('ACCESS_DENIED');if(!validCsrf(session,input.csrf))throw new DocumentError('CSRF_REJECTED');
+   const value=connectionFields(input.configuration,['id','label','path','folderId','root','clientId','clientSecret'],['id','label','path','folderId','root','clientId','clientSecret']),visible=(v:unknown,max:number)=>typeof v==='string'&&v.length>0&&v.length<=max&&!/[^\x21-\x7e]/.test(v);
+   if(typeof value.root!=='string'||!/^[A-Za-z0-9_-]{1,256}$/.test(value.root)||!visible(value.clientId,2048)||!visible(value.clientSecret,65536))throw new DocumentError('INVALID_REQUEST');
+   const result=new ProviderConnections(this.db,this.configs).create(session.userId,{id:value.id as string,provider:'google',label:value.label as string,path:value.path as string,folderId:value.folderId as string|null,config:{root:value.root,client_id:value.clientId,client_secret:value.clientSecret}});
+   return {id:result.id,label:result.label,path:result.path,revision:result.revision,enabled:result.enabled,configurationReady:true,authorizationStored:false};
+  });
+ }
  connections(sessionToken:string,after=''){
   this.live();return readTransaction(this.db,()=>{const session=authenticateSession(this.db,sessionToken);if(!session)throw new DocumentError('SESSION_REQUIRED');if(session.adminRole!=='giga')throw new DocumentError('ACCESS_DENIED');if(typeof after!=='string'||after!==''&&!/^[A-Za-z0-9_.:-]{1,128}$/.test(after))throw new DocumentError('INVALID_REQUEST');
    const rows=this.db.prepare("SELECT c.id,c.label,c.revision,c.enabled,c.encrypted_config,m.path FROM provider_connections c JOIN provider_mounts m ON m.connection_id=c.id WHERE c.provider='google' AND c.id>? ORDER BY c.id LIMIT 51").all(after) as {id:string;label:string;revision:number;enabled:number;encrypted_config:string;path:string}[];
