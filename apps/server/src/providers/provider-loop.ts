@@ -3,7 +3,7 @@ type SourceWorker={runOnce(signal?:AbortSignal):Promise<string>};
 /** One source job at a time. Rotate queue priority so discovery and either direction receive turns. */
 export class ProviderLoop {
  private scheduler:{tick():unknown};private workers:SourceWorker[];private next=0;private busy=false;
- constructor(scheduler:{tick():unknown},outgoing:SourceWorker,incoming:SourceWorker,discovery?:SourceWorker){this.scheduler=scheduler;this.workers=[outgoing,incoming,...(discovery?[discovery]:[])];}
+ constructor(scheduler:{tick():unknown},outgoing:SourceWorker,incoming:SourceWorker,discovery?:SourceWorker,imports?:SourceWorker){this.scheduler=scheduler;this.workers=[outgoing,incoming,...(discovery?[discovery]:[]),...(imports?[imports]:[])];}
  async tick(signal?:AbortSignal):Promise<'idle'|'worked'>{
   if(this.busy)throw new Error('Provider loop is already running');if(signal?.aborted)return 'idle';this.busy=true;
   try{

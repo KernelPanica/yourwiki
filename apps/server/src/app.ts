@@ -1,3 +1,5 @@
+import {registerGoogleImports} from './providers/google-import-routes.ts';
+import type {GoogleImportRequests} from './providers/google-import-jobs.ts';
 import {registerGoogleDiscovery} from './providers/google-discovery-routes.ts';
 import type {GoogleDiscoveryRequests} from './providers/google-discovery-jobs.ts';
 import {registerProviderSync} from './providers/sync-routes.ts';
@@ -24,6 +26,7 @@ import type { BlobStore } from './storage/blobs.ts';
 import { registerAuth } from './auth/routes.ts';
 
 export interface AppOptions {
+  googleImports?: GoogleImportRequests;
   googleDiscovery?: GoogleDiscoveryRequests;
   googleConnect?: GoogleConnect;
   providerConnections?: ProviderConnections;
@@ -44,6 +47,7 @@ export function buildApp(options: AppOptions = {}) {
   if(options.googleConnect&&(!options.database||!options.googleConnect.belongsToDatabase(options.database,options.publicUrl??'http://localhost:3100')))throw new Error('Google connect requires matching database and public origin');
   if(options.providerConnections&&(!options.database||!options.providerConnections.belongsToDatabase(options.database)))throw new Error('Provider connections require a matching workspace database');
   if(options.googleDiscovery&&(!options.database||!options.googleDiscovery.belongsToDatabase(options.database)))throw new Error('Discovery requires a matching workspace database');
+  if(options.googleImports&&(!options.database||!options.googleImports.belongsToDatabase(options.database)))throw new Error('Google imports require a matching workspace database');
   const app = Fastify({
     logger: false,
     requestIdHeader: false,
@@ -81,6 +85,7 @@ export function buildApp(options: AppOptions = {}) {
   if (options.database) registerChanges(app, options.database, options.publicUrl ?? 'http://localhost:3100', options.changesPollMs);
   if (options.database && options.storage) registerDocuments(app, options.database, options.storage, options.publicUrl ?? 'http://localhost:3100', options.maxFileBytes, !!options.office);
   if(options.database&&options.storage)registerProviderSync(app,options.database,options.storage,options.publicUrl??'http://localhost:3100');
+  if(options.database&&options.googleImports)registerGoogleImports(app,options.database,options.googleImports,options.publicUrl??'http://localhost:3100');
   if(options.database&&options.googleDiscovery)registerGoogleDiscovery(app,options.database,options.googleDiscovery,options.publicUrl??'http://localhost:3100');
   if(options.database&&options.storage)registerProviderDelivery(app,options.database,options.storage,options.publicUrl??'http://localhost:3100');
   if (options.database && options.storage) registerHistory(app,options.database,options.storage);

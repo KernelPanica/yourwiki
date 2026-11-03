@@ -966,7 +966,33 @@ CREATE TRIGGER provider_discovery_identity BEFORE UPDATE OF job_id,actor_id,conn
 CREATE TRIGGER provider_discovery_page_once BEFORE UPDATE OF encrypted_page ON provider_google_discovery_jobs WHEN OLD.encrypted_page IS NOT NULL OR NEW.encrypted_page IS NULL BEGIN
  SELECT RAISE(ABORT,'Discovery result is immutable'); END;
 `;
+const providerGoogleImports = `
+CREATE TABLE provider_google_imports (
+ job_id TEXT PRIMARY KEY REFERENCES jobs(id) ON DELETE RESTRICT,actor_id TEXT NOT NULL,
+ connection_id TEXT NOT NULL REFERENCES provider_connections(id) ON DELETE RESTRICT,connection_revision INTEGER NOT NULL CHECK(connection_revision>0),
+ reference TEXT NOT NULL CHECK(length(reference) BETWEEN 1 AND 256 AND reference NOT GLOB '*[^A-Za-z0-9_-]*'),
+ parent_id TEXT,group_id TEXT NOT NULL,title TEXT NOT NULL CHECK(length(title) BETWEEN 1 AND 200),format TEXT NOT NULL,
+ expected_fingerprint TEXT NOT NULL CHECK(length(expected_fingerprint) BETWEEN 1 AND 1024),document_id TEXT NOT NULL UNIQUE,
+ namespace_id TEXT NOT NULL UNIQUE,state TEXT NOT NULL DEFAULT 'queued' CHECK(state IN ('queued','receiving','staged','committed','failed')),
+ reserved_bytes INTEGER NOT NULL DEFAULT 0 CHECK(reserved_bytes BETWEEN 0 AND 4294967296),
+ digest TEXT CHECK(digest IS NULL OR (length(digest)=64 AND digest NOT GLOB '*[^a-f0-9]*')),size INTEGER CHECK(size IS NULL OR size BETWEEN 0 AND 4294967296),
+ observed_at INTEGER,cleanup_job_id TEXT REFERENCES jobs(id) ON DELETE RESTRICT,error_code TEXT,
+ created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL,
+ CHECK((digest IS NULL)=(size IS NULL)),CHECK(state NOT IN ('staged','committed') OR digest IS NOT NULL)
+);
+CREATE UNIQUE INDEX provider_import_active_source ON provider_google_imports(connection_id,reference) WHERE state IN ('queued','receiving','staged');
+CREATE TRIGGER provider_import_identity BEFORE UPDATE OF job_id,actor_id,connection_id,connection_revision,reference,parent_id,group_id,title,format,expected_fingerprint,document_id,namespace_id,created_at ON provider_google_imports BEGIN
+ SELECT RAISE(ABORT,'Import context is immutable'); END;
+CREATE TRIGGER provider_import_quota_insert BEFORE INSERT ON provider_google_imports BEGIN
+ SELECT CASE WHEN (SELECT COUNT(*) FROM provider_google_imports)>=100000 THEN RAISE(ABORT,'Import record quota') END;
+END;
+CREATE TRIGGER provider_import_quota_update BEFORE UPDATE OF reserved_bytes ON provider_google_imports BEGIN
+ SELECT CASE WHEN (SELECT COALESCE(SUM(reserved_bytes),0) FROM provider_google_imports WHERE job_id!=NEW.job_id)+NEW.reserved_bytes>17179869184 THEN RAISE(ABORT,'Import byte quota') END;
+END;
+CREATE TRIGGER provider_import_committed BEFORE UPDATE ON provider_google_imports WHEN OLD.state='committed' AND (NEW.state!=OLD.state OR NEW.digest!=OLD.digest OR NEW.size!=OLD.size OR NEW.observed_at!=OLD.observed_at) BEGIN
+ SELECT RAISE(ABORT,'Imported source is immutable'); END;
+`;
 /** Parent-table rebuilds run atomically with FK actions suspended, checked before commit, then enforced again. */
 export const migrationForeignKeyRebuilds:readonly number[]=[23,31,38];
-export const migrations = [core + epochTriggers, authInvalidation, authSettings, jobs, documents, workerSlots, uploads, pdfLayers, saveJournal, officeSessions, officeIngress, officeCleanup, officeRecovery, officePrepared, officePreparedBindings, officeSaveIntents, officeOpenings, officeHandoff, documentVisits, versionHistory, historyPreviews, historyRestores, legacyHistory, historyImports, historyCatalogue, providerConnections, providerSourceRequests, providerDeliveryAttempts, providerDeliveryRecoveryIndex, providerDeliveryRequestJob, providerVersionOrigins, providerIngressInbox, providerIngressScheduling, providerSyncActions, providerAcceptedJobIndex, providerOAuthRefreshes, providerGoogleGrantImports, providerIngressBounded, providerGoogleUploads, providerGoogleConnectStates, providerGoogleConnectResults, providerGoogleNativeCommands, providerGoogleDiscovery] as const;
+export const migrations = [core + epochTriggers, authInvalidation, authSettings, jobs, documents, workerSlots, uploads, pdfLayers, saveJournal, officeSessions, officeIngress, officeCleanup, officeRecovery, officePrepared, officePreparedBindings, officeSaveIntents, officeOpenings, officeHandoff, documentVisits, versionHistory, historyPreviews, historyRestores, legacyHistory, historyImports, historyCatalogue, providerConnections, providerSourceRequests, providerDeliveryAttempts, providerDeliveryRecoveryIndex, providerDeliveryRequestJob, providerVersionOrigins, providerIngressInbox, providerIngressScheduling, providerSyncActions, providerAcceptedJobIndex, providerOAuthRefreshes, providerGoogleGrantImports, providerIngressBounded, providerGoogleUploads, providerGoogleConnectStates, providerGoogleConnectResults, providerGoogleNativeCommands, providerGoogleDiscovery, providerGoogleImports] as const;
 export const applicationId = 0x5957494b; // YWIK; legacy Django uses no marker.
