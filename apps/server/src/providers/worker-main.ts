@@ -1,3 +1,5 @@
+import {GoogleDiscoveryWorker} from './google-discovery-worker.ts';
+import {GoogleAuthPool} from './google-auth-pool.ts';
 import {isAbsolute} from 'node:path';
 import {stat} from 'node:fs/promises';
 import {openDatabase} from '../database.ts';
@@ -17,8 +19,8 @@ if(args.length!==3||!args.every(isAbsolute)){
 }else{
  try{
   if(!(await stat(args[0])).isFile()||!(await stat(args[1])).isDirectory())throw new Error('Missing initialized workspace');const codec=await loadSecretCodec(args[2]);
-  try{const db=openDatabase(args[0]);try{const store=await BlobStore.open(args[1]),vault=new CredentialVault(db,new SecretConfigs(codec)),controller=new AbortController(),stop=()=>controller.abort();process.once('SIGINT',stop);process.once('SIGTERM',stop);
-   try{console.info('Yourwiki provider worker started (one shared source slot).');const resolve=createProviderResolvers(vault);await new ProviderLoop(new IngressScheduler(db),new DeliveryWorker(db,store,vault,resolve.outgoing),new IngressWorker(db,store,vault,resolve.incoming)).run(controller.signal);}finally{process.removeListener('SIGINT',stop);process.removeListener('SIGTERM',stop);await vault.close();}
+  try{const db=openDatabase(args[0]);try{const store=await BlobStore.open(args[1]),configs=new SecretConfigs(codec),authPool=new GoogleAuthPool(db,configs),vault=new CredentialVault(db,configs,{authPool}),discovery=new GoogleDiscoveryWorker(db,configs,{authPool}),controller=new AbortController(),stop=()=>controller.abort();process.once('SIGINT',stop);process.once('SIGTERM',stop);
+   try{console.info('Yourwiki provider worker started (one shared source slot).');const resolve=createProviderResolvers(vault);await new ProviderLoop(new IngressScheduler(db),new DeliveryWorker(db,store,vault,resolve.outgoing),new IngressWorker(db,store,vault,resolve.incoming),discovery).run(controller.signal);}finally{process.removeListener('SIGINT',stop);process.removeListener('SIGTERM',stop);await Promise.all([vault.close(),discovery.close()]);await authPool.close();}
   }finally{db.close();}}finally{codec.close();}
  }catch{console.error('Provider worker stopped: workspace initialization or source execution failed.');process.exitCode=1;}
 }

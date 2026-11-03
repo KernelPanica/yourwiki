@@ -1,14 +1,14 @@
 import {setTimeout as delay} from 'node:timers/promises';
 type SourceWorker={runOnce(signal?:AbortSignal):Promise<string>};
-/** One source job at a time. Alternate directions so a busy queue cannot starve the other. */
+/** One source job at a time. Rotate queue priority so discovery and either direction receive turns. */
 export class ProviderLoop {
- private scheduler:{tick():unknown};private outgoing:SourceWorker;private incoming:SourceWorker;private preferIncoming=false;private busy=false;
- constructor(scheduler:{tick():unknown},outgoing:SourceWorker,incoming:SourceWorker){this.scheduler=scheduler;this.outgoing=outgoing;this.incoming=incoming;}
+ private scheduler:{tick():unknown};private workers:SourceWorker[];private next=0;private busy=false;
+ constructor(scheduler:{tick():unknown},outgoing:SourceWorker,incoming:SourceWorker,discovery?:SourceWorker){this.scheduler=scheduler;this.workers=[outgoing,incoming,...(discovery?[discovery]:[])];}
  async tick(signal?:AbortSignal):Promise<'idle'|'worked'>{
   if(this.busy)throw new Error('Provider loop is already running');if(signal?.aborted)return 'idle';this.busy=true;
   try{
-   this.scheduler.tick();const first=this.preferIncoming?this.incoming:this.outgoing,second=this.preferIncoming?this.outgoing:this.incoming;this.preferIncoming=!this.preferIncoming;
-   if(await first.runOnce(signal)!=='idle')return 'worked';if(signal?.aborted)return 'idle';return await second.runOnce(signal)==='idle'?'idle':'worked';
+   this.scheduler.tick();const first=this.next;this.next=(this.next+1)%this.workers.length;
+   for(let offset=0;offset<this.workers.length;offset++){if(signal?.aborted)return 'idle';if(await this.workers[(first+offset)%this.workers.length].runOnce(signal)!=='idle')return 'worked';}return 'idle';
   }finally{this.busy=false;}
  }
  async run(signal:AbortSignal):Promise<void>{while(!signal.aborted){if(await this.tick(signal)==='idle')try{await delay(250,undefined,{signal});}catch{if(!signal.aborted)throw new Error('Provider polling failed');}}}

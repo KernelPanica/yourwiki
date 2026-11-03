@@ -1,3 +1,4 @@
+import {GoogleDiscoveryRequests} from './providers/google-discovery-jobs.ts';
 import {isAbsolute} from 'node:path';
 import {lstat} from 'node:fs/promises';
 import Sqlite from 'better-sqlite3';
@@ -24,7 +25,7 @@ export async function openConfiguredApp(input:ConfiguredAppOptions):Promise<Fast
   const preflight=buildApp({webRoot:options.webRoot});try{await preflight.ready();}finally{await preflight.close();}
   const probe=new Sqlite(options.databasePath,{readonly:true,fileMustExist:true});try{if(probe.pragma('application_id',{simple:true})!==applicationId)throw new Error();}finally{probe.close();}
   db=openDatabase(options.databasePath);const database=db,ownedCodec=codec,configs=new SecretConfigs(codec);for(const row of database.prepare('SELECT encrypted_config FROM provider_connections').iterate() as Iterable<{encrypted_config:string}>)configs.decrypt(row.encrypted_config);const storage=await BlobStore.open(options.storagePath);google=new GoogleConnect(database,configs,origin.origin);
-  app=buildApp({database,storage,webRoot:options.webRoot,publicUrl:origin.origin,googleConnect:google,providerConnections:new ProviderConnections(database,configs),readiness:async()=>database.open&&Boolean(database.prepare('SELECT 1 AS ready').get())});
+  app=buildApp({database,storage,webRoot:options.webRoot,publicUrl:origin.origin,googleConnect:google,googleDiscovery:new GoogleDiscoveryRequests(database,configs),providerConnections:new ProviderConnections(database,configs),readiness:async()=>database.open&&Boolean(database.prepare('SELECT 1 AS ready').get())});
   app.addHook('onClose',()=>{if(database.open)database.close();ownedCodec.close();});await app.ready();return app;
  }catch{
   try{await app?.close();}catch{/* Cleanup continues even after partial app initialization. */}

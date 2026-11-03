@@ -14,8 +14,8 @@ export type GoogleAuthorization={access:(options:ProviderCheck)=>Promise<string>
 type Mint={documentId:string;id:string;revision:number;provider:Provider;check:()=>void;attempt?:DeliveryAttempt};
 /** Worker-only credential boundary. Never inject into HTTP routes or DTOs. */
 export class CredentialVault {
- private db:Database;private configs:SecretConfigs;private auth:GoogleAuthPool;private minted=new WeakMap<AdapterConnection,Mint>();private closed=false;
- constructor(db:Database,configs:SecretConfigs,options:{google?:GoogleAuthPoolOptions}={}){this.db=db;this.configs=configs;this.auth=new GoogleAuthPool(db,configs,options.google);}
+ private db:Database;private configs:SecretConfigs;private auth:GoogleAuthPool;private minted=new WeakMap<AdapterConnection,Mint>();private closed=false;private ownsAuth=true;
+ constructor(db:Database,configs:SecretConfigs,options:{google?:GoogleAuthPoolOptions;authPool?:GoogleAuthPool}={}){this.db=db;this.configs=configs;if(options.authPool&&!options.authPool.belongsToDatabase(db))throw new Error('Google auth pool requires the worker database');this.ownsAuth=!options.authPool;this.auth=options.authPool??new GoogleAuthPool(db,configs,options.google);}
  belongsToDatabase(db:Database){return this.db===db&&!this.closed;}
  private live(){if(this.closed)throw new ProviderError('PROVIDER_CANCELLED');}
  private binding(input:{documentId:string;connectionId:string;connectionRevision:number;bindingGeneration:number}){
@@ -71,5 +71,5 @@ export class CredentialVault {
    await check();const recipients=googleManagedRecipients(this.db,scope.id,scope.revision,reference);await check();return recipients;
   };
  }
- close():Promise<void>{this.closed=true;return this.auth.close();}
+ close():Promise<void>{this.closed=true;return this.ownsAuth?this.auth.close():Promise.resolve();}
 }

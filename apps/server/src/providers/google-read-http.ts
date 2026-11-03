@@ -16,6 +16,10 @@ export class GoogleReadHttp{
  async file(id:string,fields:string,options:ProviderCheck):Promise<Record<string,unknown>>{
   googleFileId(id);if(typeof fields!=='string'||fields.length<1||fields.length>8192||/[^\x20-\x7e]/.test(fields))throw new ProviderError('PROVIDER_INVALID_REFERENCE');return this.read('files/'+id,new URLSearchParams({fields}),options);
  }
+ async children(folderId:string,options:ProviderCheck,pageToken?:string):Promise<Record<string,unknown>>{
+  googleFileId(folderId);if(pageToken!==undefined&&(typeof pageToken!=='string'||pageToken.length<1||pageToken.length>16384||/[\x00-\x20\x7f]/.test(pageToken)||Buffer.from(pageToken).toString('utf8')!==pageToken))throw new ProviderError('PROVIDER_INVALID_REFERENCE');
+  const query=new URLSearchParams({q:"'"+folderId+"' in parents and trashed = false and 'me' in owners",spaces:'drive',corpora:'user',pageSize:'100',fields:'nextPageToken,incompleteSearch,files(id,name,mimeType,parents,version,ownedByMe,shared,driveId,trashed,size,md5Checksum,sha256Checksum,headRevisionId,capabilities(canDownload))'});if(pageToken!==undefined)query.set('pageToken',pageToken);return this.read('files',query,options);
+ }
  async about(options:ProviderCheck):Promise<Record<string,unknown>>{return this.read('about',new URLSearchParams({fields:'user(permissionId,me)'}),options);}
  async permissions(id:string,options:ProviderCheck,pageToken?:string):Promise<Record<string,unknown>>{
   googleFileId(id);if(pageToken!==undefined&&(typeof pageToken!=='string'||pageToken.length<1||pageToken.length>16384||/[\x00-\x20\x7f]/.test(pageToken)))throw new ProviderError('PROVIDER_INVALID_REFERENCE');const query=new URLSearchParams({fields:'permissions(id,type,emailAddress,role,permissionDetails),nextPageToken',pageSize:'100'});if(pageToken!==undefined)query.set('pageToken',pageToken);return this.read('files/'+id+'/permissions',query,options);

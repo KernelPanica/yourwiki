@@ -39,7 +39,10 @@ export class GoogleMetadata{
  private http:Reader;private managed:ManagedRecipients;
  constructor(http:Reader,managed:ManagedRecipients){this.http=http;this.managed=managed;}
  private async file(id:string,options:ProviderCheck):Promise<GoogleFile>{
-  await current(options);const raw=await this.http.file(id,fields,options);await current(options);const result=parse(raw,id);
+  await current(options);const raw=await this.http.file(id,fields,options);return this.inspect(raw,id,options);
+ }
+ private async inspect(raw:Record<string,unknown>,id:string,options:ProviderCheck):Promise<GoogleFile>{
+  await current(options);const result=parse(raw,id);
   if(raw.shared!==false){
    if(raw.shared!==true)deny();
    const recipients=await this.managed(result.id,options);await current(options);
@@ -57,17 +60,28 @@ export class GoogleMetadata{
   await current(options);return result;
  }
  async root(root:string,options:ProviderCheck):Promise<GoogleFile>{googleFileId(root);const info=await this.file(root,options);if(info.mimeType!==folder)deny();return info;}
+ /** Inventory metadata only; source admission must independently re-read and verify bytes. */
+ async listed(raw:Record<string,unknown>,parentId:string,options:ProviderCheck):Promise<GoogleFile>{
+  googleFileId(parentId);const id=googleFileId(raw.id);if(id===parentId||!Array.isArray(raw.parents)||raw.parents.length!==1||raw.parents[0]!==parentId)invalid();return this.inspect(raw,id,options);
+ }
+ /** A folder selected for discovery must remain beneath this configured root. */
+ async folder(reference:string,root:string,options:ProviderCheck):Promise<GoogleFile>{
+  googleFileId(reference);googleFileId(root);const rootInfo=await this.root(root,options);if(reference===root||reference===rootInfo.id)return rootInfo;if(reference==='root')invalid();
+  const source=await this.file(reference,options);if(source.kind!=='folder')invalid();return this.within(source,rootInfo,options);
+ }
+ private async within(source:GoogleFile,rootInfo:GoogleFile,options:ProviderCheck):Promise<GoogleFile>{
+  const seen=new Set<string>([source.id]);let cursor=source;
+  for(let depth=0;depth<34;depth++){
+   const parent=cursor.parents[0];if(!parent||seen.has(parent))invalid();if(parent===rootInfo.id){await current(options);return source;}
+   seen.add(parent);cursor=await this.file(parent,options);if(cursor.kind!=='folder')invalid();
+  }
+  invalid();
+ }
  async verify(reference:string,root:string,options:ProviderCheck):Promise<GoogleFile>{
   googleFileId(reference);googleFileId(root);if(reference==='root')invalid();
   const rootInfo=await this.root(root,options);
   if(reference===rootInfo.id)invalid();
   const source=await this.file(reference,options);if(source.kind==='folder')invalid();
-  const seen=new Set<string>([source.id]);let cursor=source;
-  for(let depth=0;depth<34;depth++){
-   const parent=cursor.parents[0];if(!parent||seen.has(parent))invalid();
-   if(parent===rootInfo.id){await current(options);return source;}
-   seen.add(parent);cursor=await this.file(parent,options);if(cursor.kind!=='folder')invalid();
-  }
-  invalid();
+  return this.within(source,rootInfo,options);
  }
 }

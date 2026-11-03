@@ -950,7 +950,23 @@ CREATE TRIGGER provider_native_transition BEFORE UPDATE OF phase ON provider_goo
 ) BEGIN SELECT RAISE(ABORT,'Invalid native command transition'); END;
 CREATE TRIGGER provider_native_delete BEFORE DELETE ON provider_google_native_commands BEGIN SELECT RAISE(ABORT,'Native command is retained'); END;
 `;
+const providerGoogleDiscovery = `
+CREATE TABLE provider_google_discovery_jobs (
+ job_id TEXT PRIMARY KEY REFERENCES jobs(id) ON DELETE CASCADE,
+ actor_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+ connection_id TEXT NOT NULL REFERENCES provider_connections(id) ON DELETE RESTRICT,
+ connection_revision INTEGER NOT NULL CHECK(connection_revision>0),
+ folder_id TEXT CHECK(folder_id IS NULL OR (length(folder_id) BETWEEN 1 AND 256 AND folder_id NOT GLOB '*[^A-Za-z0-9_-]*')),
+ previous_job_id TEXT,encrypted_page TEXT CHECK(encrypted_page IS NULL OR length(encrypted_page) BETWEEN 1 AND 2097152),
+ created_at INTEGER NOT NULL,expires_at INTEGER NOT NULL CHECK(expires_at>created_at AND expires_at<=created_at+1800000)
+);
+CREATE INDEX provider_google_discovery_expiry ON provider_google_discovery_jobs(expires_at);
+CREATE TRIGGER provider_discovery_identity BEFORE UPDATE OF job_id,actor_id,connection_id,connection_revision,folder_id,previous_job_id,created_at,expires_at ON provider_google_discovery_jobs BEGIN
+ SELECT RAISE(ABORT,'Discovery context is immutable'); END;
+CREATE TRIGGER provider_discovery_page_once BEFORE UPDATE OF encrypted_page ON provider_google_discovery_jobs WHEN OLD.encrypted_page IS NOT NULL OR NEW.encrypted_page IS NULL BEGIN
+ SELECT RAISE(ABORT,'Discovery result is immutable'); END;
+`;
 /** Parent-table rebuilds run atomically with FK actions suspended, checked before commit, then enforced again. */
 export const migrationForeignKeyRebuilds:readonly number[]=[23,31,38];
-export const migrations = [core + epochTriggers, authInvalidation, authSettings, jobs, documents, workerSlots, uploads, pdfLayers, saveJournal, officeSessions, officeIngress, officeCleanup, officeRecovery, officePrepared, officePreparedBindings, officeSaveIntents, officeOpenings, officeHandoff, documentVisits, versionHistory, historyPreviews, historyRestores, legacyHistory, historyImports, historyCatalogue, providerConnections, providerSourceRequests, providerDeliveryAttempts, providerDeliveryRecoveryIndex, providerDeliveryRequestJob, providerVersionOrigins, providerIngressInbox, providerIngressScheduling, providerSyncActions, providerAcceptedJobIndex, providerOAuthRefreshes, providerGoogleGrantImports, providerIngressBounded, providerGoogleUploads, providerGoogleConnectStates, providerGoogleConnectResults, providerGoogleNativeCommands] as const;
+export const migrations = [core + epochTriggers, authInvalidation, authSettings, jobs, documents, workerSlots, uploads, pdfLayers, saveJournal, officeSessions, officeIngress, officeCleanup, officeRecovery, officePrepared, officePreparedBindings, officeSaveIntents, officeOpenings, officeHandoff, documentVisits, versionHistory, historyPreviews, historyRestores, legacyHistory, historyImports, historyCatalogue, providerConnections, providerSourceRequests, providerDeliveryAttempts, providerDeliveryRecoveryIndex, providerDeliveryRequestJob, providerVersionOrigins, providerIngressInbox, providerIngressScheduling, providerSyncActions, providerAcceptedJobIndex, providerOAuthRefreshes, providerGoogleGrantImports, providerIngressBounded, providerGoogleUploads, providerGoogleConnectStates, providerGoogleConnectResults, providerGoogleNativeCommands, providerGoogleDiscovery] as const;
 export const applicationId = 0x5957494b; // YWIK; legacy Django uses no marker.
