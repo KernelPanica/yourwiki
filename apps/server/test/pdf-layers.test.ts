@@ -14,7 +14,7 @@ async function setup(t: any) {
   const db = openDatabase(':memory:');
   t.after(async () => { db.close(); await rm(root, { recursive: true, force: true }); });
   db.exec(`INSERT INTO users(id,username,display_name,password_hash) VALUES('owner','owner','Owner','!'),('reader','reader','Reader','!');
-    INSERT INTO groups VALUES('team','Team'); INSERT INTO memberships VALUES('owner','team'),('reader','team');`);
+    INSERT INTO groups(id,name) VALUES('team','Team'); INSERT INTO memberships VALUES('owner','team'),('reader','team');`);
   const store = await BlobStore.open(root), docs = new DocumentService(db, store);
   const created = await docs.create({ userId: 'owner', parentId: null, groupId: 'team', title: 'PDF', format: 'pdf' }, bytes('%PDF-1.7 original'));
   const layers = new PdfLayerService(db, store, { maxBytes: 1000 });

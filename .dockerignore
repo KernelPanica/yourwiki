@@ -16,3 +16,14 @@ test-results
 skills-lock.json
 wiki/static/wiki/dist
 wiki/static/drawio
+
+# Private release exports must never enter the build context.
+backups
+migration-source
+**/runtime.json
+**/encryption.key
+**/*-private.json
+**/*.key
+**/*.pem
+**/*.p12
+**/*.pfx

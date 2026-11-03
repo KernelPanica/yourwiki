@@ -1,3 +1,6 @@
+import {registerContentParity} from './content-parity/routes.ts';
+import type {SecretConfigs} from './providers/secret-config.ts';
+import {registerAdministration} from './administration/routes.ts';
 import type {GoogleLifecycle} from './providers/google-lifecycle.ts';
 import {registerGoogleLifecycle} from './providers/google-lifecycle-routes.ts';
 import type {GoogleIdentities} from './providers/google-identities.ts';
@@ -32,6 +35,8 @@ import type { BlobStore } from './storage/blobs.ts';
 import { registerAuth } from './auth/routes.ts';
 
 export interface AppOptions {
+  contentSecrets?: SecretConfigs;
+  drawioRoot?: string;
   googleLifecycle?: GoogleLifecycle;
   googleIdentities?: GoogleIdentities;
   googleImports?: GoogleImportRequests;
@@ -93,6 +98,8 @@ export function buildApp(options: AppOptions = {}) {
   if(options.database&&options.providerConnections)registerProviderConnections(app,options.database,options.providerConnections);
   if(options.database&&options.googleConnect)registerGoogleConnect(app,options.database,options.googleConnect,options.publicUrl??'http://localhost:3100');
   if (options.database) registerAuth(app, options.database, options.publicUrl ?? 'http://localhost:3100', {googleConnect:!!options.googleConnect,googleDiscovery:!!options.googleDiscovery,googleImport:!!options.googleImports,googleTrash:!!options.googleTrash,googleIdentity:!!options.googleIdentities,googleLifecycle:!!options.googleLifecycle});
+  if(options.database&&options.storage)registerContentParity(app,options.database,options.storage,options.publicUrl??'http://localhost:3100',{secrets:options.contentSecrets,drawioRoot:options.drawioRoot});
+  if (options.database) registerAdministration(app,options.database,options.publicUrl??'http://localhost:3100');
   if (options.database) registerHistorySettings(app,options.database,options.publicUrl??'http://localhost:3100');
   if (options.database) registerChanges(app, options.database, options.publicUrl ?? 'http://localhost:3100', options.changesPollMs);
   if (options.database && options.storage) registerDocuments(app, options.database, options.storage, options.publicUrl ?? 'http://localhost:3100', options.maxFileBytes, !!options.office, !!options.googleTrash, !!options.googleIdentities);

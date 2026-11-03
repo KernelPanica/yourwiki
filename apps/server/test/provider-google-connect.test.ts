@@ -1,3 +1,4 @@
+import {addGuardianGiga} from './support/guardian-giga.ts';
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {GoogleConnect} from '../src/providers/google-connect.ts';
@@ -36,7 +37,7 @@ test('background refresh changes are preserved while the newly consented token t
  const f=await setup(t,'rotation');await f.service.complete(f.input);const row=f.db.prepare('SELECT encrypted_config FROM provider_connections').get() as any,config=f.configs.decrypt(row.encrypted_config);assert.equal(config.background,42);assert.equal(config.refresh_token,'SYNTHETIC_NEW');assert.deepEqual(config.unknown,{retain:true});
 });
 test('result lookup retains exact browser and Gigaadmin authority without leaking token fields',async t=>{
- const f=await setup(t);await f.service.complete(f.input);assert.throws(()=>f.service.result({...f.input,sessionToken:f.sessions.reader.token,csrf:f.sessions.reader.csrf}));assert.throws(()=>f.service.result({...f.input,csrf:'bad'}));f.db.exec("UPDATE users SET admin_role='simple' WHERE id='admin'");assert.throws(()=>f.service.result(f.input));assert.equal(f.tokens(),1);
+ const f=await setup(t);await f.service.complete(f.input);assert.throws(()=>f.service.result({...f.input,sessionToken:f.sessions.reader.token,csrf:f.sessions.reader.csrf}));assert.throws(()=>f.service.result({...f.input,csrf:'bad'}));(addGuardianGiga(f.db),f.db).exec("UPDATE users SET admin_role='simple' WHERE id='admin'");assert.throws(()=>f.service.result(f.input));assert.equal(f.tokens(),1);
 });
 test('an already cancelled completion does not consume pending consent or send a code',async t=>{
  const f=await setup(t),controller=new AbortController();controller.abort();await assert.rejects(f.service.complete(f.input,{signal:controller.signal,check(){}}),{code:'PROVIDER_CANCELLED'});assert.equal((f.db.prepare('SELECT phase FROM provider_google_connect_states').get() as any).phase,'pending');assert.equal(f.tokens(),0);

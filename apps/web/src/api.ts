@@ -9,7 +9,7 @@ export class ApiError extends Error {
   constructor(code: string, requestId='', operationId:string|null=null) { super(code); this.code=code; this.requestId=requestId; this.operationId=operationId; }
 }
 export async function api<T>(url:string, init:RequestInit={}):Promise<T> {
-  const fence=sessionSnapshot(),control=/^\/api\/(?:auth\/(?:login|logout|office-revoke|office-opening-cancel)|account)(?:[?#]|$)/.test(url);
+  const fence=sessionSnapshot(),control=/^\/api\/(?:auth\/(?:login|logout|accept-invitation|office-revoke|office-opening-cancel)|account)(?:[?#]|$)/.test(url);
   if(fence.blocked&&!control)throw new ApiError('SESSION_REQUIRED');
   const controller=new AbortController();
   const signals=control?[init.signal]:[init.signal,fence.signal];

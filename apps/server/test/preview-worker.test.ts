@@ -19,7 +19,7 @@ async function* bytes(value: string) { yield Buffer.from(value); }
 async function setup(t: any, options = {}) {
   const root = await mkdtemp(join(tmpdir(), 'yourwiki-worker-'));
   const db = openDatabase(':memory:');
-  db.exec("INSERT INTO users(id,username,display_name,password_hash) VALUES('owner','owner','Owner','!'); INSERT INTO groups VALUES('team','Team'); INSERT INTO memberships VALUES('owner','team');");
+  db.exec("INSERT INTO users(id,username,display_name,password_hash) VALUES('owner','owner','Owner','!'); INSERT INTO groups(id,name) VALUES('team','Team'); INSERT INTO memberships VALUES('owner','team');");
   const store = await BlobStore.open(root), service = new DocumentService(db, store), queue = new JobQueue(db);
   const worker = new PreviewWorker(db, store, options);
   t.after(async () => { db.close(); await rm(root, { recursive: true, force: true }); });
@@ -143,7 +143,7 @@ test('standalone CLI publishes durable work and exits cleanly on SIGTERM', async
   const root = await mkdtemp(join(tmpdir(), 'yourwiki-worker-cli-'));
   const path = join(root, 'workspace.sqlite3');
   const db = openDatabase(path);
-  db.exec("INSERT INTO users(id,username,display_name,password_hash) VALUES('owner','owner','Owner','!'); INSERT INTO groups VALUES('team','Team'); INSERT INTO memberships VALUES('owner','team');");
+  db.exec("INSERT INTO users(id,username,display_name,password_hash) VALUES('owner','owner','Owner','!'); INSERT INTO groups(id,name) VALUES('team','Team'); INSERT INTO memberships VALUES('owner','team');");
   const store = await BlobStore.open(join(root, 'storage'));
   const created = await new DocumentService(db, store).create({ userId: 'owner', groupId: 'team', parentId: null, title: 'CLI', format: 'md' }, bytes('# CLI'));
   const child = spawn(process.execPath, [fileURLToPath(new URL('../src/worker/main.ts', import.meta.url)), path, join(root, 'storage')], { stdio: ['ignore', 'pipe', 'pipe'] });

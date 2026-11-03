@@ -12,7 +12,7 @@ import { createSession } from '../src/auth/sessions.ts';
 async function setup(t: any) {
   const root = await mkdtemp(join(tmpdir(), 'yourwiki-upload-http-'));
   const db = openDatabase(':memory:');
-  db.exec("INSERT INTO users(id,username,display_name,password_hash) VALUES('owner','owner','Owner','!'),('other','other','Other','!'); INSERT INTO groups VALUES('team','Team'); INSERT INTO memberships VALUES('owner','team'),('other','team');");
+  db.exec("INSERT INTO users(id,username,display_name,password_hash) VALUES('owner','owner','Owner','!'),('other','other','Other','!'); INSERT INTO groups(id,name) VALUES('team','Team'); INSERT INTO memberships VALUES('owner','team'),('other','team');");
   const store = await BlobStore.open(root), origin = 'https://wiki.test';
   const app = buildApp({ database: db, storage: store, publicUrl: origin, maxFileBytes: 100, maxPendingUploadBytes: 100, uploadChunkBytes: 3 });
   const sessions = Object.fromEntries(['owner','other'].map(user => [user, createSession(db, user)]));

@@ -8,7 +8,7 @@ const origin = 'https://wiki.example.test';
 async function setup(t: any) {
   const db = openDatabase(':memory:');
   db.prepare('INSERT INTO users(id,username,display_name,password_hash) VALUES(?,?,?,?)').run('1', 'member', 'Member', fixture.hashes.pbkdf2_sha256);
-  db.exec("INSERT INTO groups VALUES('team','Team'); INSERT INTO memberships VALUES('1','team');");
+  db.exec("INSERT INTO groups(id,name) VALUES('team','Team'); INSERT INTO memberships VALUES('1','team');");
   const app = buildApp({ database: db, publicUrl: origin });
   t.after(async () => { await app.close(); db.close(); });
   const login = () => app.inject({ method: 'POST', url: '/api/auth/login', headers: { origin }, payload: { username: 'member', password: fixture.password } });

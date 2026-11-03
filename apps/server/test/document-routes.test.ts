@@ -19,7 +19,7 @@ async function setup(t: any, maxFileBytes = 100) {
   const root = await mkdtemp(join(tmpdir(), 'yourwiki-http-'));
   const db = openDatabase(':memory:');
   db.exec(`INSERT INTO users(id,username,display_name,password_hash) VALUES('owner','owner','Owner','!'),('reader','reader','Reader','!');
-    INSERT INTO groups VALUES('team','Team'); INSERT INTO memberships VALUES('owner','team'),('reader','team');`);
+    INSERT INTO groups(id,name) VALUES('team','Team'); INSERT INTO memberships VALUES('owner','team'),('reader','team');`);
   const store = await BlobStore.open(root);
   const app = buildApp({ database: db, publicUrl: origin, storage: store, maxFileBytes });
   const service = new DocumentService(db, store);

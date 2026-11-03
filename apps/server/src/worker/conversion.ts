@@ -1,3 +1,4 @@
+import {validateGraph,graphBytes,decode} from '../content-parity/validation.ts';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { pipeline } from 'node:stream/promises';
@@ -16,6 +17,14 @@ export type ConversionResult = { kind: PreviewManifest['kind']; primary: string;
 
 export async function convert(store: BlobStore, source: BlobRef, format: string, signal: AbortSignal, options: ConversionOptions = {}, target: BlobStore = store): Promise<ConversionResult> {
   signal.throwIfAborted();
+  if (format === 'canvas' || format === 'drawio') {
+    if(source.size>graphBytes)throw new ConversionError('PREVIEW_TOO_COMPLEX');
+    const chunks:Buffer[]=[];let size=0;const stream=await store.read(source.digest);
+    try{for await(const chunk of stream){signal.throwIfAborted();size+=chunk.length;if(size>graphBytes)throw new ConversionError('PREVIEW_TOO_COMPLEX');chunks.push(Buffer.from(chunk));}}finally{stream.destroy();}
+    try{validateGraph(decode(Buffer.concat(chunks)),format);}catch{throw new ConversionError('INVALID_GRAPH');}
+    const artifact=target===store?source:await target.put((async function*(){yield Buffer.concat(chunks);})(),{maxBytes:graphBytes,signal});
+    return {kind:format,primary:'content',artifacts:[{...artifact,name:'content',mimeType:format==='canvas'?'application/json':'text/plain'}]};
+  }
   if (officeFormats.has(format)) return convertOffice(store, source, format, signal, options.office, target);
   if (format === 'pdf') {
     const prefix = source.size ? (await buffer(await store.read(source.digest, { start: 0, end: Math.min(1023, source.size - 1) }))).toString('latin1') : '';

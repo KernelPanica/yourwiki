@@ -1,3 +1,4 @@
+import type {OfficeOptions} from './office/routes.ts';
 import {GoogleLifecycle} from './providers/google-lifecycle.ts';
 import {GoogleIdentities} from './providers/google-identities.ts';
 import {GoogleTrashRequests} from './providers/google-trash-jobs.ts';
@@ -16,7 +17,7 @@ import type {FernetCodec} from './providers/fernet.ts';
 import {SecretConfigs} from './providers/secret-config.ts';
 import {ProviderConnections} from './providers/connections.ts';
 import {GoogleConnect} from './providers/google-connect.ts';
-export type ConfiguredAppOptions={databasePath:string;storagePath:string;secretKeyPath:string;webRoot:string;publicUrl:string};
+export type ConfiguredAppOptions={databasePath:string;storagePath:string;secretKeyPath:string;webRoot:string;publicUrl:string;drawioRoot?:string;office?:OfficeOptions};
 /** Explicit initialized v2 workspace only. No legacy discovery, account/key generation or provider workers. */
 export async function openConfiguredApp(input:ConfiguredAppOptions):Promise<FastifyInstance>{
  let codec:FernetCodec|undefined,db:Database|undefined,app:FastifyInstance|undefined,google:GoogleConnect|undefined,identities:GoogleIdentities|undefined;
@@ -29,7 +30,7 @@ export async function openConfiguredApp(input:ConfiguredAppOptions):Promise<Fast
   const preflight=buildApp({webRoot:options.webRoot});try{await preflight.ready();}finally{await preflight.close();}
   const probe=new Sqlite(options.databasePath,{readonly:true,fileMustExist:true});try{if(probe.pragma('application_id',{simple:true})!==applicationId)throw new Error();}finally{probe.close();}
   db=openDatabase(options.databasePath);const database=db,ownedCodec=codec,configs=new SecretConfigs(codec);for(const row of database.prepare('SELECT encrypted_config FROM provider_connections').iterate() as Iterable<{encrypted_config:string}>)configs.decrypt(row.encrypted_config);const storage=await BlobStore.open(options.storagePath);google=new GoogleConnect(database,configs,origin.origin);identities=new GoogleIdentities(database,configs,origin.origin);
-  app=buildApp({database,storage,webRoot:options.webRoot,publicUrl:origin.origin,googleConnect:google,googleIdentities:identities,googleLifecycle:new GoogleLifecycle(database,configs),googleDiscovery:new GoogleDiscoveryRequests(database,configs),googleImports:new GoogleImportRequests(database,configs),googleTrash:new GoogleTrashRequests(database),providerConnections:new ProviderConnections(database,configs),readiness:async()=>database.open&&Boolean(database.prepare('SELECT 1 AS ready').get())});
+  app=buildApp({database,storage,contentSecrets:configs,drawioRoot:options.drawioRoot,office:options.office,webRoot:options.webRoot,publicUrl:origin.origin,googleConnect:google,googleIdentities:identities,googleLifecycle:new GoogleLifecycle(database,configs),googleDiscovery:new GoogleDiscoveryRequests(database,configs),googleImports:new GoogleImportRequests(database,configs),googleTrash:new GoogleTrashRequests(database),providerConnections:new ProviderConnections(database,configs),readiness:async()=>database.open&&Boolean(database.prepare('SELECT 1 AS ready').get())});
   app.addHook('onClose',()=>{if(database.open)database.close();ownedCodec.close();});await app.ready();return app;
  }catch{
   try{await app?.close();}catch{/* Cleanup continues even after partial app initialization. */}

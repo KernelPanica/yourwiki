@@ -13,7 +13,7 @@ async function fixture(t: any) {
   const db = openDatabase(':memory:');
   t.after(async () => { db.close(); await rm(root, { recursive: true, force: true }); });
   db.exec(`INSERT INTO users(id,username,display_name,password_hash) VALUES('owner','owner','Owner','!'),('reader','reader','Reader','!');
-    INSERT INTO groups VALUES('team','Team'); INSERT INTO memberships VALUES('owner','team'),('reader','team');`);
+    INSERT INTO groups(id,name) VALUES('team','Team'); INSERT INTO memberships VALUES('owner','team'),('reader','team');`);
   const store = await BlobStore.open(root);
   let now = 1000;
   const service = new DocumentService(db, store, { clock: () => now, maxBytes: 1000, converterVersion: 'markdown-1' });

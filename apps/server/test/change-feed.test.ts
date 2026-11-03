@@ -4,7 +4,7 @@ import { openDatabase } from '../src/database.ts';
 import { createSession } from '../src/auth/sessions.ts';
 import { ChangeFeed } from '../src/change-feed.ts';
 function fixture(t:any){
- const db=openDatabase(':memory:');db.exec(`INSERT INTO users(id,username,display_name,password_hash) VALUES('a','a','A','!'),('b','b','B','!'); INSERT INTO groups VALUES('g','G'); INSERT INTO memberships VALUES('a','g'); INSERT INTO resources(id,kind,owner_id,group_id) VALUES('doc','document','a','g');`);
+ const db=openDatabase(':memory:');db.exec(`INSERT INTO users(id,username,display_name,password_hash) VALUES('a','a','A','!'),('b','b','B','!'); INSERT INTO groups(id,name) VALUES('g','G'); INSERT INTO memberships VALUES('a','g'); INSERT INTO resources(id,kind,owner_id,group_id) VALUES('doc','document','a','g');`);
  const sessions={a:createSession(db,'a'),b:createSession(db,'b')};
  const feed=new ChangeFeed(db,{pollMs:60_000});t.after(()=>{feed.close();db.close();});
  return {db,feed,sessions};

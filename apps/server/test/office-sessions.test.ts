@@ -13,7 +13,7 @@ import {SaveJournal} from '../src/save-journal.ts';
 async function* bytes(value:string){yield Buffer.from(value);}
 async function fixture(t:any){
  const root=await mkdtemp(join(tmpdir(),'yourwiki-office-sessions-'));let db=openDatabase(join(root,'db'));t.after(async()=>{db.close();await rm(root,{recursive:true,force:true});});
- db.exec("INSERT INTO users(id,username,display_name,password_hash) VALUES('one','one','First','!'),('two','two','Second','!');INSERT INTO groups VALUES('g','Group');INSERT INTO memberships VALUES('one','g'),('two','g')");
+ db.exec("INSERT INTO users(id,username,display_name,password_hash) VALUES('one','one','First','!'),('two','two','Second','!');INSERT INTO groups(id,name) VALUES('g','Group');INSERT INTO memberships VALUES('one','g'),('two','g')");
  db.prepare('UPDATE app_state SET default_policy=?').run(JSON.stringify({owner:{read:true,write:true},group:{read:true,write:true}}));
  const store=await BlobStore.open(join(root,'store'));let now=1000;const docs=new DocumentService(db,store,{clock:()=>now});
  const doc=await docs.create({userId:'one',title:'Office.docx',format:'docx',parentId:null,groupId:'g'},bytes('office fixture'));

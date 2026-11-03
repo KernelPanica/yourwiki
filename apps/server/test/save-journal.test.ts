@@ -13,7 +13,7 @@ async function* bytes(value:string){yield Buffer.from(value);}
 async function fixture(t:any){
  const root=await mkdtemp(join(tmpdir(),'yourwiki-save-journal-'));const path=join(root,'db.sqlite');let db=openDatabase(path);
  t.after(async()=>{db.close();await rm(root,{recursive:true,force:true});});
- db.exec("INSERT INTO users(id,username,display_name,password_hash) VALUES('owner','owner','Owner','!'),('other','other','Other','!'); INSERT INTO groups VALUES('g','Group');INSERT INTO memberships VALUES('owner','g'),('other','g')");
+ db.exec("INSERT INTO users(id,username,display_name,password_hash) VALUES('owner','owner','Owner','!'),('other','other','Other','!'); INSERT INTO groups(id,name) VALUES('g','Group');INSERT INTO memberships VALUES('owner','g'),('other','g')");
  const store=await BlobStore.open(join(root,'store')),docs=new DocumentService(db,store);const first=await docs.create({userId:'owner',title:'Draft',format:'md',parentId:null,groupId:'g'},bytes('original'));
  const blob=await store.put(bytes('edited'),{maxBytes:100});const input={operationId:'save-operation-1',userId:'owner',documentId:first.documentId,baseRevision:1,baseDigest:first.blob.digest,blob};
  return {path,root,get db(){return db;},store,docs,input,journal:new SaveJournal(db,store),reopen(){db.close();db=openDatabase(path);return new SaveJournal(db,store);}};
