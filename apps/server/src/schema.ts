@@ -846,7 +846,34 @@ CREATE TRIGGER provider_google_upload_delete BEFORE DELETE ON provider_google_up
  SELECT RAISE(ABORT,'Google upload is retained');
 END;
 `;
+const providerGoogleConnectStates = `
+CREATE TABLE provider_google_connect_states (
+ state_hash TEXT PRIMARY KEY CHECK(length(state_hash)=64 AND state_hash NOT GLOB '*[^a-f0-9]*'),
+ user_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+ session_hash TEXT NOT NULL CHECK(length(session_hash)=64 AND session_hash NOT GLOB '*[^a-f0-9]*'),
+ connection_id TEXT NOT NULL REFERENCES provider_connections(id) ON DELETE RESTRICT,
+ connection_revision INTEGER NOT NULL CHECK(connection_revision>0),
+ encrypted_context TEXT NOT NULL CHECK(length(encrypted_context) BETWEEN 1 AND 262144 AND encrypted_context NOT GLOB '*[^A-Za-z0-9_=-]*'),
+ phase TEXT NOT NULL CHECK(phase IN ('pending','claimed')),
+ created_at INTEGER NOT NULL,expires_at INTEGER NOT NULL CHECK(expires_at>created_at AND expires_at<=created_at+600000)
+);
+CREATE INDEX provider_google_connect_expiry ON provider_google_connect_states(expires_at,state_hash);
+CREATE INDEX provider_google_connect_actor ON provider_google_connect_states(user_id,expires_at);
+CREATE TRIGGER provider_google_connect_insert BEFORE INSERT ON provider_google_connect_states BEGIN
+ SELECT CASE WHEN NEW.phase!='pending' OR NOT EXISTS(SELECT 1 FROM provider_connections c JOIN sessions s ON s.token_hash=NEW.session_hash JOIN users u ON u.id=s.user_id
+ WHERE c.id=NEW.connection_id AND c.provider='google' AND c.enabled=1 AND c.revision=NEW.connection_revision
+ AND s.user_id=NEW.user_id AND s.expires_at>=NEW.expires_at AND u.active=1 AND u.admin_role='giga' AND s.auth_version=u.auth_version
+ ) THEN RAISE(ABORT,'Google connect context mismatch') END;
+END;
+CREATE TRIGGER provider_google_connect_identity BEFORE UPDATE OF state_hash,user_id,session_hash,connection_id,connection_revision,encrypted_context,created_at,expires_at ON provider_google_connect_states BEGIN
+ SELECT RAISE(ABORT,'Google connect identity is immutable');
+END;
+CREATE TRIGGER provider_google_connect_transition BEFORE UPDATE OF phase ON provider_google_connect_states
+ WHEN NEW.phase!=OLD.phase AND NOT (OLD.phase='pending' AND NEW.phase='claimed') BEGIN
+ SELECT RAISE(ABORT,'Invalid Google connect transition');
+END;
+`;
 /** Parent-table rebuilds run atomically with FK actions suspended, checked before commit, then enforced again. */
 export const migrationForeignKeyRebuilds:readonly number[]=[23,31,38];
-export const migrations = [core + epochTriggers, authInvalidation, authSettings, jobs, documents, workerSlots, uploads, pdfLayers, saveJournal, officeSessions, officeIngress, officeCleanup, officeRecovery, officePrepared, officePreparedBindings, officeSaveIntents, officeOpenings, officeHandoff, documentVisits, versionHistory, historyPreviews, historyRestores, legacyHistory, historyImports, historyCatalogue, providerConnections, providerSourceRequests, providerDeliveryAttempts, providerDeliveryRecoveryIndex, providerDeliveryRequestJob, providerVersionOrigins, providerIngressInbox, providerIngressScheduling, providerSyncActions, providerAcceptedJobIndex, providerOAuthRefreshes, providerGoogleGrantImports, providerIngressBounded, providerGoogleUploads] as const;
+export const migrations = [core + epochTriggers, authInvalidation, authSettings, jobs, documents, workerSlots, uploads, pdfLayers, saveJournal, officeSessions, officeIngress, officeCleanup, officeRecovery, officePrepared, officePreparedBindings, officeSaveIntents, officeOpenings, officeHandoff, documentVisits, versionHistory, historyPreviews, historyRestores, legacyHistory, historyImports, historyCatalogue, providerConnections, providerSourceRequests, providerDeliveryAttempts, providerDeliveryRecoveryIndex, providerDeliveryRequestJob, providerVersionOrigins, providerIngressInbox, providerIngressScheduling, providerSyncActions, providerAcceptedJobIndex, providerOAuthRefreshes, providerGoogleGrantImports, providerIngressBounded, providerGoogleUploads, providerGoogleConnectStates] as const;
 export const applicationId = 0x5957494b; // YWIK; legacy Django uses no marker.
