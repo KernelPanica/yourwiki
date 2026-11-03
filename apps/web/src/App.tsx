@@ -14,6 +14,7 @@ import type {RestoreOperation} from './history-restore-client.ts';
 import {restoreLabels} from './history-restore-i18n.ts';
 import { labels,languageFor } from './i18n.ts';
 import type { Labels } from './i18n.ts';
+const Invitations=lazy(()=>import('./administration/Invitations.tsx'));
 const AdminPage=lazy(()=>import('./administration/AdminPage.tsx'));
 const AccountPreferences=lazy(()=>import('./administration/AccountPreferences.tsx'));
 const Dashboard=lazy(()=>import('./administration/Dashboard.tsx'));
@@ -136,7 +137,7 @@ function DocumentPage({id,accountId,onSessionLost,csrf,admin}:{id:string;account
     <div className="document-editor" inert={restoreLocked} aria-busy={restoreLocked}>{!view?!error&&<p className="loading" role="status">{t.loading}</p>:office&&!officeSuspended?<Suspense fallback={preview}><OfficeWorkspace key={officeEpoch} view={view} csrf={csrf} onSessionLost={onSessionLost}>{preview}</OfficeWorkspace></Suspense>:preview}</div>
   </main>;
 }
-function AccountPage({account,onSessionLost}:{account:Account;onSessionLost:()=>void}) {return <main id="content" className="account-page"><p className="eyebrow">Yourwiki</p><h1>{t.account}</h1><div className="profile-card"><span className="avatar" aria-hidden="true">{account.user.displayName.slice(0,1).toUpperCase()}</span><div><h2>{account.user.displayName}</h2><p className="muted">@{account.user.username}</p></div></div><dl><dt>{t.groups}</dt><dd>{account.user.groups.map(group=>group.name).join(', ')||'—'}</dd><dt>{t.role}</dt><dd>{account.user.adminRole==='giga'?t.giga:account.user.adminRole==='simple'?t.simple:t.member}</dd></dl><Suspense fallback={<p role="status">{t.loading}</p>}><AccountPreferences csrf={account.csrf} onSessionLost={onSessionLost}/></Suspense>{account.features?.googleIdentity&&<Suspense fallback={<p role="status">{t.loading}</p>}><GoogleIdentityPanel csrf={account.csrf} onSessionLost={onSessionLost}/></Suspense>}</main>;}
+function AccountPage({account,onSessionLost}:{account:Account;onSessionLost:()=>void}) {return <main id="content" className="account-page"><p className="eyebrow">Yourwiki</p><h1>{t.account}</h1><div className="profile-card"><span className="avatar" aria-hidden="true">{account.user.displayName.slice(0,1).toUpperCase()}</span><div><h2>{account.user.displayName}</h2><p className="muted">@{account.user.username}</p></div></div><dl><dt>{t.groups}</dt><dd>{account.user.groups.map(group=>group.name).join(', ')||'—'}</dd><dt>{t.role}</dt><dd>{account.user.adminRole==='giga'?t.giga:account.user.adminRole==='simple'?t.simple:t.member}</dd></dl><Suspense fallback={<p role="status">{t.loading}</p>}><AccountPreferences csrf={account.csrf} onSessionLost={onSessionLost}/></Suspense>{account.user.canInvite&&<Suspense fallback={<p role="status">{t.loading}</p>}><Invitations csrf={account.csrf} onSessionLost={onSessionLost}/></Suspense>}{account.features?.googleIdentity&&<Suspense fallback={<p role="status">{t.loading}</p>}><GoogleIdentityPanel csrf={account.csrf} onSessionLost={onSessionLost}/></Suspense>}</main>;}
 export default function App() {
   const [authPaused,setAuthPaused]=useState(false);
   const [authEpoch,setAuthEpoch]=useState(0);

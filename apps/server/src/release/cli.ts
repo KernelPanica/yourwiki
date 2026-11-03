@@ -15,7 +15,7 @@ try{
   else if(command==='setup'&&values.length===1){await startSetup(root,Number(process.env.SETUP_PORT??3100),process.env.SETUP_BIND??'127.0.0.1',process.env.SETUP_BROWSER_URL);}
   else if(command==='backup'&&values.length===2)console.info(JSON.stringify(await createBackup(join(root,'workspace'),resolve(values[1]))));
   else if(command==='restore'&&values.length===2){await ensureFreshRoot(root);console.info(JSON.stringify(await restoreBackup(resolve(values[1]),join(root,'workspace'))));}
-  else if(command==='migrate'&&values.length===2){await ensureFreshRoot(root);console.info(JSON.stringify(await migrateLegacy(root,JSON.parse(await readFile(resolve(values[1]),'utf8')))));}
+  else if(command==='migrate'&&values.length===2){await ensureFreshRoot(root);const result=await migrateLegacy(root,JSON.parse(await readFile(resolve(values[1]),'utf8')));console.info(JSON.stringify(result));if(result.status==='blocked')process.exitCode=2;}
   else throw new Error('INVALID_ARGUMENTS');
  }else throw new Error('INVALID_ARGUMENTS');
 }catch(error){const allowed=['EXISTING_DATA','DESTINATION_EXISTS','BACKUP_CHECKSUM_MISMATCH','INCOMPLETE_BACKUP','INVALID_ARGUMENTS','CUTOVER_BLOCKED'];const message=error instanceof Error&&allowed.includes(error.message)?error.message:'RELEASE_OPERATION_FAILED';console.error(`${message}. Usage: npm run release -- setup DATA_ROOT | backup DATA_ROOT DESTINATION | restore DATA_ROOT BACKUP | verify-backup BACKUP | migrate DATA_ROOT INPUT_JSON. Stop all runtime services first.`);process.exitCode=1;}

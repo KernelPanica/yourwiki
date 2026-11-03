@@ -26,8 +26,8 @@ export function registerOffice(app:FastifyInstance,db:Database,store:BlobStore,p
  app.addHook('onReady',async()=>{if(stopping)return;cleanup();interval=setInterval(cleanup,cleanupInterval);interval.unref();});
  app.addHook('preClose',async()=>{stopping=true;openings.close();if(interval)clearInterval(interval);await Promise.all([ingress.close(),prepared.close()]);await cleaning;});
  const origin=new URL(publicUrl).origin,wopiBase=officeUrl(options.wopiUrl??publicUrl).href.replace(/\/$/,'');
- // Editing is enabled only after bounded PutFile/recovery is installed; never advertise a non-saving editor.
- const editingReady=false;
+ // The bounded ingress, validation, save journal and recovery pipeline below is installed.
+ const editingReady=true;
  const params={type:'object',required:['id'],properties:{id:{type:'string',minLength:1,maxLength:128}}};
  function browser(request:FastifyRequest,mutation=false){
   const actor=authenticateSession(db,sessionCookie(request));if(!actor)throw new OfficeError('SESSION_REQUIRED');
@@ -73,7 +73,7 @@ export function registerOffice(app:FastifyInstance,db:Database,store:BlobStore,p
    signal.throwIfAborted();const action=await interrupted(discovery.action(document.format,writable),signal);signal.throwIfAborted();actor=browser(request,true);if(openId)openings.assertActive(parent,openId);
    const current=docs.getPublished(actor.userId,document.id);if(!current)throw new OfficeError('NOT_FOUND');if(current.format!==document.format)throw new OfficeError('CONFLICT');
    opened=openId?openings.allocate(sessionCookie(request),openId,document.id,writable):office.open(sessionCookie(request),document.id,writable);const url=new URL(action);
-   await prepareForRequest(request,reply,opened.sessionId,opened.token,signal);signal.throwIfAborted();actor=browser(request,true);const authorized=office.authorize(opened.sessionId,opened.token);original(authorized);const handoffExpiresAt=openId?openings.finish(parent,openId,handoff==='check-file-info-v1'):null;
+   const receipt=await prepareForRequest(request,reply,opened.sessionId,opened.token,signal);signal.throwIfAborted();if(writable&&receipt.format==='md'&&receipt.blob.digest!==receipt.sourceDigest)throw new OfficeError('UNSUPPORTED_OFFICE_FORMAT');actor=browser(request,true);const authorized=office.authorize(opened.sessionId,opened.token);original(authorized);const handoffExpiresAt=openId?openings.finish(parent,openId,handoff==='check-file-info-v1'):null;
    url.searchParams.set('WOPISrc',`${wopiBase}/wopi/files/${opened.sessionId}`);url.searchParams.set('lang',request.body.language??'en');
    return {sessionId:opened.sessionId,accessToken:opened.token,expiresAt:opened.expiresAt,write:authorized.write,export:access.allows(actor.userId,document.id,'export'),actionUrl:url.href,...(handoffExpiresAt!==null?{handoffExpiresAt}:{})};
   }catch(error){cancel();throw error;}finally{watch?.stop();}
@@ -108,9 +108,9 @@ export function registerOffice(app:FastifyInstance,db:Database,store:BlobStore,p
  }
  app.get<{Params:{id:string}}>('/wopi/files/:id',{schema:{params}},(request,reply)=>handle(request,reply,async()=>{
   authorize(request);const receipt=await prepareForRequest(request,reply,request.params.id,requestToken(request));
-  return openings.claim(request.params.id,requestToken(request),actor=>{const row=original(actor),user=db.prepare('SELECT display_name FROM users WHERE id=?').get(actor.userId) as {display_name:string};const write=editingReady&&actor.write;if(receipt.sourceRevision!==actor.session.base_revision||receipt.sourceDigest!==actor.session.base_digest||receipt.format!==row.format)throw new OfficeError('CONFLICT');
+  return openings.claim(request.params.id,requestToken(request),actor=>{const row=original(actor),user=db.prepare('SELECT display_name FROM users WHERE id=?').get(actor.userId) as {display_name:string};const lossless=receipt.format!=='md'||receipt.blob.digest===receipt.sourceDigest;const write=editingReady&&lossless&&actor.write;if(receipt.sourceRevision!==actor.session.base_revision||receipt.sourceDigest!==actor.session.base_digest||receipt.format!==row.format)throw new OfficeError('CONFLICT');
   return {BaseFileName:row.title.toLowerCase().endsWith('.'+row.format)?row.title:row.title+'.'+row.format,OwnerId:row.owner_id,Size:receipt.blob.size,Version:`${actor.session.base_revision}:${row.digest}`,LastModifiedTime:new Date(row.created_at).toISOString(),UserId:actor.userId,UserFriendlyName:user.display_name,
-   UserCanWrite:write,ReadOnly:!write,SupportsUpdate:editingReady,SupportsLocks:true,SupportsGetLock:true,SupportsExtendedLockLength:true,UserCanNotWriteRelative:true,SupportsRename:false,PostMessageOrigin:origin,
+   UserCanWrite:write,ReadOnly:!write,SupportsUpdate:editingReady&&lossless,SupportsLocks:true,SupportsGetLock:true,SupportsExtendedLockLength:true,UserCanNotWriteRelative:true,SupportsRename:false,PostMessageOrigin:origin,
    DisableExport:!actor.export,HideExportOption:!actor.export,DisablePrint:!actor.export,HidePrintOption:!actor.export,DisableCopy:!actor.export};});
  }));
  app.get<{Params:{id:string}}>('/wopi/files/:id/contents',{schema:{params}},(request,reply)=>handle(request,reply,async()=>{

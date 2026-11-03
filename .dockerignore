@@ -27,3 +27,12 @@ migration-source
 **/*.pem
 **/*.p12
 **/*.pfx
+
+# Build dependencies are installed inside their respective image stages.
+**/node_modules
+apps/web/dist
+output
+**/test-results
+**/playwright-report
+**/.env
+**/*.sqlite3*

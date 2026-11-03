@@ -1,5 +1,5 @@
 import { sessionSnapshot,sessionGenerationIsCurrent } from './session-fence.ts';
-export interface Account { features?: {googleConnect?:boolean;googleDiscovery?:boolean;googleImport?:boolean;googleTrash?:boolean;googleIdentity?:boolean;googleLifecycle?:boolean}; user: { id: string; username: string; displayName: string; adminRole: string; groups: {id:string;name:string}[] }; csrf: string }
+export interface Account { features?: {googleConnect?:boolean;googleDiscovery?:boolean;googleImport?:boolean;googleTrash?:boolean;googleIdentity?:boolean;googleLifecycle?:boolean}; user: { id: string; username: string; displayName: string; adminRole: string; canInvite?:boolean; groups: {id:string;name:string}[] }; csrf: string }
 export interface DocumentInfo { id: string; title: string; format: string; revision: number; manifestDigest: string; capabilities: {write:boolean;export:boolean;office?:boolean;googleTrash?:boolean} }
 export interface Artifact { name:string;digest:string;size:number;mimeType:string }
 export type GoogleOriginal={available:boolean;reason?:string;write?:boolean;url?:string};

@@ -27,6 +27,6 @@ export function registerWeb(app:FastifyInstance,webRoot:string,officePublicUrl?:
       return reply.send(createReadStream(join(root,'assets',request.params['*']+(compressed==='br'?'.br':compressed==='gzip'?'.gz':''))));
     });
     const html=async(_request:FastifyRequest,reply:FastifyReply)=>reply.type('text/html').header('content-security-policy',`default-src 'self'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self' data:; connect-src 'self'; frame-src 'self'${officeOrigin}; object-src 'none'; base-uri 'none'; form-action 'self'${officeOrigin}; frame-ancestors 'self'`).send(index);
-    web.get('/',html);web.get('/documents/:id',html);web.get('/account',html);web.get('/recent',html);web.get('/settings',html);
+    web.get('/',html);web.get('/documents/:id',html);web.get('/account',html);web.get('/recent',html);web.get('/settings',html);web.get('/dashboard',html);web.get('/folders/:id',html);web.get('/invite',html);
   });
 }

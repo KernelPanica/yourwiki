@@ -84,3 +84,6 @@ Actual Redmi Note 12T and iOS Safari must be measured with the same complete-con
 | document | warm | 373.8, 337.2, 340.5, 359.2, 311.8 |
 | pdf | cold | 1506.4, 1133.7, 1155.1, 1103.4, 1083.2 |
 | pdf | warm | 861.4, 816.4, 853.7, 836.6, 843.7 |
+
+
+Final integrated build rerun (2026-11-03 deadline batch): enforced2CPU/4GiB;15users;3600HTTP requests in23.13s (155.7req/s),0errors. Whole-page cold/warm medians: library335.2/239.4ms, account275.7/192.0ms, Markdown374.5/294.1ms, PDF1035.4/821.8ms. Eleven of40navigations exceeded500ms. Same desktop Chromium/CDP limitations as above; no physical Redmi/iOS certification or Collabora load certification. Raw report: /tmp/yourwiki-deadline-performance.json.

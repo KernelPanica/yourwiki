@@ -5,7 +5,7 @@ export function removeGoogleTablesFrom(db:Database,first:number){
  // Current fixture creation installs later migrations. Undo their neutral additions
  // too, otherwise deleting their receipts would replay ALTER TABLE against current columns.
  db.exec('DROP TRIGGER resource_purge_restore');
- for(const table of ['resource_tombstones','content_ai_requests','content_attachments','content_reviews','user_preferences','invitations','local_trash','administration_audit','folder_names']){
+ for(const table of ['user_invite_groups','document_presence','resource_tombstones','content_ai_requests','content_attachments','content_reviews','user_preferences','invitations','local_trash','administration_audit','folder_names']){
   assert.equal((db.prepare('SELECT COUNT(*) AS n FROM '+table).get() as {n:number}).n,0,'Future fixture table must be empty: '+table);
   db.exec('DROP TABLE '+table);
  }

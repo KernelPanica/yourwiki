@@ -34,6 +34,7 @@ export class OfficeSaves {
     receipt:{documentId:context.documentId,revision:context.baseRevision,jobId:document.preview_job_id,blob:{digest:context.baseDigest,size:document.size}},
     delivery:'local' as const,providerDelivery:'not_attempted' as const,
    }));
+   if(document.format==='md'&&this.db.prepare("SELECT 1 FROM office_prepared p JOIN office_sessions s ON s.prepared_id=p.id WHERE s.id=? AND p.source_digest!=p.digest").get(input.sessionId))throw new OfficeWriteError('UNSUPPORTED_OFFICE_FORMAT',undefined,received.id);
    const time=new Date(document.created_at).toISOString();
    // Unlocked zero-byte creation is the sole WOPI exception. A forced save
    // without a precondition must retain recovery, not overwrite changed bytes.
