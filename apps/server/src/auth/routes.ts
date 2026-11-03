@@ -19,7 +19,7 @@ export function sessionCookie(request: FastifyRequest): string {
   return values.length === 1 ? values[0].slice(cookieName.length + 1) : '';
 }
 
-export function registerAuth(app: FastifyInstance, db: Database, publicUrl: string, features: {googleConnect?:boolean;googleDiscovery?:boolean} = {}): void {
+export function registerAuth(app: FastifyInstance, db: Database, publicUrl: string, features: {googleConnect?:boolean;googleDiscovery?:boolean;googleImport?:boolean} = {}): void {
   const url = new URL(publicUrl);
   if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash || url.pathname !== '/') throw new Error('Public URL must be an HTTP(S) origin');
   const origin = url.origin;
@@ -66,7 +66,7 @@ export function registerAuth(app: FastifyInstance, db: Database, publicUrl: stri
     const token = sessionCookie(request), session = authenticateSession(db, token);
     if (!session) return reply.code(401).send(errorEnvelope('SESSION_REQUIRED', request.id));
     const groups = db.prepare('SELECT g.id,g.name FROM groups g JOIN memberships m ON m.group_id=g.id WHERE m.user_id=? ORDER BY g.id').all(session.userId);
-    return { user: { id: session.userId, username: session.username, displayName: session.displayName, adminRole: session.adminRole, groups }, csrf: csrfForToken(token), ...(session.adminRole==='giga'&&(features.googleConnect||features.googleDiscovery)?{features:{...(features.googleConnect?{googleConnect:true}:{}),...(features.googleDiscovery?{googleDiscovery:true}:{})}}:{}) };
+    return { user: { id: session.userId, username: session.username, displayName: session.displayName, adminRole: session.adminRole, groups }, csrf: csrfForToken(token), ...(session.adminRole==='giga'&&(features.googleConnect||features.googleDiscovery||features.googleImport)?{features:{...(features.googleConnect?{googleConnect:true}:{}),...(features.googleDiscovery?{googleDiscovery:true}:{}),...(features.googleImport?{googleImport:true}:{})}}:{}) };
   });
 
   app.post('/api/auth/logout', async (request, reply) => {
