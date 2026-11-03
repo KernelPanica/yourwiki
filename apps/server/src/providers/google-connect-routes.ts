@@ -1,0 +1,22 @@
+import {randomBytes} from 'node:crypto';
+import type {FastifyInstance,FastifyRequest,FastifyReply} from 'fastify';
+import type {Database} from '../database.ts';
+import {DocumentError} from '../document-errors.ts';
+import {ProviderError} from './adapter.ts';
+import {errorEnvelope} from '../errors.ts';
+import {authenticateSession,validCsrf} from '../auth/sessions.ts';
+import {sessionCookie} from '../auth/routes.ts';
+import type {GoogleConnect} from './google-connect.ts';
+import {googleCallbackHtml,googleCallbackScript} from './google-connect-callback.ts';
+export function registerGoogleConnect(app:FastifyInstance,db:Database,service:GoogleConnect,publicUrl:string){
+ const origin=new URL(publicUrl).origin;
+ function actor(request:FastifyRequest){const sessionToken=sessionCookie(request),session=authenticateSession(db,sessionToken);if(!session)throw new DocumentError('SESSION_REQUIRED');if(session.adminRole!=='giga')throw new DocumentError('ACCESS_DENIED');const csrf=request.headers['x-csrf-token'];if(request.headers.origin!==origin||typeof csrf!=='string'||!validCsrf(session,csrf))throw new DocumentError('CSRF_REJECTED');return {sessionToken,csrf};}
+ function body(request:FastifyRequest,fields:string[]):Record<string,unknown>{const value=request.body;if(Object.keys(request.query as object).length||request.headers['content-type']?.split(';')[0].trim().toLowerCase()!=='application/json'||!value||typeof value!=='object'||Array.isArray(value)||Object.keys(value).length!==fields.length||fields.some(key=>!Object.hasOwn(value,key)))throw new DocumentError('INVALID_REQUEST');return value as Record<string,unknown>;}
+ function fail(error:unknown,request:FastifyRequest,reply:FastifyReply){if(!(error instanceof DocumentError)&&!(error instanceof ProviderError))throw error;const statuses:Record<string,number>={SESSION_REQUIRED:401,ACCESS_DENIED:403,CSRF_REJECTED:403,INVALID_REQUEST:400,CONFLICT:409,CONFIG_UNAVAILABLE:503,PROVIDER_CONFIG_CHANGED:409,PROVIDER_SOURCE_CHANGED:409,PROVIDER_CANCELLED:409,PROVIDER_UNAVAILABLE:503,PROVIDER_INVALID_REFERENCE:400};const status=statuses[error.code]??500;if(status===503)reply.header('retry-after','1');return reply.code(status).send(errorEnvelope(status===500?'INTERNAL_ERROR':error.code,request.id));}
+ app.post('/api/admin/google/connect/start',{bodyLimit:1024},async(request,reply)=>{try{const user=actor(request),value=body(request,['connectionId','baseRevision']);if(typeof value.connectionId!=='string'||!Number.isSafeInteger(value.baseRevision)||Number(value.baseRevision)<1)throw new DocumentError('INVALID_REQUEST');return service.begin({...user,connectionId:value.connectionId,baseRevision:Number(value.baseRevision)});}catch(error){return fail(error,request,reply);}});
+ app.post('/api/admin/google/connect/result',{bodyLimit:512},async(request,reply)=>{try{const user=actor(request),value=body(request,['state']);if(typeof value.state!=='string')throw new DocumentError('INVALID_REQUEST');return {result:service.result({...user,state:value.state})};}catch(error){return fail(error,request,reply);}});
+ app.post('/api/admin/google/connect/complete',{bodyLimit:12288},async(request,reply)=>{try{const user=actor(request),value=body(request,['state','code']);if(typeof value.state!=='string'||typeof value.code!=='string')throw new DocumentError('INVALID_REQUEST');return await service.complete({...user,state:value.state,code:value.code});}catch(error){return fail(error,request,reply);}});
+ app.get('/api/admin/google/oauth/callback',async(_request,reply)=>{const nonce=randomBytes(18).toString('base64url');return reply.type('text/html').header('referrer-policy','no-referrer').header('content-security-policy',`default-src 'none'; script-src 'self'; connect-src 'self'; style-src 'nonce-${nonce}'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'`).send(googleCallbackHtml(nonce));});
+ app.get('/api/admin/google/oauth/callback.js',async(_request,reply)=>reply.type('text/javascript').header('referrer-policy','no-referrer').header('cross-origin-resource-policy','same-origin').send(googleCallbackScript));
+ app.addHook('onClose',()=>service.close());
+}

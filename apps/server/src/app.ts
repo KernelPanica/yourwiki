@@ -2,6 +2,8 @@ import {registerProviderSync} from './providers/sync-routes.ts';
 import {registerProviderDelivery} from './providers/delivery-routes.ts';
 import {registerProviderConnections} from './providers/connection-routes.ts';
 import type {ProviderConnections} from './providers/connections.ts';
+import type {GoogleConnect} from './providers/google-connect.ts';
+import {registerGoogleConnect} from './providers/google-connect-routes.ts';
 import {registerHistoryTransfer} from './history-transfer-routes.ts';
 import {registerHistoryRestore} from './history-restore-routes.ts';
 import {registerHistoryPreviews} from './history-preview-routes.ts';
@@ -20,6 +22,7 @@ import type { BlobStore } from './storage/blobs.ts';
 import { registerAuth } from './auth/routes.ts';
 
 export interface AppOptions {
+  googleConnect?: GoogleConnect;
   providerConnections?: ProviderConnections;
   office?: OfficeOptions;
   database?: Database;
@@ -35,6 +38,7 @@ export interface AppOptions {
 }
 
 export function buildApp(options: AppOptions = {}) {
+  if(options.googleConnect&&(!options.database||!options.googleConnect.belongsToDatabase(options.database,options.publicUrl??'http://localhost:3100')))throw new Error('Google connect requires matching database and public origin');
   if(options.providerConnections&&(!options.database||!options.providerConnections.belongsToDatabase(options.database)))throw new Error('Provider connections require a matching workspace database');
   const app = Fastify({
     logger: false,
@@ -67,6 +71,7 @@ export function buildApp(options: AppOptions = {}) {
     return reply.code(500).send(errorEnvelope('INTERNAL_ERROR', request.id));
   });
   if(options.database&&options.providerConnections)registerProviderConnections(app,options.database,options.providerConnections);
+  if(options.database&&options.googleConnect)registerGoogleConnect(app,options.database,options.googleConnect,options.publicUrl??'http://localhost:3100');
   if (options.database) registerAuth(app, options.database, options.publicUrl ?? 'http://localhost:3100');
   if (options.database) registerHistorySettings(app,options.database,options.publicUrl??'http://localhost:3100');
   if (options.database) registerChanges(app, options.database, options.publicUrl ?? 'http://localhost:3100', options.changesPollMs);

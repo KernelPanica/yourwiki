@@ -8,9 +8,9 @@ import {verifyGoogleAccount} from './google-account.ts';
 type Actor={sessionToken:string;csrf:string};
 /** Explicit administrative connect flow only. No page-open or source-file IO. */
 export class GoogleConnect{
- private db:Database;private configs:SecretConfigs;private states:GoogleConnectStates;private exchange:GoogleCodeExchange;private request:typeof fetch;private closed=false;private lifetime=new AbortController();private active=new Set<Promise<GoogleConnectResult>>();private draining:Promise<void>|undefined;
- constructor(db:Database,configs:SecretConfigs,publicUrl:string,options:{fetch?:typeof fetch;clock?:()=>number}={}){this.db=db;this.configs=configs;this.request=options.fetch??fetch;this.states=new GoogleConnectStates(db,configs,publicUrl,{clock:options.clock});this.exchange=new GoogleCodeExchange({fetch:this.request});}
- belongsToDatabase(db:Database){return this.db===db&&!this.closed;}
+ private db:Database;private configs:SecretConfigs;private states:GoogleConnectStates;private exchange:GoogleCodeExchange;private request:typeof fetch;private origin:string;private closed=false;private lifetime=new AbortController();private active=new Set<Promise<GoogleConnectResult>>();private draining:Promise<void>|undefined;
+ constructor(db:Database,configs:SecretConfigs,publicUrl:string,options:{fetch?:typeof fetch;clock?:()=>number}={}){this.db=db;this.configs=configs;this.request=options.fetch??fetch;this.states=new GoogleConnectStates(db,configs,publicUrl,{clock:options.clock});this.origin=new URL(publicUrl).origin;this.exchange=new GoogleCodeExchange({fetch:this.request});}
+ belongsToDatabase(db:Database,publicUrl?:string){return this.db===db&&!this.closed&&(publicUrl===undefined||new URL(publicUrl).origin===this.origin);}
  private live(){if(this.closed)throw new ProviderError('PROVIDER_CANCELLED');}
  begin(input:Actor&{connectionId:string;baseRevision:number}){this.live();return this.states.begin(input);}
  result(input:Actor&{state:string}){this.live();return this.states.result(input);}
