@@ -1,3 +1,4 @@
+import {createHash} from 'node:crypto';
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {GoogleBinaryReader} from '../src/providers/google-binary-reader.ts';
@@ -6,7 +7,7 @@ function fixture(){let version='1',parent='rootId',owned=true,shared=false,media
  const request:typeof fetch=async(url,init)=>{const parsed=new URL(String(url));calls.push(parsed.pathname+(parsed.searchParams.get('alt')==='media'?':media':''));assert.equal(parsed.origin,'https://www.googleapis.com');assert.equal(init?.method,'GET');
  if(parsed.searchParams.get('alt')==='media'){media++;return new Response('new');}
  const id=parsed.pathname.split('/').at(-1);if(id==='permissions')return Response.json({permissions:[{id:'p',type:'user',role:'reader',emailAddress:'editor@example.org'}]});
- return Response.json({id,mimeType:id==='file'?'text/markdown':'application/vnd.google-apps.folder',version,parents:id==='rootId'?[]:[parent],ownedByMe:owned,shared:id==='file'&&shared,trashed:false,size:'3',capabilities:{canDownload:true}});
+ return Response.json({id,mimeType:id==='file'?'text/markdown':'application/vnd.google-apps.folder',version,parents:id==='rootId'?[]:[parent],ownedByMe:owned,shared:id==='file'&&shared,trashed:false,size:'3',sha256Checksum:createHash('sha256').update('new').digest('hex'),headRevisionId:'head1',capabilities:{canDownload:true}});
  };return {request,calls,change:()=>version='2',move:()=>parent='outside',revoke:()=>owned=false,share:()=>shared=true,media:()=>media};
 }
 const auth={access:async()=> 'SYNTHETIC',invalidate(){}};
@@ -32,4 +33,14 @@ test('reader close interrupts a pending authority check even before metadata HTT
 });
 test('closing after preflight prevents the prepared bytes from opening HTTP later',async()=>{
  const f=fixture(),reader=new GoogleBinaryReader('rootId',auth,async()=>[],{fetch:f.request}),result=await reader.read('file',allowed);await reader.close();await assert.rejects(collect(result.bytes),{code:'PROVIDER_CANCELLED'});assert.equal(f.media(),0);
+});
+test('stable version cannot hide bytes that disagree with the provider checksum',async t=>{
+ const f=fixture(),request:typeof fetch=async(url,init)=>{const response=await f.request(url,init),parsed=new URL(String(url));if(parsed.pathname.endsWith('/file')&&parsed.searchParams.get('alt')!=='media'){const value=await response.json() as any;value.sha256Checksum='a'.repeat(64);return Response.json(value);}return response;};const reader=new GoogleBinaryReader('rootId',auth,async()=>[],{fetch:request});t.after(()=>reader.close());const result=await reader.read('file',allowed);await assert.rejects(collect(result.bytes),{code:'PROVIDER_CONFLICT'});
+});
+test('binary acceptance requires an available validated checksum, and MD5-only legacy blobs are supported',async t=>{
+ const {createHash}=await import('node:crypto');
+ for(const mode of ['missing','malformed','md5','sha256'] as const){const f=fixture(),request:typeof fetch=async(url,init)=>{const response=await f.request(url,init),parsed=new URL(String(url));if(parsed.pathname.endsWith('/file')&&parsed.searchParams.get('alt')!=='media'){const value=await response.json() as any;delete value.sha256Checksum;delete value.md5Checksum;if(mode==='malformed')value.md5Checksum='PRIVATE-NOT-A-CHECKSUM';if(mode==='md5')value.md5Checksum=createHash('md5').update('new').digest('hex').toUpperCase();if(mode==='sha256')value.sha256Checksum=createHash('sha256').update('new').digest('hex');return Response.json(value);}return response;};const reader=new GoogleBinaryReader('rootId',auth,async()=>[],{fetch:request});t.after(()=>reader.close());if(mode==='missing'||mode==='malformed'){await assert.rejects(reader.read('file',allowed),{code:'PROVIDER_SOURCE_CHANGED'});assert.equal(f.media(),0);}else assert.equal(await collect((await reader.read('file',allowed)).bytes),'new');}
+});
+test('head revision changes cannot hide behind unchanged content and file version fields',async t=>{
+ const f=fixture();let head='head1';const request:typeof fetch=async(url,init)=>{const response=await f.request(url,init),parsed=new URL(String(url));if(parsed.pathname.endsWith('/file')&&parsed.searchParams.get('alt')!=='media'){const value=await response.json() as any;value.headRevisionId=head;return Response.json(value);}return response;};const reader=new GoogleBinaryReader('rootId',auth,async()=>[],{fetch:request});t.after(()=>reader.close());const value=await reader.read('file',allowed),iterator=value.bytes[Symbol.asyncIterator]();await iterator.next();head='head2';await assert.rejects(iterator.next(),{code:'PROVIDER_CONFLICT'});
 });

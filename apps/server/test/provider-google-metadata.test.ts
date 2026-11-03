@@ -26,7 +26,7 @@ test('refuses absent ownership, trash, shared drive, unknown sharing and malform
  }
 });
 test('native kinds follow MIME only and do not mistake native size for exported byte length',async()=>{
- for(const [mimeType,kind] of [['document','document'],['spreadsheet','spreadsheet'],['presentation','presentation']]){
+ for(const [mimeType,kind] of [['DOCUMENT','document'],['document','document'],['spreadsheet','spreadsheet'],['presentation','presentation']]){
   const f=fixture({file:info('file',{mimeType:'application/vnd.google-apps.'+mimeType,size:'999999999999',name:'fake.pdf'})});
   const result=await new GoogleMetadata(f.http,async()=>[]).verify('file','rootId',f.options);assert.equal(result.kind,kind);assert.equal(result.size,null);
  }
@@ -71,4 +71,8 @@ test('actual HTTP composes transport and metadata gate without forwarding provid
  t.after(async()=>{await http.close();server.closeAllConnections();await new Promise<void>(resolve=>server.close(()=>resolve()));});
  const result=await new GoogleMetadata(http,async()=>['reader@example.org']).verify('file','rootId',{check(){}});
  assert.equal(result.kind,'binary');assert.deepEqual(paths,['/drive/v3/files/rootId','/drive/v3/files/file','/drive/v3/files/file/permissions']);assert.equal('shared' in result,false);
+});
+test('provider checksum/revision metadata is normalized, bounded and retained without inferring native content',async()=>{
+ const f=fixture({file:info('file',{md5Checksum:'A'.repeat(32),sha256Checksum:'B'.repeat(64),headRevisionId:'head-1'})}),m=new GoogleMetadata(f.http,async()=>[]),result=await m.verify('file','rootId',f.options);assert.equal(result.md5,'a'.repeat(32));assert.equal(result.sha256,'b'.repeat(64));assert.equal(result.headRevision,'head-1');
+ for(const extra of [{md5Checksum:'bad'},{sha256Checksum:null},{headRevisionId:'private\ninvalid'}]){const bad=fixture({file:info('file',extra)});await assert.rejects(new GoogleMetadata(bad.http,async()=>[]).verify('file','rootId',bad.options),{code:'PROVIDER_SOURCE_CHANGED'});}
 });

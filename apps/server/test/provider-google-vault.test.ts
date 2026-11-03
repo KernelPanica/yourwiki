@@ -45,3 +45,6 @@ test('managed recipient lookup uses canonical vault scope and durable imported r
  f.db.prepare('UPDATE resources SET trashed=1 WHERE id=?').run(doc.documentId);
  await assert.rejects(lookup('file',allowed),code('PROVIDER_CONFIG_CHANGED'));
 });
+test('Google source descriptor is copied from current DB binding and encrypted config, never mutable connection fields',async t=>{
+ const f=await setup(t),connection=f.minted(),reference=connection.reference;connection.reference='spoof';connection.config.root='spoof';connection.provider='local';const source=f.vault.googleSource(connection);assert.equal(source.root,'synthetic-root');assert.equal(source.reference,reference);assert.equal(source.format,'md');assert.ok(Object.isFrozen(source));assert.equal(f.calls(),0);assert.throws(()=>f.vault.googleSource({...connection}),code('PROVIDER_CONFIG_CHANGED'));f.connections.update('admin','google',{baseRevision:1,label:'Changed'});assert.throws(()=>source.check(),code('PROVIDER_CONFIG_CHANGED'));assert.throws(()=>f.vault.googleSource(connection),code('PROVIDER_CONFIG_CHANGED'));
+});
