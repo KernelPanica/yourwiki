@@ -60,7 +60,8 @@ remain separate explicitly started processes; this entrypoint does not spawn
 workers or configure Collabora. The configured app owns its database/key and
 releases them after services drain on shutdown.
 
-Docker/Compose still starts Django. This opt-in command is not a production
+Docker/Compose currently starts Django. The required release target is an npm/
+TypeScript runtime in Docker. This opt-in command is not yet that production
 cutover or a finished installer/data migration.
 
 ## Database, identity and access core
@@ -306,3 +307,25 @@ than retaining unbounded buffers; application shutdown closes streams. Transient
 read failures disconnect streams while allowing a fresh subscription after recovery.
 No provider is called. The React client is not wired to this endpoint yet: dirty
 editor/session-switch protections are required before enabling client invalidation.
+
+## Bound Google source reading
+
+The separate explicitly started worker now resolves Google reads as well as
+Local reads/writes:
+
+```sh
+npm --prefix apps/server run provider-worker -- /srv/yourwiki-v2/workspace.sqlite3 /srv/yourwiki-v2/storage /srv/yourwiki-v2/secret.key
+```
+
+For existing bound Google files, the reader uses canonical encrypted credentials,
+verified private/managed ownership and ancestry, current local scope, bounded
+streaming/checksums and before/after source versions. Native Docs/Sheets/Slides
+export to the pinned DOCX/ODS/PPTX format and retain the old preview until the
+new one is prepared. Pages do not perform this cloud IO.
+
+This enables incoming updates for existing bindings; it does not discover or
+create bindings. Direction-specific resolvers keep a reader from acquiring
+replace/retire methods. Google outgoing delivery remains unavailable pending
+the supported safe-write implementation and acceptance. Do not interpret local
+saving or a queued delivery as confirmation that the Google original changed.
+Live-account acceptance and remaining Google obligations remain open.

@@ -4,16 +4,16 @@ import {transaction,type Database} from '../database.ts';
 import {JobQueue} from '../jobs.ts';
 import {DocumentError} from '../document-errors.ts';
 import type {BlobStore} from '../storage/blobs.ts';
-import {CredentialVault} from './credential-vault.ts';
+import {CredentialVault,type AdapterConnection} from './credential-vault.ts';
 import {ingressContext} from './ingress-guards.ts';
 import {ProviderIngress} from './ingress-inbox.ts';
-import {ProviderError,safeProviderError,type ProviderAdapter,type ProviderRead} from './adapter.ts';
-import type {AdapterResolver} from './delivery-worker.ts';
+import {ProviderError,safeProviderError,type ProviderReader,type ProviderRead} from './adapter.ts';
+export type IngressResolver=(connection:AdapterConnection)=>Promise<ProviderReader>;
 export type IngressResult='idle'|'unchanged'|'discarded'|'applied'|'conflict'|'blocked'|'deferred'|'interrupted';
 /** Dedicated worker; shares the provider-source lease with outward delivery. No page request performs this IO. */
 export class IngressWorker {
- private db:Database;private vault:CredentialVault;private resolve:AdapterResolver;private clock:()=>number;private queue:JobQueue;private inbox:ProviderIngress;private actions:SyncActions;private busy=false;
- constructor(db:Database,store:BlobStore,vault:CredentialVault,resolve:AdapterResolver,options:{clock?:()=>number}={}){
+ private db:Database;private vault:CredentialVault;private resolve:IngressResolver;private clock:()=>number;private queue:JobQueue;private inbox:ProviderIngress;private actions:SyncActions;private busy=false;
+ constructor(db:Database,store:BlobStore,vault:CredentialVault,resolve:IngressResolver,options:{clock?:()=>number}={}){
   if(!vault.belongsToDatabase(db))throw new Error('Provider vault requires the worker database');this.db=db;this.vault=vault;this.resolve=resolve;this.clock=options.clock??Date.now;this.queue=new JobQueue(db);this.inbox=new ProviderIngress(db,store,{clock:this.clock});this.actions=new SyncActions(db,store,{clock:this.clock});
  }
  private capacity(remote:ProviderRead):{declaredSize:number;sizingMode:'exact'|'bounded'}{
@@ -28,7 +28,7 @@ export class IngressWorker {
  async runOnce(signal?:AbortSignal):Promise<IngressResult>{
   if(this.busy)throw new Error('Provider worker is already running');if(signal?.aborted)return 'interrupted';
   const slot=randomUUID(),job=transaction(this.db,()=>{const now=this.clock();if(this.db.prepare("SELECT 1 FROM worker_slots WHERE name='provider-source' AND lease_until>?").get(now))return null;const claim=this.queue.claim(now,30000,'provider.pull');if(claim)this.db.prepare("INSERT INTO worker_slots VALUES('provider-source',?,?) ON CONFLICT(name) DO UPDATE SET token=excluded.token,lease_until=excluded.lease_until").run(slot,now+30000);return claim;});
-  if(!job)return 'idle';const action=this.actions.forJob(job);let actionApplied=false;this.busy=true;const controller=new AbortController(),abort=()=>controller.abort(new ProviderError('PROVIDER_CANCELLED'));signal?.addEventListener('abort',abort,{once:true});if(signal?.aborted)abort();let adapter:ProviderAdapter|undefined,heartbeat:ReturnType<typeof setInterval>|undefined,activeSnapshot:string|undefined;
+  if(!job)return 'idle';const action=this.actions.forJob(job);let actionApplied=false;this.busy=true;const controller=new AbortController(),abort=()=>controller.abort(new ProviderError('PROVIDER_CANCELLED'));signal?.addEventListener('abort',abort,{once:true});if(signal?.aborted)abort();let adapter:ProviderReader|undefined,heartbeat:ReturnType<typeof setInterval>|undefined,activeSnapshot:string|undefined;
   const owns=()=>{controller.signal.throwIfAborted();const now=this.clock();if(!this.queue.owns(job,now)||!this.db.prepare("SELECT 1 FROM worker_slots WHERE name='provider-source' AND token=? AND lease_until>?").get(slot,now))throw new ProviderError('LEASE_LOST');};
   const complete=(errorCode?:string)=>{owns();transaction(this.db,()=>{if(action)this.actions.finish(job,errorCode);if(!this.queue.complete(job,this.clock()))throw new ProviderError('LEASE_LOST');});};
   try{
