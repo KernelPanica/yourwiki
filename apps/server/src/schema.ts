@@ -893,7 +893,64 @@ CREATE TRIGGER provider_google_connect_result_immutable BEFORE UPDATE ON provide
  SELECT RAISE(ABORT,'Google connect result is immutable');
 END;
 `;
+const providerGoogleNativeCommands = `
+CREATE TABLE provider_google_native_usage (
+ id INTEGER PRIMARY KEY CHECK(id=1),reserved_bytes INTEGER NOT NULL DEFAULT 0 CHECK(reserved_bytes BETWEEN 0 AND 134217728),
+ active_records INTEGER NOT NULL DEFAULT 0 CHECK(active_records BETWEEN 0 AND 4096)
+);
+INSERT INTO provider_google_native_usage(id) VALUES(1);
+CREATE TABLE provider_google_native_commands (
+ attempt_id TEXT PRIMARY KEY REFERENCES provider_delivery_attempts(id) ON DELETE RESTRICT,
+ connection_id TEXT NOT NULL REFERENCES provider_connections(id) ON DELETE RESTRICT,connection_revision INTEGER NOT NULL CHECK(connection_revision>0),
+ reference TEXT NOT NULL CHECK(length(reference) BETWEEN 1 AND 256 AND reference NOT GLOB '*[^A-Za-z0-9_-]*'),
+ kind TEXT NOT NULL CHECK(kind IN ('document','presentation')),command_version INTEGER NOT NULL CHECK(command_version=1),
+ request_digest TEXT NOT NULL CHECK(length(request_digest)=64 AND request_digest NOT GLOB '*[^a-f0-9]*'),request_count INTEGER NOT NULL CHECK(request_count BETWEEN 1 AND 1000),
+ encrypted_command TEXT CHECK(encrypted_command IS NULL OR (length(encrypted_command) BETWEEN 1 AND 2097152 AND encrypted_command NOT GLOB '*[^A-Za-z0-9_=-]*')),
+ command_bytes INTEGER NOT NULL CHECK(command_bytes>=0 AND ((encrypted_command IS NULL AND command_bytes=0) OR (encrypted_command IS NOT NULL AND command_bytes=length(encrypted_command)))),
+ phase TEXT NOT NULL CHECK(phase IN ('reserved','dispatched','unknown','acknowledged','rejected')),
+ execution_nonce TEXT CHECK(execution_nonce IS NULL OR (length(execution_nonce)=36 AND execution_nonce NOT GLOB '*[^a-f0-9-]*')),
+ encrypted_ack TEXT CHECK(encrypted_ack IS NULL OR (length(encrypted_ack) BETWEEN 1 AND 32768 AND encrypted_ack NOT GLOB '*[^A-Za-z0-9_=-]*')),
+ reject_code TEXT CHECK(reject_code IS NULL OR (length(reject_code) BETWEEN 1 AND 64 AND reject_code NOT GLOB '*[^A-Z0-9_]*')),
+ created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL CHECK(updated_at>=created_at),
+ CHECK((phase='acknowledged')=(encrypted_ack IS NOT NULL)),CHECK((phase='rejected')=(reject_code IS NOT NULL)),
+ CHECK(phase IN ('reserved','rejected') OR execution_nonce IS NOT NULL),CHECK(phase!='reserved' OR execution_nonce IS NULL),
+ CHECK(encrypted_command IS NOT NULL OR phase IN ('acknowledged','rejected'))
+);
+CREATE TRIGGER provider_native_insert BEFORE INSERT ON provider_google_native_commands BEGIN
+ SELECT CASE WHEN NEW.phase!='reserved' OR NEW.encrypted_command IS NULL OR NEW.execution_nonce IS NOT NULL OR NOT EXISTS(
+  SELECT 1 FROM provider_delivery_attempts a JOIN provider_source_bindings b ON b.document_id=a.document_id JOIN provider_connections c ON c.id=b.connection_id JOIN documents d ON d.id=a.document_id
+  WHERE a.id=NEW.attempt_id AND a.state='writing' AND c.provider='google' AND c.enabled=1 AND c.id=NEW.connection_id AND c.revision=NEW.connection_revision AND a.connection_revision=c.revision
+   AND b.reference=NEW.reference AND b.fingerprint=a.baseline AND b.confirmed_revision=a.base_revision AND b.generation=a.binding_generation
+   AND json_extract(CASE WHEN json_valid(a.baseline) THEN a.baseline ELSE '[]' END,'$[0]')='google-native-v1'
+   AND ((NEW.kind='document' AND d.format='docx') OR (NEW.kind='presentation' AND d.format='pptx'))
+ ) THEN RAISE(ABORT,'Native command context mismatch') END;
+ SELECT CASE WHEN (SELECT reserved_bytes FROM provider_google_native_usage WHERE id=1)+NEW.command_bytes>134217728 OR (SELECT active_records FROM provider_google_native_usage WHERE id=1)>=4096 THEN RAISE(ABORT,'Native command quota') END;
+END;
+CREATE TRIGGER provider_native_reserve AFTER INSERT ON provider_google_native_commands BEGIN
+ UPDATE provider_google_native_usage SET reserved_bytes=reserved_bytes+NEW.command_bytes,active_records=active_records+1 WHERE id=1;
+END;
+CREATE TRIGGER provider_native_identity BEFORE UPDATE OF attempt_id,connection_id,connection_revision,reference,kind,command_version,request_digest,request_count,created_at ON provider_google_native_commands BEGIN
+ SELECT RAISE(ABORT,'Native command identity is immutable');
+END;
+CREATE TRIGGER provider_native_payload BEFORE UPDATE OF encrypted_command,command_bytes ON provider_google_native_commands
+ WHEN OLD.encrypted_command IS NULL OR NEW.encrypted_command IS NOT NULL OR NEW.command_bytes!=0 OR NEW.phase!=OLD.phase OR NOT (
+  OLD.phase='rejected' OR (OLD.phase='acknowledged' AND EXISTS(SELECT 1 FROM provider_delivery_attempts a WHERE a.id=OLD.attempt_id AND a.state IN ('confirmed','retired')))
+ ) BEGIN SELECT RAISE(ABORT,'Native command payload is immutable'); END;
+CREATE TRIGGER provider_native_release AFTER UPDATE OF encrypted_command ON provider_google_native_commands WHEN OLD.encrypted_command IS NOT NULL AND NEW.encrypted_command IS NULL BEGIN
+ UPDATE provider_google_native_usage SET reserved_bytes=reserved_bytes-OLD.command_bytes,active_records=active_records-1 WHERE id=1;
+END;
+CREATE TRIGGER provider_native_execution BEFORE UPDATE OF execution_nonce ON provider_google_native_commands
+ WHEN OLD.execution_nonce IS NOT NULL OR OLD.phase!='reserved' OR NEW.phase!='dispatched' OR NEW.execution_nonce IS NULL BEGIN SELECT RAISE(ABORT,'Native execution is immutable'); END;
+CREATE TRIGGER provider_native_ack BEFORE UPDATE OF encrypted_ack ON provider_google_native_commands
+ WHEN OLD.encrypted_ack IS NOT NULL OR NEW.encrypted_ack IS NULL OR OLD.phase NOT IN ('dispatched','unknown') OR NEW.phase!='acknowledged' BEGIN SELECT RAISE(ABORT,'Native acknowledgement is immutable'); END;
+CREATE TRIGGER provider_native_reject BEFORE UPDATE OF reject_code ON provider_google_native_commands
+ WHEN OLD.reject_code IS NOT NULL OR NEW.reject_code IS NULL OR OLD.phase NOT IN ('reserved','dispatched','unknown') OR NEW.phase!='rejected' BEGIN SELECT RAISE(ABORT,'Native rejection is immutable'); END;
+CREATE TRIGGER provider_native_transition BEFORE UPDATE OF phase ON provider_google_native_commands WHEN NEW.phase!=OLD.phase AND NOT (
+ (OLD.phase='reserved' AND NEW.phase IN ('dispatched','rejected')) OR (OLD.phase='dispatched' AND NEW.phase IN ('unknown','acknowledged','rejected')) OR (OLD.phase='unknown' AND NEW.phase IN ('acknowledged','rejected'))
+) BEGIN SELECT RAISE(ABORT,'Invalid native command transition'); END;
+CREATE TRIGGER provider_native_delete BEFORE DELETE ON provider_google_native_commands BEGIN SELECT RAISE(ABORT,'Native command is retained'); END;
+`;
 /** Parent-table rebuilds run atomically with FK actions suspended, checked before commit, then enforced again. */
 export const migrationForeignKeyRebuilds:readonly number[]=[23,31,38];
-export const migrations = [core + epochTriggers, authInvalidation, authSettings, jobs, documents, workerSlots, uploads, pdfLayers, saveJournal, officeSessions, officeIngress, officeCleanup, officeRecovery, officePrepared, officePreparedBindings, officeSaveIntents, officeOpenings, officeHandoff, documentVisits, versionHistory, historyPreviews, historyRestores, legacyHistory, historyImports, historyCatalogue, providerConnections, providerSourceRequests, providerDeliveryAttempts, providerDeliveryRecoveryIndex, providerDeliveryRequestJob, providerVersionOrigins, providerIngressInbox, providerIngressScheduling, providerSyncActions, providerAcceptedJobIndex, providerOAuthRefreshes, providerGoogleGrantImports, providerIngressBounded, providerGoogleUploads, providerGoogleConnectStates, providerGoogleConnectResults] as const;
+export const migrations = [core + epochTriggers, authInvalidation, authSettings, jobs, documents, workerSlots, uploads, pdfLayers, saveJournal, officeSessions, officeIngress, officeCleanup, officeRecovery, officePrepared, officePreparedBindings, officeSaveIntents, officeOpenings, officeHandoff, documentVisits, versionHistory, historyPreviews, historyRestores, legacyHistory, historyImports, historyCatalogue, providerConnections, providerSourceRequests, providerDeliveryAttempts, providerDeliveryRecoveryIndex, providerDeliveryRequestJob, providerVersionOrigins, providerIngressInbox, providerIngressScheduling, providerSyncActions, providerAcceptedJobIndex, providerOAuthRefreshes, providerGoogleGrantImports, providerIngressBounded, providerGoogleUploads, providerGoogleConnectStates, providerGoogleConnectResults, providerGoogleNativeCommands] as const;
 export const applicationId = 0x5957494b; // YWIK; legacy Django uses no marker.
