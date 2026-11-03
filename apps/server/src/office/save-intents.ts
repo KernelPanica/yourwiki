@@ -1,4 +1,5 @@
 import {randomBytes} from 'node:crypto';
+import {hasIncomingSourceConflict} from '../providers/source-conflict.ts';
 import {transaction,type Database} from '../database.ts';
 import {authenticateSession,tokenHash} from '../auth/sessions.ts';
 import {AccessService} from '../access.ts';
@@ -26,6 +27,6 @@ export class OfficeSaveIntents {
   const committed=this.db.prepare("SELECT id,committed_revision FROM office_ingress WHERE office_session_id=? AND client_tag=? AND state='committed' AND committed_revision IS NOT NULL ORDER BY rowid ASC LIMIT 1").get(sessionId,tag) as {id:string;committed_revision:number}|undefined;
   const last=this.db.prepare('SELECT id,state,error_code FROM office_ingress WHERE office_session_id=? AND client_tag=? ORDER BY rowid DESC LIMIT 1').get(sessionId,tag) as {id:string;state:string;error_code:string|null}|undefined;
   if(committed)this.db.prepare('UPDATE office_save_intents SET confirmed=1 WHERE tag=? AND confirmed=0').run(tag);
-  return {tag,state:committed?'saved' as const:last&&(last.error_code||['failed','discarded'].includes(last.state))?'failed' as const:'pending' as const,operationId:committed?.id??last?.id??null,revision:committed?.committed_revision??null,currentRevision:room.local_revision,changed:!!room.superseded||room.base_revision!==room.local_revision,expired:room.expires_at<=this.clock(),errorCode:committed?null:last?.error_code??null,delivery:'local' as const,providerDelivery:'not_attempted' as const};
+  return {tag,state:committed?'saved' as const:last&&(last.error_code||['failed','discarded'].includes(last.state))?'failed' as const:'pending' as const,operationId:committed?.id??last?.id??null,revision:committed?.committed_revision??null,currentRevision:room.local_revision,changed:!!room.superseded||room.base_revision!==room.local_revision||hasIncomingSourceConflict(this.db,room.document_id),expired:room.expires_at<=this.clock(),errorCode:committed?null:last?.error_code??null,delivery:'local' as const,providerDelivery:'not_attempted' as const};
  });}
 }

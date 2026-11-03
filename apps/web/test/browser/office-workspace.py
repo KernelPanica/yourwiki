@@ -9,7 +9,7 @@ async def main():
  try:
   assert b'Synthetic PDF' in await asyncio.wait_for(server.stdout.readline(),15)
   async with async_playwright() as p:
-   browser=await p.chromium.launch(executable_path=os.environ['PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH'],headless=True,args=['--no-sandbox']);context=await browser.new_context(locale='ru-RU');page=await context.new_page();errors=[];calls=[];changed=False;revoked=False;proof_saved=False;available=True;release_entered=asyncio.Event();release_gate=asyncio.Event()
+   browser=await p.chromium.launch(executable_path=os.environ['PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH'],headless=True,args=['--no-sandbox']);context=await browser.new_context(locale='ru-RU');page=await context.new_page();errors=[];calls=[];changed=False;revoked=False;proof_saved=False;available=True;unavailable_code='OFFICE_NOT_READY';release_entered=asyncio.Event();release_gate=asyncio.Event()
    await page.clock.install();page.on('pageerror',lambda e:errors.append(str(e)))
    async def view(route):
     response=await route.fetch();value=await response.json();value['document']['capabilities']['office']=True;value['document']['capabilities']['write']=not revoked;await route.fulfill(response=response,json=value)
@@ -17,7 +17,7 @@ async def main():
    async def office(route):
     calls.append(('open',route.request.method))
     if not available:
-     await route.fulfill(status=503,json={'code':'OFFICE_NOT_READY'});return
+     await route.fulfill(status=409 if unavailable_code=='CONFLICT' else 503,json={'code':unavailable_code});return
     await route.fulfill(json={'sessionId':'browser-room','accessToken':'a'*43,'expiresAt':9999999999999,'write':True,'export':True,'actionUrl':'http://127.0.0.1:39082/test-office?WOPISrc=http%3A%2F%2F127.0.0.1%3A39082%2Fwopi%2Ffiles%2Fbrowser-room'})
    await page.route('**/api/documents/*/office-opening',office)
    await page.route('**/api/auth/office-opening-cancel',lambda route:route.fulfill(status=204))
@@ -67,6 +67,7 @@ if(!__MANUAL__)setTimeout(()=>send('App_LoadingStatus',{Status:'Document_Loaded'
    await page.set_viewport_size({'width':393,'height':852});await page.get_by_role('button',name='На весь экран',exact=True).click();await page.locator('.office-fullscreen').wait_for();geometry=await page.evaluate('()=>({width:innerWidth,scroll:document.documentElement.scrollWidth})');assert geometry['width']==geometry['scroll'],geometry
    artifact=ROOT/'output'/'playwright'/'office-mobile.png';artifact.parent.mkdir(parents=True,exist_ok=True);await page.screenshot(path=str(artifact));await page.get_by_role('button',name='Выйти из полного экрана',exact=True).click()
    await page.get_by_role('link',name='Аккаунт',exact=True).click();await page.wait_for_url('**/account');available=False;await page.get_by_role('link',name='Yourwiki·',exact=True).click();await page.get_by_role('link',name='MD Live notes').click();await page.get_by_role('alert').filter(has_text='Редактор пока недоступен').wait_for();assert await preview.is_visible();assert await page.locator('iframe.office-frame').count()==0;assert not errors,errors
+   unavailable_code='CONFLICT';await page.get_by_role('link',name='Аккаунт',exact=True).click();await page.wait_for_url('**/account');await page.get_by_role('link',name='Yourwiki·',exact=True).click();await page.get_by_role('link',name='MD Live notes').click();await page.get_by_role('alert').filter(has_text='Оригинал изменён').wait_for();assert await preview.is_visible();assert await page.locator('iframe.office-frame').count()==0
    available=True;await page.get_by_role('link',name='Аккаунт',exact=True).click();await page.wait_for_url('**/account');await page.get_by_role('link',name='Yourwiki·',exact=True).click();await page.get_by_role('link',name='MD Live notes').click();await page.locator('.office-workspace[data-loaded="true"]').wait_for();await field.fill('Retained after expiry')
    revocation_entered=asyncio.Event();revocation_gate=asyncio.Event()
    async def revoke_capability(route):

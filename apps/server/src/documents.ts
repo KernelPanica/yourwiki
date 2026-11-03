@@ -3,6 +3,7 @@ import {requestSourceDelivery,assertSourceDeliveryWritable} from './providers/de
 import {DocumentError} from './document-errors.ts';
 import {captureSourceHistory} from './history-capture.ts';
 import {officeWriteAllowed} from './office/fence.ts';
+import {hasIncomingSourceConflict} from './providers/source-conflict.ts';
 import { randomUUID } from 'node:crypto';
 import { AccessService } from './access.ts';
 import { transaction } from './database.ts';
@@ -62,6 +63,7 @@ export class DocumentService {
     if (!this.access.allows(input.userId, input.documentId, 'write')) throw new DocumentError('ACCESS_DENIED');
     if (doc.local_revision !== input.baseRevision) throw new DocumentError('CONFLICT');
     assertSourceDeliveryWritable(this.db,doc.id,this.clock());
+    if(input.officeSessionId&&hasIncomingSourceConflict(this.db,doc.id))throw new DocumentError('CONFLICT');
     if (!officeWriteAllowed(this.db,doc.id,input.officeSessionId,this.clock())) throw new DocumentError('OFFICE_ACTIVE');
     return doc;
   }

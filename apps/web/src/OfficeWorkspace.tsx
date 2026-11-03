@@ -38,7 +38,7 @@ export default function OfficeWorkspace({view,csrf,children,onSessionLost}:{view
  },[state.bootstrap?.sessionId]);
  useEffect(()=>{if(!editor?.leaveRequested)return;connection.current?.bridge?.cancelLeave();window.dispatchEvent(new CustomEvent('yourwiki:navigate',{detail:'/'}));},[editor?.leaveRequested]);
  const loaded=!!editor?.loaded,paused=editor?.phase==='paused'||state.phase==='paused',closing=state.phase==='closing';
- const warning=state.errorCode==='OFFICE_RELEASE_UNCERTAIN'?t.release:paused?t.paused:editor?.phase==='conflict'?t.conflict:editor?.phase==='failed'?t.uncertain:state.errorCode?t.unavailable:state.readiness==='delayed'?t.delayed:'';
+ const warning=state.errorCode==='OFFICE_RELEASE_UNCERTAIN'?t.release:paused?t.paused:editor?.phase==='conflict'||state.errorCode==='CONFLICT'?t.conflict:editor?.phase==='failed'?t.uncertain:state.errorCode?t.unavailable:state.readiness==='delayed'?t.delayed:'';
  const status=!loaded&&(state.readiness==='delayed'||state.phase==='failed')?t.preview:closing?t.closing:!loaded?t.loading:editor?.saving?t.saving:editor?.phase==='saved'?t.saved:editor?.needsRecovery?t.modified:t.ready;
  useEffect(()=>{if(!full)return;const escape=(e:KeyboardEvent)=>{if(e.key==='Escape')setFull(false);};window.addEventListener('keydown',escape);return()=>window.removeEventListener('keydown',escape);},[full]);
  return <section className={'office-workspace'+(full?' office-fullscreen':'')} data-loaded={loaded} data-readiness={state.readiness} aria-label={view.document.title}>
