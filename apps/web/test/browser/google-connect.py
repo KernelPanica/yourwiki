@@ -15,7 +15,15 @@ async def main():
    page=await context.new_page();errors=[];completions=[];page.on('pageerror',lambda e:errors.append(str(e)));page.on('request',lambda req:completions.append(req.url) if req.method=='POST' and req.url.endswith('/connect/complete') else None)
    async def begin(revision):
     response=await context.request.post(origin+'/api/admin/google/connect/start',headers=headers,data={'connectionId':'google','baseRevision':revision});assert response.status==200;from urllib.parse import urlparse,parse_qs;return parse_qs(urlparse((await response.json())['authorizationUrl']).query)['state'][0]
-   state=await begin(1);await page.goto('http://127.0.0.1:39100/start?state='+state);await page.get_by_role('link',name='Return to Yourwiki').click();await expect(page.get_by_role('status')).to_have_text('Google подключён. Можно вернуться в настройки.');await expect(page.get_by_role('button',name='Проверить результат')).to_be_hidden();assert page.url==origin+'/api/admin/google/oauth/callback';assert len(completions)==1;first=await stats();assert first=={'tokens':1,'gets':2,'callbackCookies':[False],'revision':2},first
+   await page.goto(origin+'/settings');await expect(page.get_by_role('heading',name='Google Drive',exact=True)).to_be_visible();await expect(page.get_by_role('heading',name='Owned Google',exact=True)).to_be_visible()
+   await page.get_by_role('heading',name='Google Drive',exact=True).evaluate("el=>el.scrollIntoView({block:'start'})")
+   target=ROOT/'output/playwright/google-connect-settings-mobile.png';target.parent.mkdir(parents=True,exist_ok=True);await page.screenshot(path=str(target),full_page=True)
+   captured=[]
+   async def consent(route):
+    from urllib.parse import urlparse,parse_qs
+    captured.append(parse_qs(urlparse(route.request.url).query)['state'][0]);await route.fulfill(content_type='text/html',body='<a href="http://127.0.0.1:39100/start?state='+captured[-1]+'">Owned consent</a>')
+   await page.route('https://accounts.google.com/o/oauth2/v2/auth?**',consent);await page.get_by_role('button',name='Подключить Google',exact=True).click();await expect(page.get_by_role('link',name='Owned consent')).to_be_visible();assert len(captured)==1;await page.get_by_role('link',name='Owned consent').click()
+   state=captured[0];await page.goto('http://127.0.0.1:39100/start?state='+state);await page.get_by_role('link',name='Return to Yourwiki').click();await expect(page.get_by_role('status')).to_have_text('Google подключён. Можно вернуться в настройки.');await expect(page.get_by_role('button',name='Проверить результат')).to_be_hidden();assert page.url==origin+'/api/admin/google/oauth/callback';assert len(completions)==1;first=await stats();assert first=={'tokens':1,'gets':2,'callbackCookies':[False],'revision':2},first
    dropped=asyncio.Event()
    async def lost_ack(route):
     response=await route.fetch();assert response.status==200;await route.abort('failed');dropped.set()

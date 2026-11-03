@@ -1,4 +1,5 @@
-import type {Database} from '../database.ts';
+import {readTransaction,type Database} from '../database.ts';
+import {authenticateSession} from '../auth/sessions.ts';
 import {DocumentError} from '../document-errors.ts';
 import {ProviderError,type ProviderCheck} from './adapter.ts';
 import {SecretConfigs} from './secret-config.ts';
@@ -14,6 +15,12 @@ export class GoogleConnect{
  private live(){if(this.closed)throw new ProviderError('PROVIDER_CANCELLED');}
  begin(input:Actor&{connectionId:string;baseRevision:number}){this.live();return this.states.begin(input);}
  result(input:Actor&{state:string}){this.live();return this.states.result(input);}
+ connections(sessionToken:string,after=''){
+  this.live();return readTransaction(this.db,()=>{const session=authenticateSession(this.db,sessionToken);if(!session)throw new DocumentError('SESSION_REQUIRED');if(session.adminRole!=='giga')throw new DocumentError('ACCESS_DENIED');if(typeof after!=='string'||after!==''&&!/^[A-Za-z0-9_.:-]{1,128}$/.test(after))throw new DocumentError('INVALID_REQUEST');
+   const rows=this.db.prepare("SELECT c.id,c.label,c.revision,c.enabled,c.encrypted_config,m.path FROM provider_connections c JOIN provider_mounts m ON m.connection_id=c.id WHERE c.provider='google' AND c.id>? ORDER BY c.id LIMIT 51").all(after) as {id:string;label:string;revision:number;enabled:number;encrypted_config:string;path:string}[];
+   const items=rows.slice(0,50).map(row=>{let configurationReady=false,authorizationStored=false;try{const c=this.configs.decrypt(row.encrypted_config),visible=(v:unknown,max:number)=>typeof v==='string'&&v.length>0&&v.length<=max&&!/[^\x21-\x7e]/.test(v);configurationReady=typeof c.root==='string'&&/^[A-Za-z0-9_-]{1,256}$/.test(c.root)&&visible(c.client_id,2048)&&visible(c.client_secret,65536);authorizationStored=visible(c.refresh_token,65536);}catch{/* Only safe setup state, never encrypted/plain configuration. */}return {id:row.id,label:row.label,path:row.path,revision:row.revision,enabled:row.enabled===1,configurationReady,authorizationStored};});return {items,nextCursor:rows.length>50?items.at(-1)!.id:null};
+  });
+ }
  async complete(value:Actor&{state:string;code:string},options:ProviderCheck={check(){}}):Promise<GoogleConnectResult>{
   this.live();if(options.signal?.aborted)throw new ProviderError('PROVIDER_CANCELLED');const input={...value},result=this.states.result(input);if(result)return result;if(typeof input.code!=='string'||input.code.length<1||input.code.length>8192||/[^\x21-\x7e]/.test(input.code))throw new DocumentError('INVALID_REQUEST');if(this.active.size>=4)throw new ProviderError('PROVIDER_UNAVAILABLE');
   const signal=options.signal?AbortSignal.any([options.signal,this.lifetime.signal]):this.lifetime.signal;

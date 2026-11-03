@@ -22,3 +22,9 @@ test('callback landing is public fixed content with no secret reflection, no cac
 test('app wiring refuses a foreign database or public origin and closes the connect service',async t=>{
  const f=await setup(t);assert.throws(()=>buildApp({googleConnect:f.service}));assert.throws(()=>buildApp({database:f.db,publicUrl:'https://other.test',googleConnect:f.service}));await f.app.close();assert.throws(()=>f.service.begin({sessionToken:f.sessions.admin.token,csrf:f.sessions.admin.csrf,connectionId:'google',baseRevision:1}),{code:'PROVIDER_CANCELLED'});
 });
+test('Google settings list exposes only bounded connection metadata without provider IO or secrets',async t=>{
+ const f=await setup(t),response=await f.app.inject({url:'/api/admin/google/connections',headers:f.headers('admin')});assert.equal(response.statusCode,200);assert.deepEqual(response.json(),{items:[{id:'google',label:'Central',path:'/',revision:1,enabled:true,configurationReady:true,authorizationStored:false}],nextCursor:null});assert.equal(response.body.includes('SYNTHETIC'),false);assert.equal(response.body.includes('rootId'),false);assert.equal(f.calls(),0);assert.equal((await f.app.inject({url:'/api/admin/google/connections',headers:f.headers('writer')})).statusCode,403);assert.equal((await f.app.inject({url:'/api/admin/google/connections?after=bad%2Fid',headers:f.headers('admin')})).statusCode,400);
+});
+test('account advertises Google settings only to Gigaadmins when the service is configured',async t=>{
+ const f=await setup(t);assert.deepEqual((await f.app.inject({url:'/api/account',headers:f.headers('admin')})).json().features,{googleConnect:true});assert.equal((await f.app.inject({url:'/api/account',headers:f.headers('writer')})).json().features,undefined);
+});
