@@ -1,0 +1,24 @@
+import {useEffect,useRef,useState} from 'react';
+import {GoogleDiscoveryClient,type DiscoverySnapshot,type DiscoveredFile} from './google-discovery.ts';
+import type {GoogleConnection} from './google-settings.ts';
+import {languageFor} from './i18n.ts';
+import './google-discovery.css';
+const ru=languageFor(navigator.language)==='ru';
+const kinds:Record<DiscoveredFile['kind'],string>=ru?{folder:'Папка',binary:'Файл',document:'Google Документ',spreadsheet:'Google Таблица',presentation:'Google Презентация'}:{folder:'Folder',binary:'File',document:'Google Doc',spreadsheet:'Google Sheet',presentation:'Google Slides'};
+const initial:DiscoverySnapshot={phase:'idle',busy:false,page:null,operationId:null,hasMore:false,trail:[],errorCode:null};
+export default function GoogleDiscoveryPanel({connection,csrf,disabled,onSessionLost}:{connection:GoogleConnection;csrf:string;disabled:boolean;onSessionLost:()=>void}){
+ const model=useRef<GoogleDiscoveryClient|null>(null),lost=useRef(onSessionLost);lost.current=onSessionLost;const [state,setState]=useState<DiscoverySnapshot>(initial);
+ useEffect(()=>{const client=new GoogleDiscoveryClient({connectionId:connection.id,revision:connection.revision,csrf,onSessionLost:()=>lost.current()});model.current=client;setState(client.snapshot());const remove=client.subscribe(()=>setState(client.snapshot()));return()=>{remove();client.dispose();if(model.current===client)model.current=null;};},[connection.id,connection.revision,csrf]);
+ const waiting=['submitting','queued','running'].includes(state.phase),locked=disabled||state.busy||waiting||state.phase==='unknown'||state.phase==='blocked';
+ const error=state.phase==='blocked'?(ru?'Доступ к обнаружению файлов утрачен. Обновите страницу после входа.':'Access to discovery was lost. Reload after signing in.'):state.phase==='unknown'?(ru?'Результат пока не подтверждён. Проверьте ту же задачу; новый поиск не запускается.':'The result is not confirmed yet. Check the same task; a new search will not start.'):state.phase==='failed'?(state.errorCode==='DISCOVERY_LIMIT'?(ru?'Достигнут лимит задач поиска. Повторите позже.':'The discovery task limit was reached. Try again later.'):state.errorCode==='PROVIDER_CONFIG_CHANGED'?(ru?'Подключение изменилось. Обновите список подключений.':'The connection changed. Refresh the connections list.'):(ru?'Не удалось получить файлы. Проверьте подключение и доступ к папке.':'Could not retrieve files. Check the connection and folder access.')):'';
+ return <details className="google-discovery"><summary>{ru?'Файлы Google':'Google files'}</summary><section aria-label={(ru?'Файлы Google — ':'Google files — ')+connection.label} aria-busy={state.busy}>
+  <p className="muted">{ru?'Поиск выполняется в фоне. Найденные файлы ещё не импортированы в YourWiki.':'Discovery runs in the background. These files have not yet been imported into YourWiki.'}</p>
+  <div className="history-settings-actions"><button type="button" disabled={locked} onClick={()=>void model.current?.start()}>{state.page?(ru?'Обновить папку':'Refresh folder'):(ru?'Найти файлы':'Find files')}</button>{(waiting||state.phase==='unknown')&&<button type="button" disabled={disabled||state.busy} onClick={()=>void model.current?.check()}>{ru?'Проверить задачу':'Check task'}</button>}</div>
+  <p role="status" aria-live="polite">{state.phase==='submitting'?(ru?'Постановка поиска в очередь…':'Queuing discovery…'):state.phase==='queued'?(ru?'Поиск ожидает выполнения…':'Discovery is queued…'):state.phase==='running'?(ru?'Поиск файлов в Google…':'Searching Google files…'):state.phase==='ready'?(ru?'Страница результатов готова.':'The results page is ready.'):''}</p>
+  {error&&<p role="alert" className="notice">{error}</p>}
+  {state.page&&<><nav aria-label={ru?'Папка Google':'Google folder'} className="google-discovery-path"><button type="button" disabled={locked||!state.trail.length} onClick={()=>void model.current?.root()}>{ru?'Корневая папка':'Root folder'}</button>{state.trail.length>0&&<><span>{state.trail.map(item=>item.name).join(' / ')}</span><button type="button" disabled={locked} onClick={()=>void model.current?.back()}>{ru?'На уровень выше':'Up one level'}</button></>}</nav>
+   {!state.page.items.length?<p>{ru?'В этой странице нет файлов.':'There are no files on this page.'}</p>:<ul className="google-discovery-list" aria-label={ru?'Найденные файлы':'Discovered files'}>{state.page.items.map(item=><li key={item.id}><small>{kinds[item.kind]}</small>{item.kind==='folder'?<button type="button" disabled={locked} onClick={()=>void model.current?.enter(item.id)}>{item.name}</button>:<span>{item.name}</span>}</li>)}</ul>}
+   {state.hasMore&&<button type="button" disabled={locked||state.phase!=='ready'} onClick={()=>void model.current?.more()}>{ru?'Следующая страница':'Next page'}</button>}
+  </>}
+ </section></details>;
+}

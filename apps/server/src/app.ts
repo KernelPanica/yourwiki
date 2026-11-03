@@ -76,7 +76,7 @@ export function buildApp(options: AppOptions = {}) {
   });
   if(options.database&&options.providerConnections)registerProviderConnections(app,options.database,options.providerConnections);
   if(options.database&&options.googleConnect)registerGoogleConnect(app,options.database,options.googleConnect,options.publicUrl??'http://localhost:3100');
-  if (options.database) registerAuth(app, options.database, options.publicUrl ?? 'http://localhost:3100', {googleConnect:!!options.googleConnect});
+  if (options.database) registerAuth(app, options.database, options.publicUrl ?? 'http://localhost:3100', {googleConnect:!!options.googleConnect,googleDiscovery:!!options.googleDiscovery});
   if (options.database) registerHistorySettings(app,options.database,options.publicUrl??'http://localhost:3100');
   if (options.database) registerChanges(app, options.database, options.publicUrl ?? 'http://localhost:3100', options.changesPollMs);
   if (options.database && options.storage) registerDocuments(app, options.database, options.storage, options.publicUrl ?? 'http://localhost:3100', options.maxFileBytes, !!options.office);
