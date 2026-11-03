@@ -77,6 +77,12 @@ export class GoogleMetadata{
   }
   invalid();
  }
+ /** Lifecycle evidence only. A trashed target never becomes a readable source or a deletion receipt. */
+ async trashState(reference:string,root:string,options:ProviderCheck):Promise<Readonly<{file:GoogleFile;trashed:boolean;explicitlyTrashed:boolean}>>{
+  googleFileId(reference);googleFileId(root);if(reference==='root')invalid();const rootInfo=await this.root(root,options);if(reference===rootInfo.id)invalid();await current(options);
+  const raw=await this.http.file(reference,fields+',explicitlyTrashed',options);await current(options);if(typeof raw.trashed!=='boolean'||typeof raw.explicitlyTrashed!=='boolean'||raw.explicitlyTrashed&&!raw.trashed)invalid();
+  const source=await this.inspect({...raw,trashed:false},reference,options);if(source.kind==='folder')invalid();await this.within(source,rootInfo,options);await current(options);return Object.freeze({file:source,trashed:raw.trashed,explicitlyTrashed:raw.explicitlyTrashed});
+ }
  async verify(reference:string,root:string,options:ProviderCheck):Promise<GoogleFile>{
   googleFileId(reference);googleFileId(root);if(reference==='root')invalid();
   const rootInfo=await this.root(root,options);
