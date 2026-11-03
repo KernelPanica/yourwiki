@@ -1,3 +1,6 @@
+import {GoogleLifecycle} from './providers/google-lifecycle.ts';
+import {GoogleIdentities} from './providers/google-identities.ts';
+import {GoogleTrashRequests} from './providers/google-trash-jobs.ts';
 import {GoogleImportRequests} from './providers/google-import-jobs.ts';
 import {GoogleDiscoveryRequests} from './providers/google-discovery-jobs.ts';
 import {isAbsolute} from 'node:path';
@@ -16,7 +19,7 @@ import {GoogleConnect} from './providers/google-connect.ts';
 export type ConfiguredAppOptions={databasePath:string;storagePath:string;secretKeyPath:string;webRoot:string;publicUrl:string};
 /** Explicit initialized v2 workspace only. No legacy discovery, account/key generation or provider workers. */
 export async function openConfiguredApp(input:ConfiguredAppOptions):Promise<FastifyInstance>{
- let codec:FernetCodec|undefined,db:Database|undefined,app:FastifyInstance|undefined,google:GoogleConnect|undefined;
+ let codec:FernetCodec|undefined,db:Database|undefined,app:FastifyInstance|undefined,google:GoogleConnect|undefined,identities:GoogleIdentities|undefined;
  try{
   const options={...input};if(![options.databasePath,options.storagePath,options.secretKeyPath,options.webRoot].every(path=>typeof path==='string'&&isAbsolute(path)&&!path.includes('\0')))throw new Error();
   const origin=new URL(options.publicUrl);if(origin.username||origin.password||origin.search||origin.hash||origin.pathname!=='/'||origin.protocol!=='https:'&&!(origin.protocol==='http:'&&['localhost','127.0.0.1','[::1]'].includes(origin.hostname)))throw new Error();
@@ -25,11 +28,12 @@ export async function openConfiguredApp(input:ConfiguredAppOptions):Promise<Fast
   // Verify the frontend before opening the workspace for migrations; never listen on the preflight app.
   const preflight=buildApp({webRoot:options.webRoot});try{await preflight.ready();}finally{await preflight.close();}
   const probe=new Sqlite(options.databasePath,{readonly:true,fileMustExist:true});try{if(probe.pragma('application_id',{simple:true})!==applicationId)throw new Error();}finally{probe.close();}
-  db=openDatabase(options.databasePath);const database=db,ownedCodec=codec,configs=new SecretConfigs(codec);for(const row of database.prepare('SELECT encrypted_config FROM provider_connections').iterate() as Iterable<{encrypted_config:string}>)configs.decrypt(row.encrypted_config);const storage=await BlobStore.open(options.storagePath);google=new GoogleConnect(database,configs,origin.origin);
-  app=buildApp({database,storage,webRoot:options.webRoot,publicUrl:origin.origin,googleConnect:google,googleDiscovery:new GoogleDiscoveryRequests(database,configs),googleImports:new GoogleImportRequests(database,configs),providerConnections:new ProviderConnections(database,configs),readiness:async()=>database.open&&Boolean(database.prepare('SELECT 1 AS ready').get())});
+  db=openDatabase(options.databasePath);const database=db,ownedCodec=codec,configs=new SecretConfigs(codec);for(const row of database.prepare('SELECT encrypted_config FROM provider_connections').iterate() as Iterable<{encrypted_config:string}>)configs.decrypt(row.encrypted_config);const storage=await BlobStore.open(options.storagePath);google=new GoogleConnect(database,configs,origin.origin);identities=new GoogleIdentities(database,configs,origin.origin);
+  app=buildApp({database,storage,webRoot:options.webRoot,publicUrl:origin.origin,googleConnect:google,googleIdentities:identities,googleLifecycle:new GoogleLifecycle(database,configs),googleDiscovery:new GoogleDiscoveryRequests(database,configs),googleImports:new GoogleImportRequests(database,configs),googleTrash:new GoogleTrashRequests(database),providerConnections:new ProviderConnections(database,configs),readiness:async()=>database.open&&Boolean(database.prepare('SELECT 1 AS ready').get())});
   app.addHook('onClose',()=>{if(database.open)database.close();ownedCodec.close();});await app.ready();return app;
  }catch{
   try{await app?.close();}catch{/* Cleanup continues even after partial app initialization. */}
+  try{await identities?.close();}catch{/* Continue cleanup. */}
   try{await google?.close();}catch{/* No unobserved provider operation may retain ownership. */}
   try{if(db?.open)db.close();}finally{codec?.close();}
   throw new Error('WORKSPACE_UNAVAILABLE');

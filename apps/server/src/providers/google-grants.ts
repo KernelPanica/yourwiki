@@ -39,7 +39,7 @@ export function googleManagedRecipients(db:Database,connection:string,revision:n
   return readTransaction(db,()=>{
    if(!db.prepare("SELECT 1 FROM provider_connections WHERE id=? AND provider='google' AND enabled=1 AND revision=?").get(connection,revision))throw new Error();
    const rows=db.prepare("SELECT recipient FROM provider_google_grant_imports WHERE reference=? AND recipient!='' ORDER BY legacy_key LIMIT 10001").all(reference) as {recipient:string}[];
-   if(rows.length>10000)throw new Error();return Object.freeze([...new Set(rows.map(row=>row.recipient.toLowerCase()))]);
+   if(rows.length>10000)throw new Error();const current=db.prepare('SELECT recipient FROM provider_google_grants WHERE reference=? LIMIT 10001').all(reference) as {recipient:string}[];if(current.length>10000)throw new Error();return Object.freeze([...new Set([...rows,...current].map(row=>row.recipient.toLowerCase()))]);
   });
  }catch{throw new ProviderError('PROVIDER_CONFIG_CHANGED');}
 }

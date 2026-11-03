@@ -1,3 +1,4 @@
+import {GoogleOriginals} from './providers/google-grant-sync.ts';
 import {SyncActions} from './providers/sync-actions.ts';
 import {ProviderSync} from './providers/sync-status.ts';
 import {SourceDelivery} from './providers/delivery-status.ts';
@@ -21,7 +22,7 @@ const previewCsp = "sandbox allow-same-origin; default-src 'none'; script-src 'n
 const idSchema = { type: 'object', required: ['id'], properties: { id: { type: 'string', minLength: 1, maxLength: 128 } } };
 
 
-export function registerDocuments(app: FastifyInstance, db: Database, store: BlobStore, publicUrl: string, maxBytes = 4 * 1024 ** 3, officeConfigured = false): void {
+export function registerDocuments(app: FastifyInstance, db: Database, store: BlobStore, publicUrl: string, maxBytes = 4 * 1024 ** 3, officeConfigured = false, googleTrashConfigured = false, googleAccessConfigured = false): void {
   if (!Number.isSafeInteger(maxBytes) || maxBytes < 1) throw new Error('Invalid file size limit');
   const service = new DocumentService(db, store, { maxBytes });
   const recent = new RecentDocuments(db, service);
@@ -29,6 +30,7 @@ export function registerDocuments(app: FastifyInstance, db: Database, store: Blo
   const sourceSync = new ProviderSync(db,store);
   const sourceSyncActions = new SyncActions(db,store);
   const access = new AccessService(db);
+  const originals=googleAccessConfigured?new GoogleOriginals(db):null;
   const pdfLayers = new PdfLayerService(db, store, { maxBytes });
   const origin = new URL(publicUrl).origin;
   function identity(request: FastifyRequest, reply: FastifyReply, mutation = false) {
@@ -54,7 +56,7 @@ export function registerDocuments(app: FastifyInstance, db: Database, store: Blo
 
   function visible(userId: string, id: string) {
     const document = service.getPublished(userId, id);
-    return document ? { ...document, capabilities: { office: officeConfigured && officeFormats.has(document.format), write: access.allows(userId, id, 'write'), export: access.allows(userId, id, 'export') } } : null;
+    return document ? { ...document, capabilities: { office: officeConfigured && officeFormats.has(document.format), ...(googleTrashConfigured&&db.prepare("SELECT 1 FROM users u,provider_source_bindings b JOIN provider_connections c ON c.id=b.connection_id WHERE u.id=? AND u.active=1 AND u.admin_role IN ('giga','simple') AND b.document_id=? AND c.provider='google' AND c.enabled=1").get(userId,id)?{googleTrash:true}:{}),write: access.allows(userId, id, 'write'), export: access.allows(userId, id, 'export') } } : null;
   }
   app.get<{Querystring:{after?:string;limit?:string}}>('/api/recent', (request,reply)=>{
     const actor=identity(request,reply);if(!actor)return;
@@ -114,7 +116,7 @@ export function registerDocuments(app: FastifyInstance, db: Database, store: Blo
       if (!primary || primary.mimeType !== 'application/json' || primary.size > 1024 * 1024) throw new Error('Invalid presentation index');
       presentation = JSON.parse((await buffer(await store.read(primary.digest))).toString());
     }
-    try{return { document, manifest: value, presentation,sourceDelivery:sourceDelivery.status(actor.userId,document.id),sourceSync:sourceSync.status(actor.userId,document.id),sourceSyncAction:sourceSyncActions.active(actor.userId,document.id) };}catch(error){return fail(error,request,reply);}
+    try{return { ...(originals?{googleOriginal:originals.describe(actor.userId,document.id)}:{}),document, manifest: value, presentation,sourceDelivery:sourceDelivery.status(actor.userId,document.id),sourceSync:sourceSync.status(actor.userId,document.id),sourceSyncAction:sourceSyncActions.active(actor.userId,document.id) };}catch(error){return fail(error,request,reply);}
   });
   app.get<{ Params: { id: string; digest: string } }>('/api/documents/:id/previews/:digest', async (request, reply) => {
     const value = await manifest(request, reply, request.params.id, request.params.digest);

@@ -1,3 +1,9 @@
+import type {GoogleLifecycle} from './providers/google-lifecycle.ts';
+import {registerGoogleLifecycle} from './providers/google-lifecycle-routes.ts';
+import type {GoogleIdentities} from './providers/google-identities.ts';
+import {registerGoogleAccess} from './providers/google-access-routes.ts';
+import {GoogleTrashRequests} from './providers/google-trash-jobs.ts';
+import {registerGoogleTrash} from './providers/google-trash-routes.ts';
 import {registerGoogleImports} from './providers/google-import-routes.ts';
 import type {GoogleImportRequests} from './providers/google-import-jobs.ts';
 import {registerGoogleDiscovery} from './providers/google-discovery-routes.ts';
@@ -26,7 +32,10 @@ import type { BlobStore } from './storage/blobs.ts';
 import { registerAuth } from './auth/routes.ts';
 
 export interface AppOptions {
+  googleLifecycle?: GoogleLifecycle;
+  googleIdentities?: GoogleIdentities;
   googleImports?: GoogleImportRequests;
+  googleTrash?: GoogleTrashRequests;
   googleDiscovery?: GoogleDiscoveryRequests;
   googleConnect?: GoogleConnect;
   providerConnections?: ProviderConnections;
@@ -47,7 +56,10 @@ export function buildApp(options: AppOptions = {}) {
   if(options.googleConnect&&(!options.database||!options.googleConnect.belongsToDatabase(options.database,options.publicUrl??'http://localhost:3100')))throw new Error('Google connect requires matching database and public origin');
   if(options.providerConnections&&(!options.database||!options.providerConnections.belongsToDatabase(options.database)))throw new Error('Provider connections require a matching workspace database');
   if(options.googleDiscovery&&(!options.database||!options.googleDiscovery.belongsToDatabase(options.database)))throw new Error('Discovery requires a matching workspace database');
+  if(options.googleTrash&&(!options.database||!options.googleTrash.belongsToDatabase(options.database)))throw new Error('Google trash requires a matching workspace database');
   if(options.googleImports&&(!options.database||!options.googleImports.belongsToDatabase(options.database)))throw new Error('Google imports require a matching workspace database');
+  if(options.googleIdentities&&(!options.database||!options.googleIdentities.belongsToDatabase(options.database)))throw new Error('Google identities require matching database');
+  if(options.googleLifecycle&&(!options.database||!options.googleLifecycle.belongsToDatabase(options.database)))throw new Error('Google lifecycle requires matching database');
   const app = Fastify({
     logger: false,
     requestIdHeader: false,
@@ -80,11 +92,14 @@ export function buildApp(options: AppOptions = {}) {
   });
   if(options.database&&options.providerConnections)registerProviderConnections(app,options.database,options.providerConnections);
   if(options.database&&options.googleConnect)registerGoogleConnect(app,options.database,options.googleConnect,options.publicUrl??'http://localhost:3100');
-  if (options.database) registerAuth(app, options.database, options.publicUrl ?? 'http://localhost:3100', {googleConnect:!!options.googleConnect,googleDiscovery:!!options.googleDiscovery,googleImport:!!options.googleImports});
+  if (options.database) registerAuth(app, options.database, options.publicUrl ?? 'http://localhost:3100', {googleConnect:!!options.googleConnect,googleDiscovery:!!options.googleDiscovery,googleImport:!!options.googleImports,googleTrash:!!options.googleTrash,googleIdentity:!!options.googleIdentities,googleLifecycle:!!options.googleLifecycle});
   if (options.database) registerHistorySettings(app,options.database,options.publicUrl??'http://localhost:3100');
   if (options.database) registerChanges(app, options.database, options.publicUrl ?? 'http://localhost:3100', options.changesPollMs);
-  if (options.database && options.storage) registerDocuments(app, options.database, options.storage, options.publicUrl ?? 'http://localhost:3100', options.maxFileBytes, !!options.office);
+  if (options.database && options.storage) registerDocuments(app, options.database, options.storage, options.publicUrl ?? 'http://localhost:3100', options.maxFileBytes, !!options.office, !!options.googleTrash, !!options.googleIdentities);
   if(options.database&&options.storage)registerProviderSync(app,options.database,options.storage,options.publicUrl??'http://localhost:3100');
+  if(options.database&&options.googleLifecycle)registerGoogleLifecycle(app,options.database,options.googleLifecycle,options.publicUrl??'http://localhost:3100');
+  if(options.database&&options.googleIdentities)registerGoogleAccess(app,options.database,options.googleIdentities,options.publicUrl??'http://localhost:3100');
+  if(options.database&&options.googleTrash)registerGoogleTrash(app,options.database,options.googleTrash,options.publicUrl??'http://localhost:3100');
   if(options.database&&options.googleImports)registerGoogleImports(app,options.database,options.googleImports,options.publicUrl??'http://localhost:3100');
   if(options.database&&options.googleDiscovery)registerGoogleDiscovery(app,options.database,options.googleDiscovery,options.publicUrl??'http://localhost:3100');
   if(options.database&&options.storage)registerProviderDelivery(app,options.database,options.storage,options.publicUrl??'http://localhost:3100');

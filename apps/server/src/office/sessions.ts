@@ -1,3 +1,4 @@
+import {googleLifecyclePending} from '../providers/google-lifecycle-guard.ts';
 import {randomUUID,randomBytes} from 'node:crypto';
 import {hasIncomingSourceConflict} from '../providers/source-conflict.ts';
 import {AccessService} from '../access.ts';
@@ -27,7 +28,7 @@ export class OfficeSessions {
    const original=this.original(documentId);
    if(!original||original.published_revision===null||!this.access.allows(actor.userId,documentId,'read'))throw new OfficeError('NOT_FOUND');
    if(!officeFormats.has(original.format))throw new OfficeError('UNSUPPORTED_OFFICE_FORMAT');
-   if(hasIncomingSourceConflict(this.db,documentId))throw new OfficeError('CONFLICT');
+   if(googleLifecyclePending(this.db,documentId)||hasIncomingSourceConflict(this.db,documentId))throw new OfficeError('CONFLICT');
    let row=this.db.prepare('SELECT * FROM office_sessions WHERE document_id=? AND superseded=0').get(documentId) as OfficeSession|undefined;
    if(row)row=this.refresh(row);
    if(row&&!row.superseded&&row.expires_at<=now&&!row.pending_operation_id){this.db.prepare('UPDATE office_sessions SET superseded=1 WHERE id=?').run(row.id);row=undefined;}

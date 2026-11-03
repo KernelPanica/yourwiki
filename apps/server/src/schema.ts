@@ -992,7 +992,117 @@ END;
 CREATE TRIGGER provider_import_committed BEFORE UPDATE ON provider_google_imports WHEN OLD.state='committed' AND (NEW.state!=OLD.state OR NEW.digest!=OLD.digest OR NEW.size!=OLD.size OR NEW.observed_at!=OLD.observed_at) BEGIN
  SELECT RAISE(ABORT,'Imported source is immutable'); END;
 `;
+const providerGoogleTrash = `
+CREATE TABLE provider_google_trash (
+ job_id TEXT PRIMARY KEY REFERENCES jobs(id) ON DELETE RESTRICT,request_id TEXT NOT NULL,actor_id TEXT NOT NULL,
+ document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE RESTRICT,
+ connection_id TEXT NOT NULL REFERENCES provider_connections(id) ON DELETE RESTRICT,connection_revision INTEGER NOT NULL CHECK(connection_revision>0),
+ binding_generation INTEGER NOT NULL CHECK(binding_generation>0),reference TEXT NOT NULL,baseline TEXT NOT NULL,
+ base_revision INTEGER NOT NULL CHECK(base_revision>0),target_trashed INTEGER NOT NULL CHECK(target_trashed IN (0,1)),
+ state TEXT NOT NULL DEFAULT 'queued' CHECK(state IN ('queued','dispatched','unknown','acknowledged','confirmed','failed')),
+ confirmed_trashed INTEGER CHECK(confirmed_trashed IN (0,1)),confirmed_fingerprint TEXT,error_code TEXT,
+ watch_sequence INTEGER NOT NULL DEFAULT 0 CHECK(watch_sequence>=0),next_check_at INTEGER NOT NULL DEFAULT 0,external_restored_at INTEGER,
+ created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL,
+ UNIQUE(actor_id,request_id),CHECK((state='confirmed')=(confirmed_trashed IS NOT NULL)),CHECK((confirmed_trashed IS NULL)=(confirmed_fingerprint IS NULL)),
+ FOREIGN KEY(document_id,base_revision) REFERENCES document_versions(document_id,revision) ON DELETE RESTRICT
+);
+CREATE UNIQUE INDEX provider_google_trash_pending ON provider_google_trash(document_id) WHERE state NOT IN ('confirmed','failed');
+CREATE UNIQUE INDEX provider_google_trash_pending_reference ON provider_google_trash(reference) WHERE state NOT IN ('confirmed','failed');
+CREATE INDEX provider_google_trash_document ON provider_google_trash(document_id);
+CREATE INDEX provider_google_trash_recent ON provider_google_trash(created_at DESC,job_id DESC);
+CREATE INDEX provider_google_trash_watch ON provider_google_trash(state,confirmed_trashed,next_check_at);
+CREATE TRIGGER provider_trash_identity BEFORE UPDATE OF job_id,request_id,actor_id,document_id,connection_id,connection_revision,binding_generation,reference,baseline,base_revision,target_trashed,created_at ON provider_google_trash BEGIN SELECT RAISE(ABORT,'Trash context is immutable'); END;
+CREATE TRIGGER provider_trash_transition BEFORE UPDATE OF state ON provider_google_trash WHEN NEW.state!=OLD.state AND NOT (
+ (OLD.state='queued' AND NEW.state IN ('dispatched','confirmed','failed')) OR
+ (OLD.state='dispatched' AND NEW.state IN ('unknown','acknowledged','confirmed','failed')) OR
+ (OLD.state='unknown' AND NEW.state IN ('acknowledged','confirmed')) OR
+ (OLD.state='acknowledged' AND NEW.state IN ('unknown','confirmed'))
+) BEGIN SELECT RAISE(ABORT,'Invalid trash transition'); END;
+CREATE TRIGGER provider_trash_quota BEFORE INSERT ON provider_google_trash WHEN (SELECT COUNT(*) FROM provider_google_trash)>=100000 BEGIN SELECT RAISE(ABORT,'Trash record quota'); END;
+CREATE TRIGGER provider_trash_confirmed BEFORE UPDATE OF confirmed_trashed,confirmed_fingerprint ON provider_google_trash WHEN OLD.state='confirmed' BEGIN SELECT RAISE(ABORT,'Trash observation is immutable'); END;
+`;
+const providerGoogleAccess = `
+CREATE TABLE provider_google_identities (
+ user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE RESTRICT,subject TEXT NOT NULL,email TEXT NOT NULL,
+ active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0,1)),revision INTEGER NOT NULL DEFAULT 1,verified_at INTEGER NOT NULL
+);
+CREATE UNIQUE INDEX provider_google_identity_subject ON provider_google_identities(subject) WHERE active=1;
+CREATE UNIQUE INDEX provider_google_identity_email ON provider_google_identities(email) WHERE active=1;
+CREATE TABLE provider_google_identity_states (
+ state_hash TEXT PRIMARY KEY,user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,session_hash TEXT NOT NULL,
+ connection_id TEXT NOT NULL REFERENCES provider_connections(id) ON DELETE RESTRICT,connection_revision INTEGER NOT NULL,
+ encrypted_context TEXT NOT NULL,phase TEXT NOT NULL CHECK(phase IN ('pending','claimed','completed')),
+ created_at INTEGER NOT NULL,expires_at INTEGER NOT NULL,completed_at INTEGER
+);
+CREATE TABLE provider_google_object_metadata (
+ reference TEXT PRIMARY KEY,connection_id TEXT NOT NULL,connection_revision INTEGER NOT NULL,kind TEXT NOT NULL,
+ title TEXT NOT NULL DEFAULT '',mime_type TEXT NOT NULL,version TEXT NOT NULL,parents TEXT NOT NULL,checked_at INTEGER NOT NULL
+);
+CREATE TABLE provider_google_grants (
+ reference TEXT NOT NULL,recipient TEXT NOT NULL,connection_id TEXT NOT NULL REFERENCES provider_connections(id) ON DELETE RESTRICT,
+ connection_revision INTEGER NOT NULL,desired_role TEXT NOT NULL DEFAULT '' CHECK(desired_role IN ('','reader','writer')),
+ applied_role TEXT NOT NULL DEFAULT '' CHECK(applied_role IN ('','reader','writer','owner')),permission_id TEXT,
+ state TEXT NOT NULL DEFAULT 'pending' CHECK(state IN ('pending','unknown','synced','failed')),
+ pending_action TEXT CHECK(pending_action IN ('create','update','delete')),pending_role TEXT,pending_previous TEXT,acknowledged INTEGER NOT NULL DEFAULT 0 CHECK(acknowledged IN (0,1)),
+ error_code TEXT,checked_at INTEGER NOT NULL DEFAULT 0,job_id TEXT REFERENCES jobs(id),PRIMARY KEY(reference,recipient)
+);
+CREATE INDEX provider_google_grant_pending ON provider_google_grants(state,checked_at);
+CREATE TABLE provider_google_export_rules (
+ reference TEXT PRIMARY KEY,connection_id TEXT NOT NULL REFERENCES provider_connections(id),connection_revision INTEGER NOT NULL,
+ desired INTEGER NOT NULL CHECK(desired IN (0,1)),applied INTEGER CHECK(applied IN (0,1)),original TEXT,pending_target TEXT,acknowledged INTEGER NOT NULL DEFAULT 0 CHECK(acknowledged IN (0,1)),state TEXT NOT NULL DEFAULT 'pending' CHECK(state IN ('pending','unknown','synced','failed')),error_code TEXT,checked_at INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE provider_google_acl_scan(id INTEGER PRIMARY KEY CHECK(id=1),epoch TEXT NOT NULL DEFAULT '',cursor TEXT NOT NULL DEFAULT '',next_scan_at INTEGER NOT NULL DEFAULT 0);
+INSERT INTO provider_google_acl_scan(id) VALUES(1);
+CREATE TRIGGER provider_google_identity_state_cap BEFORE INSERT ON provider_google_identity_states
+WHEN (SELECT COUNT(*) FROM provider_google_identity_states)>=256 BEGIN SELECT RAISE(ABORT,'identity state limit'); END;
+CREATE TRIGGER provider_google_grant_cap BEFORE INSERT ON provider_google_grants
+WHEN (SELECT COUNT(*) FROM provider_google_grants)>=1000000 BEGIN SELECT RAISE(ABORT,'grant limit'); END;
+
+`;
+const providerGoogleLifecycle = `
+CREATE TABLE provider_google_trash_aliases (
+ job_id TEXT NOT NULL REFERENCES provider_google_trash(job_id),document_id TEXT NOT NULL REFERENCES documents(id),
+ connection_id TEXT NOT NULL REFERENCES provider_connections(id),connection_revision INTEGER NOT NULL,
+ baseline TEXT NOT NULL,base_revision INTEGER NOT NULL,was_trashed INTEGER NOT NULL CHECK(was_trashed IN (0,1)),
+ PRIMARY KEY(job_id,document_id)
+);
+INSERT INTO provider_google_trash_aliases(job_id,document_id,connection_id,connection_revision,baseline,base_revision,was_trashed)
+ SELECT job_id,document_id,connection_id,connection_revision,baseline,base_revision,0 FROM provider_google_trash;
+CREATE TABLE provider_google_original_sessions (
+ id TEXT PRIMARY KEY,request_id TEXT NOT NULL,user_id TEXT NOT NULL REFERENCES users(id),session_hash TEXT NOT NULL,
+ document_id TEXT NOT NULL REFERENCES documents(id),base_revision INTEGER NOT NULL,opened_at INTEGER NOT NULL,expires_at INTEGER NOT NULL,closed_at INTEGER,
+ UNIQUE(user_id,request_id)
+);
+CREATE INDEX provider_google_original_sessions_active ON provider_google_original_sessions(document_id,expires_at);
+CREATE TABLE provider_google_folders (
+ resource_id TEXT PRIMARY KEY REFERENCES resources(id),connection_id TEXT NOT NULL REFERENCES provider_connections(id),
+ reference TEXT NOT NULL,title TEXT NOT NULL,created_at INTEGER NOT NULL,UNIQUE(connection_id,reference)
+);
+CREATE TABLE provider_google_operations (
+ job_id TEXT PRIMARY KEY REFERENCES jobs(id),request_id TEXT NOT NULL,actor_id TEXT NOT NULL REFERENCES users(id),
+ action TEXT NOT NULL CHECK(action IN ('create','move')),connection_id TEXT NOT NULL REFERENCES provider_connections(id),connection_revision INTEGER NOT NULL,
+ document_id TEXT REFERENCES documents(id),reference TEXT,kind TEXT NOT NULL CHECK(kind IN ('document','spreadsheet','presentation','folder','binary')),
+ title TEXT NOT NULL,parent_id TEXT REFERENCES resources(id),group_id TEXT NOT NULL REFERENCES groups(id),
+ expected_parent_id TEXT,baseline TEXT,base_revision INTEGER,destination_reference TEXT,
+ state TEXT NOT NULL DEFAULT 'queued' CHECK(state IN ('queued','dispatched','unknown','remote_ready','importing','confirmed','failed')),
+ discovery_job_id TEXT REFERENCES jobs(id),import_job_id TEXT REFERENCES jobs(id),local_id TEXT,
+ error_code TEXT,created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL,UNIQUE(actor_id,request_id)
+);
+CREATE TRIGGER provider_google_operation_context BEFORE UPDATE OF request_id,actor_id,action,connection_id,connection_revision,document_id,kind,title,parent_id,group_id,expected_parent_id,baseline,base_revision,destination_reference,created_at ON provider_google_operations
+BEGIN SELECT RAISE(ABORT,'Google operation context is immutable'); END;
+CREATE TRIGGER provider_google_operation_reference BEFORE UPDATE OF reference ON provider_google_operations WHEN OLD.reference IS NOT NULL AND NEW.reference IS NOT OLD.reference
+BEGIN SELECT RAISE(ABORT,'Google original identity is immutable'); END;
+CREATE TRIGGER provider_google_operation_phase BEFORE UPDATE OF state ON provider_google_operations WHEN NOT(
+ OLD.state=NEW.state OR OLD.state='queued' AND NEW.state IN ('dispatched','failed') OR
+ OLD.state='dispatched' AND NEW.state IN ('unknown','remote_ready','failed') OR OLD.state='unknown' AND NEW.state='remote_ready' OR
+ OLD.state='remote_ready' AND NEW.state IN ('importing','confirmed'))
+BEGIN SELECT RAISE(ABORT,'Google operation cannot regress'); END;
+CREATE UNIQUE INDEX provider_google_move_pending ON provider_google_operations(document_id) WHERE action='move' AND state NOT IN ('confirmed','failed');
+CREATE INDEX provider_google_operations_recent ON provider_google_operations(actor_id,created_at);
+CREATE TRIGGER provider_google_operations_cap BEFORE INSERT ON provider_google_operations WHEN (SELECT COUNT(*) FROM provider_google_operations)>=100000
+BEGIN SELECT RAISE(ABORT,'Google operation limit'); END;
+`;
 /** Parent-table rebuilds run atomically with FK actions suspended, checked before commit, then enforced again. */
 export const migrationForeignKeyRebuilds:readonly number[]=[23,31,38];
-export const migrations = [core + epochTriggers, authInvalidation, authSettings, jobs, documents, workerSlots, uploads, pdfLayers, saveJournal, officeSessions, officeIngress, officeCleanup, officeRecovery, officePrepared, officePreparedBindings, officeSaveIntents, officeOpenings, officeHandoff, documentVisits, versionHistory, historyPreviews, historyRestores, legacyHistory, historyImports, historyCatalogue, providerConnections, providerSourceRequests, providerDeliveryAttempts, providerDeliveryRecoveryIndex, providerDeliveryRequestJob, providerVersionOrigins, providerIngressInbox, providerIngressScheduling, providerSyncActions, providerAcceptedJobIndex, providerOAuthRefreshes, providerGoogleGrantImports, providerIngressBounded, providerGoogleUploads, providerGoogleConnectStates, providerGoogleConnectResults, providerGoogleNativeCommands, providerGoogleDiscovery, providerGoogleImports] as const;
+export const migrations = [core + epochTriggers, authInvalidation, authSettings, jobs, documents, workerSlots, uploads, pdfLayers, saveJournal, officeSessions, officeIngress, officeCleanup, officeRecovery, officePrepared, officePreparedBindings, officeSaveIntents, officeOpenings, officeHandoff, documentVisits, versionHistory, historyPreviews, historyRestores, legacyHistory, historyImports, historyCatalogue, providerConnections, providerSourceRequests, providerDeliveryAttempts, providerDeliveryRecoveryIndex, providerDeliveryRequestJob, providerVersionOrigins, providerIngressInbox, providerIngressScheduling, providerSyncActions, providerAcceptedJobIndex, providerOAuthRefreshes, providerGoogleGrantImports, providerIngressBounded, providerGoogleUploads, providerGoogleConnectStates, providerGoogleConnectResults, providerGoogleNativeCommands, providerGoogleDiscovery, providerGoogleImports, providerGoogleTrash, providerGoogleAccess, providerGoogleLifecycle] as const;
 export const applicationId = 0x5957494b; // YWIK; legacy Django uses no marker.

@@ -2,17 +2,17 @@ import {ProviderError,type ProviderCheck} from './adapter.ts';
 import {googleFileId,type GoogleReadHttp} from './google-read-http.ts';
 type Reader=Pick<GoogleReadHttp,'file'|'permissions'>;
 type Kind='binary'|'document'|'spreadsheet'|'presentation'|'folder';
-export type GoogleFile=Readonly<{id:string;mimeType:string;version:string;parents:readonly string[];kind:Kind;size:number|null;md5:string|null;sha256:string|null;headRevision:string|null}>;
+export type GoogleFile=Readonly<{id:string;name?:string;mimeType:string;version:string;parents:readonly string[];kind:Kind;size:number|null;md5:string|null;sha256:string|null;headRevision:string|null}>;
 /** Internal trusted grant lookup, scoped to the same current connection as the reader.
  * Not a client-supplied allowlist and never a source of local Yourwiki rights. */
 type ManagedRecipients=(fileId:string,options:ProviderCheck)=>Promise<readonly string[]>;
 const prefix='application/vnd.google-apps.',folder=prefix+'folder';
-const fields='id,mimeType,parents,version,ownedByMe,shared,driveId,trashed,size,md5Checksum,sha256Checksum,headRevisionId,capabilities(canDownload)';
+const fields='id,name,mimeType,parents,version,ownedByMe,shared,driveId,trashed,size,md5Checksum,sha256Checksum,headRevisionId,capabilities(canDownload)';
 function deny():never{throw new ProviderError('ACCESS_DENIED');}
 function invalid():never{throw new ProviderError('PROVIDER_SOURCE_CHANGED');}
 async function current(options:ProviderCheck){if(options.signal?.aborted)throw new ProviderError('PROVIDER_CANCELLED');await options.check();if(options.signal?.aborted)throw new ProviderError('PROVIDER_CANCELLED');}
 function decimal(value:unknown,max:bigint):bigint{if(typeof value!=='string'||! /^(0|[1-9][0-9]{0,19})$/.test(value))invalid();const result=BigInt(value);if(result>max)invalid();return result;}
-function parse(raw:Record<string,unknown>,requested:string):GoogleFile{
+function parse(raw:Record<string,unknown>,requested:string,lifecycle=false):GoogleFile{
  const id=googleFileId(raw.id);if(requested!=='root'&&id!==requested)invalid();
  if(raw.ownedByMe!==true||raw.trashed!==false||raw.driveId!==undefined&&raw.driveId!=='')deny();
  decimal(raw.version,18446744073709551615n);
@@ -23,15 +23,16 @@ function parse(raw:Record<string,unknown>,requested:string):GoogleFile{
  const parents=raw.parents===undefined?[]:raw.parents;if(!Array.isArray(parents)||parents.length>1)invalid();const parentIds=parents.map(googleFileId);
  let size:number|null=null,md5:string|null=null,sha256:string|null=null,headRevision:string|null=null;
  if(kind!=='folder'){
-  const capabilities=raw.capabilities;if(!capabilities||typeof capabilities!=='object'||(capabilities as Record<string,unknown>).canDownload!==true)deny();
+  const capabilities=raw.capabilities;if(!lifecycle&&(!capabilities||typeof capabilities!=='object'||(capabilities as Record<string,unknown>).canDownload!==true))deny();
   if(kind==='binary'){
-   size=Number(decimal(raw.size,4294967296n));
+   size=Number(decimal(raw.size,lifecycle?BigInt(Number.MAX_SAFE_INTEGER):4294967296n));
    const checksum=(value:unknown,length:number)=>{if(value===undefined)return null;if(typeof value!=='string'||value.length!==length||!/^[a-f0-9]+$/i.test(value))invalid();return value.toLowerCase();};
    md5=checksum(raw.md5Checksum,32);sha256=checksum(raw.sha256Checksum,64);
    if(raw.headRevisionId!==undefined){if(typeof raw.headRevisionId!=='string'||raw.headRevisionId.length<1||raw.headRevisionId.length>1024||/[\x00-\x20\x7f]/.test(raw.headRevisionId)||Buffer.from(raw.headRevisionId).toString('utf8')!==raw.headRevisionId)invalid();headRevision=raw.headRevisionId;}
   }
  }
- return Object.freeze({id,mimeType,version:raw.version as string,parents:Object.freeze(parentIds),kind,size,md5,sha256,headRevision});
+ if(raw.name!==undefined&&(typeof raw.name!=='string'||!raw.name||raw.name.length>2000||Buffer.from(raw.name).toString('utf8')!==raw.name))invalid();
+ return Object.freeze({id,...(typeof raw.name==='string'?{name:raw.name}:{}),mimeType,version:raw.version as string,parents:Object.freeze(parentIds),kind,size,md5,sha256,headRevision});
 }
 /** Worker-only metadata gate. No source bytes, grants, deletion or local commit side effects.
  * Caller must repeat verification after streaming and compare version/parents before acceptance. */
@@ -41,8 +42,8 @@ export class GoogleMetadata{
  private async file(id:string,options:ProviderCheck):Promise<GoogleFile>{
   await current(options);const raw=await this.http.file(id,fields,options);return this.inspect(raw,id,options);
  }
- private async inspect(raw:Record<string,unknown>,id:string,options:ProviderCheck):Promise<GoogleFile>{
-  await current(options);const result=parse(raw,id);
+ private async inspect(raw:Record<string,unknown>,id:string,options:ProviderCheck,lifecycle=false):Promise<GoogleFile>{
+  await current(options);const result=parse(raw,id,lifecycle);
   if(raw.shared!==false){
    if(raw.shared!==true)deny();
    const recipients=await this.managed(result.id,options);await current(options);
@@ -78,10 +79,11 @@ export class GoogleMetadata{
   invalid();
  }
  /** Lifecycle evidence only. A trashed target never becomes a readable source or a deletion receipt. */
- async trashState(reference:string,root:string,options:ProviderCheck):Promise<Readonly<{file:GoogleFile;trashed:boolean;explicitlyTrashed:boolean}>>{
+ async trashState(reference:string,root:string,options:ProviderCheck):Promise<Readonly<{file:GoogleFile;trashed:boolean;explicitlyTrashed:boolean;operationId:string|null}>>{
   googleFileId(reference);googleFileId(root);if(reference==='root')invalid();const rootInfo=await this.root(root,options);if(reference===rootInfo.id)invalid();await current(options);
-  const raw=await this.http.file(reference,fields+',explicitlyTrashed',options);await current(options);if(typeof raw.trashed!=='boolean'||typeof raw.explicitlyTrashed!=='boolean'||raw.explicitlyTrashed&&!raw.trashed)invalid();
-  const source=await this.inspect({...raw,trashed:false},reference,options);if(source.kind==='folder')invalid();await this.within(source,rootInfo,options);await current(options);return Object.freeze({file:source,trashed:raw.trashed,explicitlyTrashed:raw.explicitlyTrashed});
+  const raw=await this.http.file(reference,fields+',explicitlyTrashed,appProperties',options);await current(options);if(typeof raw.trashed!=='boolean'||typeof raw.explicitlyTrashed!=='boolean'||raw.explicitlyTrashed&&!raw.trashed)invalid();
+  let operationId:string|null=null;if(raw.appProperties!==undefined){if(!raw.appProperties||typeof raw.appProperties!=='object'||Array.isArray(raw.appProperties))invalid();const marker=(raw.appProperties as Record<string,unknown>).yourwikiTrashOperation;if(marker!==undefined){if(typeof marker!=='string'||!/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(marker))invalid();operationId=marker;}}
+  const source=await this.inspect({...raw,trashed:false},reference,options,true);if(source.kind==='folder')invalid();await this.within(source,rootInfo,options);await current(options);return Object.freeze({file:source,trashed:raw.trashed,explicitlyTrashed:raw.explicitlyTrashed,operationId});
  }
  async verify(reference:string,root:string,options:ProviderCheck):Promise<GoogleFile>{
   googleFileId(reference);googleFileId(root);if(reference==='root')invalid();

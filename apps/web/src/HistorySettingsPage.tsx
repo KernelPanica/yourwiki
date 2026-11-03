@@ -1,3 +1,6 @@
+import GoogleSharingPanel from './GoogleSharingPanel.tsx';
+import GoogleLifecyclePanel from './GoogleLifecyclePanel.tsx';
+import GoogleTrashPanel from './GoogleTrashPanel.tsx';
 import {useEffect,useId,useRef,useState} from 'react';
 import {HistorySettingsClient,type HistorySettingsSnapshot} from './history-settings.ts';
 import {historySettingsLabels} from './history-settings-i18n.ts';
@@ -5,7 +8,7 @@ import {languageFor} from './i18n.ts';
 import './history-settings.css';
 import GoogleSettingsPanel from './GoogleSettingsPanel.tsx';
 const t=historySettingsLabels[languageFor(navigator.language)];
-export default function HistorySettingsPage({csrf,onSessionLost,googleEnabled=false,discoveryEnabled=false,importEnabled=false}:{csrf:string;onSessionLost:()=>void;googleEnabled?:boolean;discoveryEnabled?:boolean;importEnabled?:boolean}){
+export default function HistorySettingsPage({csrf,onSessionLost,googleEnabled=false,discoveryEnabled=false,importEnabled=false,trashEnabled=false,canRestoreGoogle=false,lifecycleEnabled=false,sharingEnabled=false}:{csrf:string;onSessionLost:()=>void;googleEnabled?:boolean;discoveryEnabled?:boolean;importEnabled?:boolean;trashEnabled?:boolean;canRestoreGoogle?:boolean;lifecycleEnabled?:boolean;sharingEnabled?:boolean}){
  const [state,setState]=useState<HistorySettingsSnapshot>({value:null,desired:null,phase:'loading',busy:true,errorCode:null}),client=useRef<HistorySettingsClient|null>(null),checkbox=useRef<HTMLInputElement|null>(null),returnFocus=useRef(false),description=useId(),budget=useId();
  useEffect(()=>{const model=new HistorySettingsClient({csrf,onSessionLost});client.current=model;const remove=model.subscribe(()=>setState(model.snapshot()));setState(model.snapshot());void model.load();return()=>{remove();model.dispose();if(client.current===model)client.current=null;};},[csrf]);
  useEffect(()=>{if(!state.busy&&returnFocus.current){returnFocus.current=false;if(document.activeElement===document.body||document.activeElement===checkbox.current)checkbox.current?.focus({preventScroll:true});}},[state.busy]);
@@ -16,5 +19,5 @@ export default function HistorySettingsPage({csrf,onSessionLost,googleEnabled=fa
   <p role="status" aria-live="polite" className="history-settings-status">{state.phase==='loading'?t.loading:state.phase==='saving'?t.saving:state.phase==='saved'?t.saved:state.value&&!uncertain&&state.phase==='ready'?state.value.enabled?t.enabled:t.disabled:''}</p>
   {error&&<p className="notice" role="alert">{error}</p>}
   <div className="history-settings-actions"><button type="button" disabled={state.busy||state.phase==='blocked'} onClick={()=>void client.current?.load()}>{t.refresh}</button>{uncertain&&<button type="button" disabled={state.busy} onClick={()=>void client.current?.retry()}>{t.retry}</button>}</div>
- </section>{googleEnabled&&<GoogleSettingsPanel importEnabled={importEnabled} discoveryEnabled={discoveryEnabled} csrf={csrf} onSessionLost={onSessionLost}/>}</main>;
+ </section>{googleEnabled&&<GoogleSettingsPanel importEnabled={importEnabled} discoveryEnabled={discoveryEnabled} csrf={csrf} onSessionLost={onSessionLost}/>}{sharingEnabled&&<GoogleSharingPanel csrf={csrf} onSessionLost={onSessionLost}/ >}{lifecycleEnabled&&<GoogleLifecyclePanel csrf={csrf} onSessionLost={onSessionLost}/ >}{trashEnabled&&<GoogleTrashPanel csrf={csrf} canRestore={canRestoreGoogle} onSessionLost={onSessionLost}/>}</main>;
 }
