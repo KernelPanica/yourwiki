@@ -4,7 +4,10 @@ import {DocumentError} from '../document-errors.ts';
 import {authenticateSession,validCsrf,type SessionIdentity} from '../auth/sessions.ts';
 import {SecretConfigs} from './secret-config.ts';
 import {googleFileId} from './google-read-http.ts';
+import {assertGoogleAccountProof,type GoogleAccountProof} from './google-account.ts';
+import type {GoogleCodeExchange} from './google-code-exchange.ts';
 type Actor={sessionToken:string;csrf:string};
+export type GoogleConnectResult={connectionId:string;revision:number;completedAt:number};
 type Row={state_hash:string;user_id:string;session_hash:string;connection_id:string;connection_revision:number;encrypted_context:string;phase:'pending'|'claimed';created_at:number;expires_at:number};
 const hash=(value:string)=>createHash('sha256').update(value).digest('hex');
 function fail(code='INVALID_REQUEST'):never{throw new DocumentError(code);}
@@ -14,6 +17,7 @@ function redirect(publicUrl:string):string{
 /** Private central-account consent state. Does not exchange a code or expose credentials in an HTTP DTO. */
 export class GoogleConnectStates{
  private db:Database;private configs:SecretConfigs;private redirectUri:string;private clock:()=>number;
+ private leases=new WeakMap<object,{stateHash:string;actor:Actor}>();
  constructor(db:Database,configs:SecretConfigs,publicUrl:string,options:{clock?:()=>number}={}){this.db=db;this.configs=configs;this.redirectUri=redirect(publicUrl);this.clock=options.clock??Date.now;}
  private now(){const now=this.clock();if(!Number.isSafeInteger(now)||now<0||now>Number.MAX_SAFE_INTEGER-600000)fail();return now;}
  private actor(input:Actor,now:number):SessionIdentity{
@@ -41,6 +45,16 @@ export class GoogleConnectStates{
   const pinned={sessionToken:input.sessionToken,csrf:input.csrf};if(typeof input.state!=='string'||!/^[A-Za-z0-9_-]{43}$/.test(input.state))fail();const stateHash=hash(input.state);
   transaction(this.db,()=>{const now=this.now(),session=this.actor(pinned,now),row=this.db.prepare('SELECT * FROM provider_google_connect_states WHERE state_hash=?').get(stateHash) as Row|undefined;if(!row||row.phase!=='pending'||row.expires_at<=now||row.user_id!==session.userId||row.session_hash!==session.tokenHash)fail();this.context(row,session);this.db.prepare("UPDATE provider_google_connect_states SET phase='claimed' WHERE state_hash=? AND phase='pending'").run(stateHash);});
   const credentials=()=>transaction(this.db,()=>{const now=this.now(),session=this.actor(pinned,now),row=this.db.prepare('SELECT * FROM provider_google_connect_states WHERE state_hash=?').get(stateHash) as Row|undefined;if(!row||row.phase!=='claimed'||row.expires_at<=now)fail();const client=this.context(row,session);return {clientId:client.clientId,clientSecret:client.clientSecret,codeVerifier:client.codeVerifier,redirectUri:this.redirectUri,connectionId:row.connection_id,revision:row.connection_revision};});
-  return Object.freeze({credentials,check:()=>{credentials();}});
+  const lease=Object.freeze({credentials,check:()=>{credentials();}});this.leases.set(lease,{stateHash,actor:pinned});return lease;
+ }
+ result(input:Actor&{state:string}):GoogleConnectResult|null{
+  return transaction(this.db,()=>{const now=this.now(),session=this.actor(input,now);if(typeof input.state!=='string'||!/^[A-Za-z0-9_-]{43}$/.test(input.state))fail();const stateHash=hash(input.state),row=this.db.prepare('SELECT * FROM provider_google_connect_states WHERE state_hash=?').get(stateHash) as Row|undefined;if(!row||row.expires_at<=now||row.user_id!==session.userId||row.session_hash!==session.tokenHash)fail();return this.db.prepare('SELECT connection_id AS connectionId,revision,completed_at AS completedAt FROM provider_google_connect_results WHERE state_hash=?').get(stateHash) as GoogleConnectResult|undefined??null;});
+ }
+ publish(lease:ReturnType<GoogleConnectStates['claim']>,issued:Awaited<ReturnType<GoogleCodeExchange['exchange']>>,proof:GoogleAccountProof):GoogleConnectResult{
+  return transaction(this.db,()=>{const mint=this.leases.get(lease);if(!mint)fail('CONFIG_UNAVAILABLE');const now=this.now(),session=this.actor(mint.actor,now),row=this.db.prepare('SELECT * FROM provider_google_connect_states WHERE state_hash=?').get(mint.stateHash) as Row|undefined;if(!row||row.phase!=='claimed'||row.expires_at<=now)fail();this.context(row,session);assertGoogleAccountProof(proof,this.db,lease,issued);const tokens=issued.credentials();if(proof.connectionId!==row.connection_id||proof.revision!==row.connection_revision||row.connection_revision>=Number.MAX_SAFE_INTEGER)fail('CONFLICT');
+   const current=this.db.prepare('SELECT encrypted_config FROM provider_connections WHERE id=? AND revision=? AND enabled=1').get(row.connection_id,row.connection_revision) as {encrypted_config:string}|undefined;if(!current)fail('CONFLICT');let cipher:string;try{const config=this.configs.decrypt(current.encrypted_config);cipher=this.configs.encrypt({...config,refresh_token:tokens.refreshToken,google_account_id:proof.accountId,google_root_id:proof.rootId});}catch{fail('CONFIG_UNAVAILABLE');}
+   const revision=row.connection_revision+1;if(this.db.prepare('UPDATE provider_connections SET encrypted_config=?,revision=?,updated_at=? WHERE id=? AND revision=? AND encrypted_config=? AND enabled=1').run(cipher,revision,now,row.connection_id,row.connection_revision,current.encrypted_config).changes!==1)fail('CONFLICT');
+   this.db.prepare('INSERT INTO provider_connection_changes(connection_id,revision,created_at) VALUES(?,?,?)').run(row.connection_id,revision,now);this.db.prepare('INSERT INTO provider_google_connect_results(state_hash,connection_id,previous_revision,revision,account_id,root_id,completed_at) VALUES(?,?,?,?,?,?,?)').run(row.state_hash,row.connection_id,row.connection_revision,revision,proof.accountId,proof.rootId,now);return {connectionId:row.connection_id,revision,completedAt:now};
+  });
  }
 }

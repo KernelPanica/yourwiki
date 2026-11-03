@@ -873,7 +873,27 @@ CREATE TRIGGER provider_google_connect_transition BEFORE UPDATE OF phase ON prov
  SELECT RAISE(ABORT,'Invalid Google connect transition');
 END;
 `;
+const providerGoogleConnectResults = `
+CREATE TABLE provider_google_connect_results (
+ state_hash TEXT PRIMARY KEY REFERENCES provider_google_connect_states(state_hash) ON DELETE CASCADE,
+ connection_id TEXT NOT NULL REFERENCES provider_connections(id) ON DELETE RESTRICT,
+ previous_revision INTEGER NOT NULL CHECK(previous_revision>0),
+ revision INTEGER NOT NULL CHECK(typeof(revision)='integer' AND revision=previous_revision+1 AND revision<=9007199254740991),
+ account_id TEXT NOT NULL CHECK(length(account_id) BETWEEN 1 AND 256 AND account_id NOT GLOB '*[^A-Za-z0-9_-]*'),
+ root_id TEXT NOT NULL CHECK(length(root_id) BETWEEN 1 AND 256 AND root_id NOT GLOB '*[^A-Za-z0-9_-]*'),
+ completed_at INTEGER NOT NULL
+);
+CREATE TRIGGER provider_google_connect_result_context BEFORE INSERT ON provider_google_connect_results BEGIN
+ SELECT CASE WHEN NOT EXISTS(SELECT 1 FROM provider_google_connect_states s JOIN provider_connections c ON c.id=s.connection_id
+ WHERE s.state_hash=NEW.state_hash AND s.phase='claimed' AND s.connection_id=NEW.connection_id AND s.connection_revision=NEW.previous_revision
+ AND c.provider='google' AND c.enabled=1 AND c.revision=NEW.revision AND NEW.completed_at>=s.created_at AND NEW.completed_at<s.expires_at
+ ) THEN RAISE(ABORT,'Google connect result mismatch') END;
+END;
+CREATE TRIGGER provider_google_connect_result_immutable BEFORE UPDATE ON provider_google_connect_results BEGIN
+ SELECT RAISE(ABORT,'Google connect result is immutable');
+END;
+`;
 /** Parent-table rebuilds run atomically with FK actions suspended, checked before commit, then enforced again. */
 export const migrationForeignKeyRebuilds:readonly number[]=[23,31,38];
-export const migrations = [core + epochTriggers, authInvalidation, authSettings, jobs, documents, workerSlots, uploads, pdfLayers, saveJournal, officeSessions, officeIngress, officeCleanup, officeRecovery, officePrepared, officePreparedBindings, officeSaveIntents, officeOpenings, officeHandoff, documentVisits, versionHistory, historyPreviews, historyRestores, legacyHistory, historyImports, historyCatalogue, providerConnections, providerSourceRequests, providerDeliveryAttempts, providerDeliveryRecoveryIndex, providerDeliveryRequestJob, providerVersionOrigins, providerIngressInbox, providerIngressScheduling, providerSyncActions, providerAcceptedJobIndex, providerOAuthRefreshes, providerGoogleGrantImports, providerIngressBounded, providerGoogleUploads, providerGoogleConnectStates] as const;
+export const migrations = [core + epochTriggers, authInvalidation, authSettings, jobs, documents, workerSlots, uploads, pdfLayers, saveJournal, officeSessions, officeIngress, officeCleanup, officeRecovery, officePrepared, officePreparedBindings, officeSaveIntents, officeOpenings, officeHandoff, documentVisits, versionHistory, historyPreviews, historyRestores, legacyHistory, historyImports, historyCatalogue, providerConnections, providerSourceRequests, providerDeliveryAttempts, providerDeliveryRecoveryIndex, providerDeliveryRequestJob, providerVersionOrigins, providerIngressInbox, providerIngressScheduling, providerSyncActions, providerAcceptedJobIndex, providerOAuthRefreshes, providerGoogleGrantImports, providerIngressBounded, providerGoogleUploads, providerGoogleConnectStates, providerGoogleConnectResults] as const;
 export const applicationId = 0x5957494b; // YWIK; legacy Django uses no marker.
