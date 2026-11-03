@@ -6,7 +6,7 @@ import {GoogleContentHttp,googleExportTypes,googleExportMaxBytes} from './google
 import {GoogleMetadata,type GoogleFile} from './google-metadata.ts';
 export type GoogleReaderOptions={fetch?:typeof fetch;timeoutMs?:number;totalMs?:number;acceptMime?:(mime:string)=>boolean;format?:string;binaryOnly?:boolean};
 type Managed=(reference:string,options:ProviderCheck)=>Promise<readonly string[]>;
-function signature(file:GoogleFile){
+export function googleSourceFingerprint(file:GoogleFile){
  if(file.kind==='binary')return JSON.stringify(['google-binary-v2',file.id,file.version,createHash('sha256').update(JSON.stringify([file.mimeType,file.size,file.parents,file.md5,file.sha256,file.headRevision])).digest('hex')]);
  if(file.kind==='folder')throw new ProviderError('PROVIDER_SOURCE_CHANGED');return JSON.stringify(['google-native-v1',file.id,file.version,createHash('sha256').update(JSON.stringify([file.mimeType,file.parents,googleExportTypes[file.kind]])).digest('hex')]);
 }
@@ -39,10 +39,10 @@ export class GoogleSourceReader{
   if(this.options.binaryOnly||file.kind==='folder'||this.options.format!==googleExportTypes[file.kind].format)throw new ProviderError('PROVIDER_SOURCE_CHANGED');
  }
  async changed(reference:string,baseline:string,options:ProviderCheck):Promise<boolean>{
-  googleFileId(reference);const scope=this.scope(options),file=await this.metadata.verify(reference,this.root,scope);await scope.check();this.validate(file);return signature(file)!==baseline;
+  googleFileId(reference);const scope=this.scope(options),file=await this.metadata.verify(reference,this.root,scope);await scope.check();this.validate(file);return googleSourceFingerprint(file)!==baseline;
  }
  async read(reference:string,options:ProviderCheck):Promise<ProviderRead>{
-  googleFileId(reference);const scope=this.scope(options),before=await this.metadata.verify(reference,this.root,scope);await scope.check();this.validate(before);const pinned=signature(before),self=this;let used=false;
+  googleFileId(reference);const scope=this.scope(options),before=await this.metadata.verify(reference,this.root,scope);await scope.check();this.validate(before);const pinned=googleSourceFingerprint(before),self=this;let used=false;
   const bytes:AsyncIterable<Uint8Array>={[Symbol.asyncIterator](){
    if(used)throw new ProviderError('PROVIDER_SOURCE_CHANGED');used=true;
    return (async function*(){
@@ -52,7 +52,7 @@ export class GoogleSourceReader{
     }else{
      if(before.kind==='folder')throw new ProviderError('PROVIDER_SOURCE_CHANGED');for await(const chunk of zipBytes(self.content.export(reference,before.kind,scope)))yield chunk;
     }
-    await scope.check();const after=await self.metadata.verify(reference,self.root,scope);await scope.check();if(signature(after)!==pinned)throw new ProviderError('PROVIDER_CONFLICT');
+    await scope.check();const after=await self.metadata.verify(reference,self.root,scope);await scope.check();if(googleSourceFingerprint(after)!==pinned)throw new ProviderError('PROVIDER_CONFLICT');
    })();
   }};
   return before.kind==='binary'?{fingerprint:pinned,size:before.size!,bytes}:{fingerprint:pinned,size:null,maxSize:googleExportMaxBytes,bytes};

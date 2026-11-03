@@ -46,12 +46,13 @@ export class CredentialVault {
   });
  }
  /** Canonical internal source descriptor. Never serialize root/reference as a public DTO. */
- googleSource(connection:AdapterConnection):Readonly<{root:string;reference:string;format:string;check:()=>void}>{
+ googleSource(connection:AdapterConnection):Readonly<{root:string;reference:string;format:string;fingerprint:string;check:()=>void;checkBaseline:()=>void}>{
   this.live();const scope=this.minted.get(connection);if(!scope||scope.provider!=='google')throw new ProviderError('PROVIDER_CONFIG_CHANGED');scope.check();
   try{
-   const row=this.db.prepare('SELECT c.encrypted_config,b.reference,d.format FROM provider_source_bindings b JOIN provider_connections c ON c.id=b.connection_id JOIN documents d ON d.id=b.document_id WHERE b.document_id=? AND c.id=? AND c.revision=? AND c.enabled=1').get(scope.documentId,scope.id,scope.revision) as {encrypted_config:string;reference:string;format:string}|undefined;
+   const row=this.db.prepare('SELECT c.encrypted_config,b.reference,b.fingerprint,d.format FROM provider_source_bindings b JOIN provider_connections c ON c.id=b.connection_id JOIN documents d ON d.id=b.document_id WHERE b.document_id=? AND c.id=? AND c.revision=? AND c.enabled=1').get(scope.documentId,scope.id,scope.revision) as {encrypted_config:string;reference:string;fingerprint:string;format:string}|undefined;
    if(!row)throw new Error();const config=this.configs.decrypt(row.encrypted_config),root=googleFileId(config.root),reference=googleFileId(row.reference);if(typeof row.format!=='string'||!/^[a-z0-9][a-z0-9.-]{0,31}$/.test(row.format))throw new Error();scope.check();
-   return Object.freeze({root,reference,format:row.format,check:()=>scope.check()});
+   const format=row.format,fingerprint=row.fingerprint;if(typeof fingerprint!=='string'||!fingerprint||fingerprint.length>1024||/[\x00-\x1f\x7f]/.test(fingerprint))throw new Error();
+   return Object.freeze({root,reference,format,fingerprint,check:()=>scope.check(),checkBaseline:()=>{scope.check();const current=this.db.prepare('SELECT b.reference,b.fingerprint,d.format FROM provider_source_bindings b JOIN documents d ON d.id=b.document_id WHERE b.document_id=?').get(scope.documentId) as {reference:string;fingerprint:string;format:string}|undefined;if(!current||current.reference!==reference||current.fingerprint!==fingerprint||current.format!==format)throw new ProviderError('PROVIDER_CONFLICT');}});
   }catch(error){if(error instanceof ProviderError&&error.code==='PROVIDER_CANCELLED')throw error;throw new ProviderError('PROVIDER_CONFIG_CHANGED');}
  }
  /** Opaque object identity prevents callers from borrowing another vault/connection's shared auth. */
