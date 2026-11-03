@@ -14,10 +14,11 @@ export class GoogleReadHttp{
  private auth:GoogleAuthorization;private request:typeof fetch;private timeoutMs:number;private closed=false;private active=new Map<AbortController,Promise<void>>();private draining:Promise<void>|undefined;
  constructor(auth:GoogleAuthorization,options:Options={}){this.auth=auth;this.request=options.fetch??fetch;this.timeoutMs=options.timeoutMs??30000;if(!Number.isSafeInteger(this.timeoutMs)||this.timeoutMs<1||this.timeoutMs>30000)throw new ProviderError('PROVIDER_CONFIG_CHANGED');}
  async file(id:string,fields:string,options:ProviderCheck):Promise<Record<string,unknown>>{
-  googleFileId(id);if(typeof fields!=='string'||fields.length<1||fields.length>8192||/[^\x20-\x7e]/.test(fields))throw new ProviderError('PROVIDER_INVALID_REFERENCE');return this.read(id,new URLSearchParams({fields}),options);
+  googleFileId(id);if(typeof fields!=='string'||fields.length<1||fields.length>8192||/[^\x20-\x7e]/.test(fields))throw new ProviderError('PROVIDER_INVALID_REFERENCE');return this.read('files/'+id,new URLSearchParams({fields}),options);
  }
+ async about(options:ProviderCheck):Promise<Record<string,unknown>>{return this.read('about',new URLSearchParams({fields:'user(permissionId,me)'}),options);}
  async permissions(id:string,options:ProviderCheck,pageToken?:string):Promise<Record<string,unknown>>{
-  googleFileId(id);if(pageToken!==undefined&&(typeof pageToken!=='string'||pageToken.length<1||pageToken.length>16384||/[\x00-\x20\x7f]/.test(pageToken)))throw new ProviderError('PROVIDER_INVALID_REFERENCE');const query=new URLSearchParams({fields:'permissions(id,type,emailAddress,role,permissionDetails),nextPageToken',pageSize:'100'});if(pageToken!==undefined)query.set('pageToken',pageToken);return this.read(id+'/permissions',query,options);
+  googleFileId(id);if(pageToken!==undefined&&(typeof pageToken!=='string'||pageToken.length<1||pageToken.length>16384||/[\x00-\x20\x7f]/.test(pageToken)))throw new ProviderError('PROVIDER_INVALID_REFERENCE');const query=new URLSearchParams({fields:'permissions(id,type,emailAddress,role,permissionDetails),nextPageToken',pageSize:'100'});if(pageToken!==undefined)query.set('pageToken',pageToken);return this.read('files/'+id+'/permissions',query,options);
  }
  private async read(path:string,query:URLSearchParams,options:ProviderCheck):Promise<Record<string,unknown>>{
   if(this.closed||options.signal?.aborted)throw new ProviderError('PROVIDER_CANCELLED');if(this.active.size>=8)throw unavailable();
@@ -25,7 +26,7 @@ export class GoogleReadHttp{
   const check=async()=>{if(controller.signal.aborted)throw unavailable();try{await interrupt(Promise.resolve().then(()=>options.check()),controller.signal);}catch(error){if(controller.signal.aborted)throw unavailable();throw new AuthorityFailure(error);}if(controller.signal.aborted)throw unavailable();};
   try{for(let attempt=0;attempt<2;attempt++){
     await check();const token=await interrupt(this.auth.access({signal:controller.signal,check}),controller.signal);await check();if(typeof token!=='string'||token.length<1||token.length>65536||/[^\x21-\x7e]/.test(token))throw new ProviderError('PROVIDER_CONFIG_CHANGED');
-    const response=await interrupt(this.request('https://www.googleapis.com/drive/v3/files/'+path+'?'+query.toString(),{method:'GET',redirect:'manual',cache:'no-store',credentials:'omit',referrerPolicy:'no-referrer',signal:controller.signal,headers:{accept:'application/json',authorization:'Bearer '+token}}).then(response=>{if(controller.signal.aborted){void response.body?.cancel().catch(()=>{});throw unavailable();}return response;}),controller.signal);
+    const response=await interrupt(this.request('https://www.googleapis.com/drive/v3/'+path+'?'+query.toString(),{method:'GET',redirect:'manual',cache:'no-store',credentials:'omit',referrerPolicy:'no-referrer',signal:controller.signal,headers:{accept:'application/json',authorization:'Bearer '+token}}).then(response=>{if(controller.signal.aborted){void response.body?.cancel().catch(()=>{});throw unavailable();}return response;}),controller.signal);
     // Even an early authorization failure must cancel the body without leaking its JSON.
     try{await check();}catch(error){void response.body?.cancel().catch(()=>{});throw error;}
     if(response.status===401){void response.body?.cancel().catch(()=>{});this.auth.invalidate(token);if(attempt===0)continue;throw new ProviderError('PROVIDER_CONFIG_CHANGED');}

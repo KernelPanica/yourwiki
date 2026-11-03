@@ -56,9 +56,10 @@ export class GoogleMetadata{
   }
   await current(options);return result;
  }
+ async root(root:string,options:ProviderCheck):Promise<GoogleFile>{googleFileId(root);const info=await this.file(root,options);if(info.mimeType!==folder)deny();return info;}
  async verify(reference:string,root:string,options:ProviderCheck):Promise<GoogleFile>{
   googleFileId(reference);googleFileId(root);if(reference==='root')invalid();
-  const rootInfo=await this.file(root,options);if(rootInfo.mimeType!==folder)deny();
+  const rootInfo=await this.root(root,options);
   if(reference===rootInfo.id)invalid();
   const source=await this.file(reference,options);if(source.kind==='folder')invalid();
   const seen=new Set<string>([source.id]);let cursor=source;
