@@ -6,6 +6,7 @@
     "nanoid": "5.1.16"
   },
   "scripts": {
+    "prototype": "node tools/prototype.ts",
     "build": "node frontend/build.mjs",
     "release": "node apps/server/src/release/cli.ts",
     "setup": "npm run release -- setup",

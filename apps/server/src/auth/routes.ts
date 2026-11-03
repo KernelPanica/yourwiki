@@ -67,7 +67,7 @@ export function registerAuth(app: FastifyInstance, db: Database, publicUrl: stri
     if (!session) return reply.code(401).send(errorEnvelope('SESSION_REQUIRED', request.id));
     const groups = db.prepare('SELECT g.id,g.name FROM groups g JOIN memberships m ON m.group_id=g.id WHERE m.user_id=? ORDER BY g.id').all(session.userId);
     const visibleFeatures={...(features.googleIdentity?{googleIdentity:true}:{}),...(session.adminRole==='giga'?{...(features.googleLifecycle?{googleLifecycle:true}:{}),...(features.googleConnect?{googleConnect:true}:{}),...(features.googleDiscovery?{googleDiscovery:true}:{}),...(features.googleImport?{googleImport:true}:{})}:{}),...(['giga','simple'].includes(session.adminRole)&&features.googleTrash?{googleTrash:true}:{})};
-    return { user: { id: session.userId, username: session.username, displayName: session.displayName, adminRole: session.adminRole, groups }, csrf: csrfForToken(token), ...(Object.keys(visibleFeatures).length?{features:visibleFeatures}:{}) };
+    return { user: { id: session.userId, username: session.username, displayName: session.displayName, adminRole: session.adminRole, canInvite:(db.prepare('SELECT can_invite FROM users WHERE id=?').get(session.userId) as {can_invite:number}).can_invite===1, groups }, csrf: csrfForToken(token), ...(Object.keys(visibleFeatures).length?{features:visibleFeatures}:{}) };
   });
 
   app.post('/api/auth/logout', async (request, reply) => {
