@@ -180,7 +180,7 @@ export class ResumableUploads {
         const committed = metadata.mode === 'create'
           ? this.documents.commitPreparedCreate({ ...metadata, userId, signal: combined }, blob)
           : this.documents.commitPreparedSave({ ...metadata, userId, signal: combined }, blob);
-        const result = { documentId: committed.documentId, revision: committed.revision, jobId: committed.jobId };
+        const result = { documentId: committed.documentId, revision: committed.revision, jobId: committed.jobId,...(this.db.prepare("SELECT 1 FROM google_storage_exports WHERE document_id=? AND state!='confirmed'").get(committed.documentId)?{storagePending:true}:{}) };
         this.db.prepare("UPDATE uploads SET state='completed',result=? WHERE id=?").run(JSON.stringify(result), id);
         return result;
       });

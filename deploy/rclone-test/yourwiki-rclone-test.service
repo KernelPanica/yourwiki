@@ -1,0 +1,23 @@
+[Unit]
+Description=YourWiki test Google Drive rclone mount
+Wants=network-online.target
+After=network-online.target
+Before=yourwiki-v2-web.service yourwiki-v2-provider.service
+
+[Service]
+Type=notify
+NotifyAccess=all
+WorkingDirectory=/root/yourwiki
+Environment=PATH=/root/yourwiki/instance/runtime/node_modules/node/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+ExecStart=/root/yourwiki/instance/runtime/node_modules/node/bin/node /root/yourwiki/apps/server/src/rclone/mount-main.ts /root/yourwiki/instance/prototype-v2/workspace /root/yourwiki/instance/rclone-test/settings.json
+Restart=on-failure
+RestartSec=5
+TimeoutStartSec=90
+TimeoutStopSec=45
+KillMode=mixed
+UMask=0077
+RuntimeDirectory=yourwiki-rclone-test
+RuntimeDirectoryMode=0700
+
+[Install]
+WantedBy=multi-user.target

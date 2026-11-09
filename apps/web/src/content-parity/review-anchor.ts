@@ -1,0 +1,15 @@
+export type AnchorLocation={line?:string;endLine?:string;page?:string;slide?:string;sheet?:string;cardId?:string;cardLabel?:string;diagramPage?:string;diagramPageLabel?:string};
+function positive(value:string|undefined){if(!value)return undefined;if(!/^[1-9]\d*$/.test(value)||!Number.isSafeInteger(Number(value)))throw new Error('INVALID_LOCATION');return Number(value);}
+export function reviewAnchor(location:AnchorLocation,revision:number,source?:string,suggestion=false):Record<string,unknown>{
+ const line=positive(location.line),endLine=positive(location.endLine)??line,page=positive(location.page),slide=positive(location.slide),sheet=location.sheet?.trim(),cardId=location.cardId;
+ if(endLine&&!line||line&&endLine!<line||sheet&&sheet.length>200||cardId&&cardId.length>200)throw new Error('INVALID_LOCATION');
+ const result:Record<string,unknown>={};if(location.diagramPage){if(location.diagramPage.length>200)throw new Error('INVALID_LOCATION');result.diagramPage=location.diagramPage;result.diagramPageLabel=location.diagramPageLabel?.slice(0,200);}if(line){result.line=line;result.endLine=endLine;}if(page)result.page=page;if(slide)result.slide=slide;if(sheet)result.sheet=sheet;if(cardId){result.cardId=cardId;result.cardLabel=location.cardLabel?.slice(0,200);}
+ if(Object.keys(result).length)result.revision=revision;
+ if(source!==undefined&&line){const rows=source.split('\n');if(line>rows.length||endLine!>rows.length)throw new Error('INVALID_LOCATION');const start=rows.slice(0,line-1).reduce((sum,row)=>sum+row.length+1,0),end=start+rows.slice(line-1,endLine).join('\n').length;if(suggestion){if(source.trimStart().startsWith('{')||end-start>100000)throw new Error('INVALID_LOCATION');Object.assign(result,{start,end,quote:source.slice(start,end)});}}
+ else if(suggestion)throw new Error('INVALID_LOCATION');
+ if(new TextEncoder().encode(JSON.stringify(result)).length>8000)throw new Error('LOCATION_TOO_LARGE');
+ return result;
+}
+export function describeAnchor(raw:unknown,ru:boolean){if(!raw||typeof raw!=='object')return '';const a=raw as Record<string,unknown>,parts:string[]=[];const number=(key:string)=>Number.isSafeInteger(a[key])&&Number(a[key])>0?String(a[key]):'';
+ if(typeof a.diagramPage==='string')parts.push((ru?'Страница диаграммы «':'Diagram page “')+(typeof a.diagramPageLabel==='string'?a.diagramPageLabel:a.diagramPage)+(ru?'»':'”'));if(number('page'))parts.push((ru?'Страница ':'Page ')+number('page'));if(number('slide'))parts.push((ru?'Слайд ':'Slide ')+number('slide'));if(typeof a.sheet==='string')parts.push((ru?'Лист «':'Sheet “')+a.sheet+(ru?'»':'”'));if(typeof a.cardId==='string')parts.push((ru?'Карточка «':'Card “')+(typeof a.cardLabel==='string'?a.cardLabel:a.cardId)+(ru?'»':'”'));if(number('line'))parts.push((ru?'Строка ':'Line ')+number('line')+(number('endLine')&&a.endLine!==a.line?'–'+number('endLine'):''));
+ if(!parts.length&&typeof a.quote==='string')parts.push((ru?'Фрагмент: ':'Excerpt: ')+a.quote.slice(0,160));return parts.join(' · ')||(Object.keys(a).length?(ru?'Привязка прежней версии':'Legacy location'):'');}

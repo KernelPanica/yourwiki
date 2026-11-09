@@ -26,7 +26,7 @@ export class RecentDocuments{
   return transaction(this.db,()=>{
    const candidates=(cursor?this.db.prepare('SELECT document_id,opened_at FROM document_visits WHERE user_id=? AND (opened_at,document_id)<(?,?) ORDER BY opened_at DESC,document_id DESC LIMIT 201').all(userId,...cursor):this.db.prepare('SELECT document_id,opened_at FROM document_visits WHERE user_id=? ORDER BY opened_at DESC,document_id DESC LIMIT 201').all(userId)) as {document_id:string;opened_at:number}[];
    const items=[];let scanned=0,last:Cursor|null=null;
-   for(const row of candidates.slice(0,200)){scanned++;last=[row.opened_at,row.document_id];const document=this.documents.getPublished(userId,row.document_id);if(document)items.push({...document,openedAt:row.opened_at});if(items.length>=limit)break;}
+   for(const row of candidates.slice(0,200)){if(this.db.prepare('SELECT 1 FROM dashboard_local_file WHERE document_id=? OR previous_document_id=?').get(row.document_id,row.document_id))continue;scanned++;last=[row.opened_at,row.document_id];const document=this.documents.getPublished(userId,row.document_id);if(document)items.push({...document,openedAt:row.opened_at});if(items.length>=limit)break;}
    return {items,nextCursor:scanned<candidates.length&&last?Buffer.from(JSON.stringify(last)).toString('base64url'):null};
   });
  }

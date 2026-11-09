@@ -1,0 +1,184 @@
+{
+  "date": "2026-11-07",
+  "location": "same YourWiki production host, isolated remote folder and fixture database",
+  "configuration": {
+    "phase": "started",
+    "version": "rclone v1.76.0",
+    "vfsCache": "full",
+    "writeBackSeconds": 0,
+    "pollSeconds": 2,
+    "payloadsKiB": [
+      64,
+      8192
+    ],
+    "repetitions": 3
+  },
+  "metrics": {
+    "phase": "summary",
+    "peakRssMiB": 104.9,
+    "cpuSeconds": 0.81,
+    "independentContentRequests": 18,
+    "results": [
+      {
+        "phase": "write",
+        "method": "current",
+        "bytes": 65536,
+        "repeat": 0,
+        "localMs": 11,
+        "confirmedMs": 5770,
+        "confirmationPolls": 1
+      },
+      {
+        "phase": "write",
+        "method": "mount",
+        "bytes": 65536,
+        "repeat": 0,
+        "localMs": 239,
+        "confirmedMs": 2540,
+        "confirmationPolls": 4
+      },
+      {
+        "phase": "write",
+        "method": "mount",
+        "bytes": 65536,
+        "repeat": 1,
+        "localMs": 269,
+        "confirmedMs": 2574,
+        "confirmationPolls": 4
+      },
+      {
+        "phase": "write",
+        "method": "current",
+        "bytes": 65536,
+        "repeat": 1,
+        "localMs": 4,
+        "confirmedMs": 4210,
+        "confirmationPolls": 1
+      },
+      {
+        "phase": "write",
+        "method": "current",
+        "bytes": 65536,
+        "repeat": 2,
+        "localMs": 4,
+        "confirmedMs": 5278,
+        "confirmationPolls": 1
+      },
+      {
+        "phase": "write",
+        "method": "mount",
+        "bytes": 65536,
+        "repeat": 2,
+        "localMs": 277,
+        "confirmedMs": 2567,
+        "confirmationPolls": 4
+      },
+      {
+        "phase": "write",
+        "method": "current",
+        "bytes": 8388608,
+        "repeat": 0,
+        "localMs": 70,
+        "confirmedMs": 9135,
+        "confirmationPolls": 1
+      },
+      {
+        "phase": "write",
+        "method": "mount",
+        "bytes": 8388608,
+        "repeat": 0,
+        "localMs": 252,
+        "confirmedMs": 4028,
+        "confirmationPolls": 5
+      },
+      {
+        "phase": "write",
+        "method": "mount",
+        "bytes": 8388608,
+        "repeat": 1,
+        "localMs": 46,
+        "confirmedMs": 3337,
+        "confirmationPolls": 5
+      },
+      {
+        "phase": "write",
+        "method": "current",
+        "bytes": 8388608,
+        "repeat": 1,
+        "localMs": 66,
+        "confirmedMs": 8340,
+        "confirmationPolls": 1
+      },
+      {
+        "phase": "write",
+        "method": "current",
+        "bytes": 8388608,
+        "repeat": 2,
+        "localMs": 60,
+        "confirmedMs": 8561,
+        "confirmationPolls": 1
+      },
+      {
+        "phase": "write",
+        "method": "mount",
+        "bytes": 8388608,
+        "repeat": 2,
+        "localMs": 268,
+        "confirmedMs": 3531,
+        "confirmationPolls": 5
+      },
+      {
+        "phase": "read",
+        "method": "mount",
+        "cache": "cold",
+        "bytes": 8388608,
+        "ms": 783
+      },
+      {
+        "phase": "read",
+        "method": "mount",
+        "cache": "warm",
+        "bytes": 8388608,
+        "ms": 83
+      },
+      {
+        "phase": "read",
+        "method": "mount",
+        "cache": "warm",
+        "bytes": 8388608,
+        "ms": 80
+      },
+      {
+        "phase": "external",
+        "repeat": 0,
+        "remoteSavedMs": 1257,
+        "detectedMs": 4232,
+        "afterRemoteMs": 2975
+      },
+      {
+        "phase": "external",
+        "repeat": 1,
+        "remoteSavedMs": 1226,
+        "detectedMs": 2156,
+        "afterRemoteMs": 930
+      },
+      {
+        "phase": "external",
+        "repeat": 2,
+        "remoteSavedMs": 1082,
+        "detectedMs": 4014,
+        "afterRemoteMs": 2933
+      }
+    ]
+  },
+  "cleanup": [
+    {
+      "phase": "cleanup",
+      "isolatedFolderTrashed": true
+    },
+    {
+      "phase": "cleanup",
+      "privateCredentialsRemoved": true
+    }
+  ]
+}

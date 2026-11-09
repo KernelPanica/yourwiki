@@ -8,7 +8,7 @@ async def main():
    page.on('request',lambda request:resources.append(request.url));page.on('pageerror',lambda error:errors.append(str(error)))
    await page.goto(os.environ.get('YOURWIKI_BROWSER_BASE_URL','http://127.0.0.1:39077'));await page.locator('input[name=username]').fill('qa');await page.locator('input[name=password]').fill('yourwiki-qa');await page.get_by_role('button',name=sign_in,exact=True).click();await page.get_by_role('link',name='PDF PDF forms').wait_for()
    assert not any('pdf-workspace-' in url for url in resources),'PDF stylesheet loaded before opening a PDF'
-   await page.get_by_role('link',name='PDF PDF forms').click();await page.get_by_role('status').filter(has_text=ready).wait_for();await page.locator('.pdf-container input').first.wait_for();assert await page.get_by_role('button',name=save,exact=True).is_enabled()
+   await page.get_by_role('link',name='PDF PDF forms').click();await page.get_by_role('status').filter(has_text=ready).wait_for();await page.locator('.pdf-container input').first.wait_for();assert await page.get_by_role('button',name=save,exact=True).count()==0
    region=page.locator('.pdf-container');await region.focus();await page.keyboard.press('ArrowDown');await page.wait_for_timeout(150);assert await region.evaluate('(n)=>n.scrollTop>0'),'PDF region did not support keyboard scrolling'
    selector=page.get_by_role('combobox',name=zoom,exact=True);await selector.select_option('4')
    await page.wait_for_function("() => {const n=document.querySelector('.pdf-container');return n.scrollWidth>n.clientWidth+100;}")

@@ -1,4 +1,4 @@
-name: Python and Docker acceptance
+name: TypeScript application and container checks
 on:
   push:
     branches: [main, master]
@@ -12,39 +12,24 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.13'
-          cache: pip
-      - run: pip install -r requirements-dev.txt
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
           cache: npm
-      - run: npm ci --ignore-scripts && npm run build
-      - run: python docker/fetch_drawio.py
-      - run: python -m playwright install --with-deps chromium
-      - run: python manage.py collectstatic --noinput
-        env:
-          DJANGO_SECRET_KEY: ci-static-build-only
-      - run: python -m pytest -q
-        env:
-          RUN_BROWSER: '1'
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: browser-screenshots
-          path: test-results/
-          if-no-files-found: ignore
-  containers:
+          cache-dependency-path: |
+            apps/server/package-lock.json
+            apps/web/package-lock.json
+      - run: npm ci --prefix apps/server
+      - run: npm ci --prefix apps/web --ignore-scripts
+      - run: npm --prefix apps/server run typecheck
+      - run: npm --prefix apps/server test
+      - run: npm --prefix apps/web run typecheck
+      - run: npm --prefix apps/web test
+      - run: npm run build:v2
+  container:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.13'
-          cache: pip
-      - run: pip install -r requirements-dev.txt
       - run: docker compose config --quiet
-      - run: python tests/run_container_checks.py
+      - run: docker build -t yourwiki:ci .

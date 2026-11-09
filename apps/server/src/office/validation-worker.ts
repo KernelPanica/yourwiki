@@ -48,7 +48,7 @@ export class OfficeValidationWorker {
      '--ro-bind',fileURLToPath(new URL('../../package.json',import.meta.url)),'/validator/package.json','--ro-bind',modules,'/validator/node_modules','--proc','/proc','--dev','/dev','--size','16777216','--tmpfs','/tmp','--chdir','/validator','--setenv','HOME','/tmp','--setenv','TMPDIR','/tmp','--setenv','LANG','C.UTF-8'];
     for(const file of ['transit-process.ts','transit.ts','legacy-markdown.ts'])args.push('--ro-bind',join(code,file),'/validator/'+file);
     const executable=node.startsWith('/usr/')?node:'/runtime-node';if(executable==='/runtime-node')args.push('--ro-bind',node,executable);
-    args.push(executable,`--max-old-space-size=${this.options.heapMb}`,'--max-semi-space-size=8','--stack-size=512','/validator/'+entry,format,String(blob.size),String(maximum),String(this.options.timeoutMs),String(outputLimit));
+    args.push(executable,'--disable-wasm-trap-handler',`--max-old-space-size=${this.options.heapMb}`,'--max-semi-space-size=8','--stack-size=512','/validator/'+entry,format,String(blob.size),String(maximum),String(this.options.timeoutMs),String(outputLimit));
     const child=spawn('/usr/bin/nice',args,{env:{PATH:'/usr/bin:/bin'},stdio:['ignore','pipe','pipe'],detached:true});let output='',errors='',timedOut=false,lost=false,excess=false;
     const kill=()=>{if(child.pid){try{process.kill(-child.pid,'SIGKILL');}catch{child.kill('SIGKILL');}}};
     if(!target)child.stdout.on('data',chunk=>{if(output.length+chunk.length>512){excess=true;kill();}else output+=chunk.toString();});child.stderr.on('data',chunk=>{if(errors.length<4096)errors+=chunk.toString().slice(0,4096-errors.length);});

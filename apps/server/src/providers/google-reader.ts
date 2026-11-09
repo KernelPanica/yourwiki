@@ -4,7 +4,7 @@ import type {GoogleAuthorization} from './credential-vault.ts';
 import {GoogleReadHttp,googleFileId} from './google-read-http.ts';
 import {GoogleContentHttp,googleExportTypes,googleExportMaxBytes} from './google-content-http.ts';
 import {GoogleMetadata,type GoogleFile} from './google-metadata.ts';
-export type GoogleReaderOptions={fetch?:typeof fetch;timeoutMs?:number;totalMs?:number;acceptMime?:(mime:string)=>boolean;format?:string;binaryOnly?:boolean};
+export type GoogleReaderOptions={allowExistingShares?:boolean;fetch?:typeof fetch;timeoutMs?:number;totalMs?:number;acceptMime?:(mime:string)=>boolean;format?:string;binaryOnly?:boolean};
 type Managed=(reference:string,options:ProviderCheck)=>Promise<readonly string[]>;
 export function googleSourceFingerprint(file:GoogleFile){
  if(file.kind==='binary')return JSON.stringify(['google-binary-v2',file.id,file.version,createHash('sha256').update(JSON.stringify([file.mimeType,file.size,file.parents,file.md5,file.sha256,file.headRevision])).digest('hex')]);
@@ -21,7 +21,7 @@ async function* zipBytes(source:AsyncIterable<Uint8Array>){
 export class GoogleSourceReader{
  private root:string;private metadataHttp:GoogleReadHttp;private content:GoogleContentHttp;private metadata:GoogleMetadata;private shutdown=new AbortController();private draining:Promise<void>|undefined;private options:GoogleReaderOptions;
  constructor(root:string,auth:GoogleAuthorization,managed:Managed,options:GoogleReaderOptions={}){
-  this.root=googleFileId(root);this.options={...options};this.metadataHttp=new GoogleReadHttp(auth,options);this.content=new GoogleContentHttp(auth,options);this.metadata=new GoogleMetadata(this.metadataHttp,managed);
+  this.root=googleFileId(root);this.options={...options};this.metadataHttp=new GoogleReadHttp(auth,options);this.content=new GoogleContentHttp(auth,options);this.metadata=new GoogleMetadata(this.metadataHttp,managed,{allowExistingShares:options.allowExistingShares});
  }
  private scope(options:ProviderCheck):ProviderCheck{
   const signal=options.signal?AbortSignal.any([this.shutdown.signal,options.signal]):this.shutdown.signal;

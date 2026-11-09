@@ -1,3 +1,4 @@
+import {acknowledgeGoogleMarkdownEcho} from './google-markdown-conflict-repair.ts';
 import {SyncActions} from './sync-actions.ts';
 import {randomUUID,createHash} from 'node:crypto';
 import {transaction,type Database} from '../database.ts';
@@ -5,7 +6,7 @@ import {JobQueue} from '../jobs.ts';
 import {DocumentError} from '../document-errors.ts';
 import type {BlobStore} from '../storage/blobs.ts';
 import {CredentialVault,type AdapterConnection} from './credential-vault.ts';
-import {ingressContext} from './ingress-guards.ts';
+import {ingressContext,googleIngressPriority} from './ingress-guards.ts';
 import {ProviderIngress} from './ingress-inbox.ts';
 import {ProviderError,safeProviderError,type ProviderReader,type ProviderRead} from './adapter.ts';
 export type IngressResolver=(connection:AdapterConnection)=>Promise<ProviderReader>;
@@ -34,7 +35,7 @@ export class IngressWorker {
   try{
    owns();const documentId=job.payload.documentId;if(typeof documentId!=='string'||!documentId||documentId.length>128||Object.keys(job.payload).length!==1)throw new ProviderError('PROVIDER_SOURCE_CHANGED');
    const accepted=this.inbox.appliedForJob(job);if(accepted){await this.inbox.cleanupApplied(accepted.id,job,slot);complete();return 'applied';}
-   let previous=this.inbox.latest(documentId);
+   let previous=this.inbox.latest(documentId);const refreshGoogle=googleIngressPriority(this.db,documentId)&&!!previous&&['conflict','discarded'].includes(previous.state);if(previous?.state==='conflict'&&!action&&transaction(this.db,()=>acknowledgeGoogleMarkdownEcho(this.db,previous!.id,this.clock())))previous=this.inbox.latest(documentId);
    if(previous?.state==='applied'&&previous.lease_job_id===job.id){await this.inbox.cleanupApplied(previous.id,job,slot);complete();return 'applied';}
    if(action){
     if(action.state!=='queued'){complete();return action.state==='done'?'unchanged':'blocked';}
@@ -45,7 +46,13 @@ export class IngressWorker {
     }
     if(action.kind==='check'&&previous?.state==='conflict')previous=undefined;
    }
-   if(previous?.state==='conflict'&&action?.kind!=='apply'){complete();return 'conflict';}
+   if(previous?.state==='conflict'&&action?.kind!=='apply'){
+    if(!action&&googleIngressPriority(this.db,documentId)){
+     // A parked snapshot is only a past observation. Re-read Drive against the
+     // current baseline, retaining all local document and Office recovery bytes.
+     this.inbox.resume(previous.id,job,slot,this.clock(),true);await this.inbox.discard(previous.id,job);previous=undefined;
+    }else{complete();return 'conflict';}
+   }
    if(previous?.state==='applied'){
     await this.inbox.cleanupApplied(previous.id,job,slot);
     if(previous.lease_job_id===job.id){complete();return 'applied';}
@@ -63,16 +70,16 @@ export class IngressWorker {
     if(!await this.verify(remote.bytes,{digest:previous.digest!,size:previous.size!},check)){this.inbox.park(previous.id,job,'PROVIDER_SOURCE_CHANGED');complete(action?'PROVIDER_SOURCE_CHANGED':undefined);return 'conflict';}
     await this.inbox.commit(previous.id,job,{signal:controller.signal,authorize:action?()=>this.actions.authorize(job,activeSnapshot):undefined});actionApplied=true;await this.inbox.cleanupApplied(previous.id,job);complete();return 'applied';
    }
-   if(adapter.changed&&!await adapter.changed(connection.reference,scope.fingerprint,options)){check();complete();return 'unchanged';}
+   if(!refreshGoogle&&adapter.changed&&!await adapter.changed(connection.reference,scope.fingerprint,options)){check();complete();return 'unchanged';}
    const remote=await adapter.read(connection.reference,options);check();const capacity=this.capacity(remote),snapshot=this.inbox.begin({job,slotToken:slot,documentId,connectionRevision:scope.connection_revision,baseLocalRevision:scope.local_revision,baseProviderRevision:scope.provider_revision!,baseFingerprint:scope.fingerprint,observedFingerprint:remote.fingerprint,...capacity,observedAt:this.clock()});
    activeSnapshot=snapshot.id;
    if(snapshot.state==='conflict'||snapshot.state==='staged'){
     const pinned=this.inbox.prepared(snapshot.id,job);
     if(!await this.verify(remote.bytes,{digest:pinned.digest!,size:pinned.size!},check)){this.inbox.park(snapshot.id,job,'PROVIDER_SOURCE_CHANGED');complete(action?'PROVIDER_SOURCE_CHANGED':undefined);return 'conflict';}
-    if(snapshot.state==='conflict'){complete();return 'conflict';}
+    if(snapshot.state==='conflict'){if(!action&&transaction(this.db,()=>acknowledgeGoogleMarkdownEcho(this.db,snapshot.id,this.clock()))){await this.inbox.cleanupApplied(snapshot.id,job);complete();return 'applied';}complete();return 'conflict';}
     await this.inbox.commit(snapshot.id,job,{signal:controller.signal,authorize:action?()=>this.actions.authorize(job,activeSnapshot):undefined});actionApplied=true;await this.inbox.cleanupApplied(snapshot.id,job);complete();return 'applied';
    }
-   const staged=await this.inbox.receive(snapshot.id,job,remote.bytes,{signal:controller.signal});check();if(staged.state==='conflict'){complete();return 'conflict';}
+   const staged=await this.inbox.receive(snapshot.id,job,remote.bytes,{signal:controller.signal});check();if(staged.state==='conflict'){if(!action&&transaction(this.db,()=>acknowledgeGoogleMarkdownEcho(this.db,snapshot.id,this.clock()))){await this.inbox.cleanupApplied(snapshot.id,job);complete();return 'applied';}complete();return 'conflict';}
    await this.inbox.commit(snapshot.id,job,{signal:controller.signal,authorize:action?()=>this.actions.authorize(job,activeSnapshot):undefined});actionApplied=true;await this.inbox.cleanupApplied(snapshot.id,job);complete();return 'applied';
   }catch(error){
    const now=this.clock();if(!this.queue.owns(job,now)||controller.signal.aborted||!this.db.prepare("SELECT 1 FROM worker_slots WHERE name='provider-source' AND token=? AND lease_until>?").get(slot,now))return 'interrupted';

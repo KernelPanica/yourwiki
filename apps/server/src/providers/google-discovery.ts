@@ -12,7 +12,7 @@ function interrupt<T>(work:Promise<T>,signal:AbortSignal):Promise<T>{if(signal.a
 export class GoogleDiscoveryReader{
  private root:string;private http:GoogleReadHttp;private metadata:GoogleMetadata;private totalMs:number;private lifetime=new AbortController();private active=new Map<AbortController,Promise<void>>();private draining:Promise<void>|undefined;
  constructor(root:string,auth:GoogleAuthorization,managed:(id:string,options:ProviderCheck)=>Promise<readonly string[]>,options:{fetch?:typeof fetch;timeoutMs?:number;totalMs?:number}={}){
-  this.root=googleFileId(root);this.totalMs=options.totalMs??30000;if(!Number.isSafeInteger(this.totalMs)||this.totalMs<1||this.totalMs>30000)throw new ProviderError('PROVIDER_CONFIG_CHANGED');this.http=new GoogleReadHttp(auth,options);this.metadata=new GoogleMetadata(this.http,managed);
+  this.root=googleFileId(root);this.totalMs=options.totalMs??30000;if(!Number.isSafeInteger(this.totalMs)||this.totalMs<1||this.totalMs>30000)throw new ProviderError('PROVIDER_CONFIG_CHANGED');this.http=new GoogleReadHttp(auth,options);this.metadata=new GoogleMetadata(this.http,managed,{allowExistingShares:true});
  }
  async page(value:{folderId?:string;pageToken?:string},options:ProviderCheck):Promise<GoogleDiscoveryPage>{
   if(!value||typeof value!=='object'||Array.isArray(value)||Object.getOwnPropertySymbols(value).length)invalid();const input:Record<string,unknown>=Object.create(null);for(const name of Object.getOwnPropertyNames(value)){const field=Object.getOwnPropertyDescriptor(value,name);if(!['folderId','pageToken'].includes(name)||!field?.enumerable||!('value' in field))invalid();input[name]=field.value;}

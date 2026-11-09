@@ -6,7 +6,7 @@ import {SecretError} from './secret-errors.ts';
 import {SecretConfigs} from './secret-config.ts';
 import {type ConnectionMetadata,type CreateConnection,type UpdateConnection} from './connection-types.ts';
 const columns='c.id,c.provider,c.label,m.path,m.folder_id,c.revision,c.enabled,c.created_at,c.updated_at';
-const identity=['root','repository','branch','host','port','share','host_key'],secrets=new Set(['client_secret','refresh_token','token','password','private_key','key_passphrase']);
+const identity=['root','repository','branch','host','port','share','host_key','drive_id','username','domain'],secrets=new Set(['client_secret','refresh_token','token','password','private_key','key_passphrase']);
 type Row={id:string;provider:ConnectionMetadata['provider'];label:string;path:string;folder_id:string|null;revision:number;enabled:number;created_at:number;updated_at:number};
 function metadata(row:Row):ConnectionMetadata{return {id:row.id,provider:row.provider,label:row.label,path:row.path,folderId:row.folder_id,revision:row.revision,enabled:row.enabled===1,state:'configured',createdAt:row.created_at,updatedAt:row.updated_at};}
 /** Central account metadata only. No adapter/network calls or public credential accessor. */

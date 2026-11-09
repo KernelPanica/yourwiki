@@ -17,7 +17,7 @@ async def main():
   position=await page.locator('.annotationEditorLayer').first.evaluate('''layer=>{const r=layer.getBoundingClientRect();for(const y of [220,300,380,460])for(const x of [850,1000,700,500]){const hit=document.elementFromPoint(r.left+x,r.top+y);if(x<r.width-30&&r.top+y<innerHeight-30&&hit===layer)return {x,y};}throw new Error('No blank annotation area');}''')
   await page.locator('.annotationEditorLayer').first.click(position=position)
   annotation=page.locator('.freeTextEditor [contenteditable="true"]').first;await annotation.wait_for();annotation_text='Browser annotation '+uuid.uuid4().hex;await annotation.fill(annotation_text)
-  await page.get_by_role('button',name='Сохранить',exact=True).click();await page.get_by_role('status').filter(has_text='PDF сохранён').wait_for()
+  assert await page.get_by_role('button',name='Сохранить',exact=True).count()==0;await annotation.blur();await page.get_by_role('status').filter(has_text='PDF сохранён').wait_for()
   state=await (await page.request.get(url.replace('/documents/','/api/documents/')+'/pdf')).json()
   saved=await page.request.get(url.replace('/documents/','/api/documents/')+'/pdf/layers/'+str(state['layerRevision']))
   reader=PdfReader(BytesIO(await saved.body()));assert reader.get_fields()['project']['/V']=='Saved project'

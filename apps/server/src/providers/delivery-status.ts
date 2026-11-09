@@ -5,7 +5,7 @@ import type {BlobStore} from '../storage/blobs.ts';
 import {JobQueue} from '../jobs.ts';
 export type SourceDeliveryStatus={documentId:string;kind:'source';state:'local_only'|'pending'|'sending'|'confirmed'|'unknown'|'retryable'|'conflict'|'blocked';localRevision:number;providerRevision:number|null;operationId:string|null;errorCode:string|null};
 type Attempt={id:string;revision:number;state:string;error_code:string|null;connection_revision:number;lease_job_id:string;lease_until:number};
-const codes=['PROVIDER_UNKNOWN','PROVIDER_UNAVAILABLE','PROVIDER_CONFLICT','PROVIDER_CONFIG_CHANGED','PROVIDER_SOURCE_CHANGED','ACCESS_DENIED'];
+const codes=['SOURCE_SAVE_UNSUPPORTED','PROVIDER_UNKNOWN','PROVIDER_UNAVAILABLE','PROVIDER_CONFLICT','PROVIDER_CONFIG_CHANGED','PROVIDER_SOURCE_CHANGED','ACCESS_DENIED'];
 function invalid():never{throw new DocumentError('INVALID_REQUEST');}
 function operation(value:unknown):value is string{return typeof value==='string'&&/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(value);}
 export function deliveryInput(value:unknown,check=false):{operationId:string;baseLocalRevision:number;requestId?:string}{

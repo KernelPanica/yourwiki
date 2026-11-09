@@ -16,6 +16,10 @@ export class GoogleReadHttp{
  async file(id:string,fields:string,options:ProviderCheck):Promise<Record<string,unknown>>{
   googleFileId(id);if(typeof fields!=='string'||fields.length<1||fields.length>8192||/[^\x20-\x7e]/.test(fields))throw new ProviderError('PROVIDER_INVALID_REFERENCE');return this.read('files/'+id,new URLSearchParams({fields}),options);
  }
+ /** A missing result is only an actual Google HTTP 404, never a parse or authorization error. */
+ async fileOrMissing(id:string,fields:string,options:ProviderCheck):Promise<Record<string,unknown>|null>{
+  googleFileId(id);if(typeof fields!=='string'||!fields||fields.length>8192||/[^\x20-\x7e]/.test(fields))throw new ProviderError('PROVIDER_INVALID_REFERENCE');return this.read('files/'+id,new URLSearchParams({fields}),options,true);
+ }
  async children(folderId:string,options:ProviderCheck,pageToken?:string):Promise<Record<string,unknown>>{
   googleFileId(folderId);if(pageToken!==undefined&&(typeof pageToken!=='string'||pageToken.length<1||pageToken.length>16384||/[\x00-\x20\x7f]/.test(pageToken)||Buffer.from(pageToken).toString('utf8')!==pageToken))throw new ProviderError('PROVIDER_INVALID_REFERENCE');
   const query=new URLSearchParams({q:"'"+folderId+"' in parents and trashed = false and 'me' in owners",spaces:'drive',corpora:'user',pageSize:'100',fields:'nextPageToken,incompleteSearch,files(id,name,mimeType,parents,version,ownedByMe,shared,driveId,trashed,size,md5Checksum,sha256Checksum,headRevisionId,capabilities(canDownload))'});if(pageToken!==undefined)query.set('pageToken',pageToken);return this.read('files',query,options);
@@ -24,7 +28,9 @@ export class GoogleReadHttp{
  async permissions(id:string,options:ProviderCheck,pageToken?:string):Promise<Record<string,unknown>>{
   googleFileId(id);if(pageToken!==undefined&&(typeof pageToken!=='string'||pageToken.length<1||pageToken.length>16384||/[\x00-\x20\x7f]/.test(pageToken)))throw new ProviderError('PROVIDER_INVALID_REFERENCE');const query=new URLSearchParams({fields:'permissions(id,type,emailAddress,role,permissionDetails),nextPageToken',pageSize:'100'});if(pageToken!==undefined)query.set('pageToken',pageToken);return this.read('files/'+id+'/permissions',query,options);
  }
- private async read(path:string,query:URLSearchParams,options:ProviderCheck):Promise<Record<string,unknown>>{
+ private read(path:string,query:URLSearchParams,options:ProviderCheck,allowMissing:true):Promise<Record<string,unknown>|null>;
+ private read(path:string,query:URLSearchParams,options:ProviderCheck,allowMissing?:false):Promise<Record<string,unknown>>;
+ private async read(path:string,query:URLSearchParams,options:ProviderCheck,allowMissing=false):Promise<Record<string,unknown>|null>{
   if(this.closed||options.signal?.aborted)throw new ProviderError('PROVIDER_CANCELLED');if(this.active.size>=8)throw unavailable();
   const controller=new AbortController();let done!:()=>void;this.active.set(controller,new Promise<void>(resolve=>done=resolve));const abort=()=>controller.abort();options.signal?.addEventListener('abort',abort,{once:true});if(options.signal?.aborted)abort();const timer=setTimeout(abort,this.timeoutMs);
   const check=async()=>{if(controller.signal.aborted)throw unavailable();try{await interrupt(Promise.resolve().then(()=>options.check()),controller.signal);}catch(error){if(controller.signal.aborted)throw unavailable();throw new AuthorityFailure(error);}if(controller.signal.aborted)throw unavailable();};
@@ -34,7 +40,7 @@ export class GoogleReadHttp{
     // Even an early authorization failure must cancel the body without leaking its JSON.
     try{await check();}catch(error){void response.body?.cancel().catch(()=>{});throw error;}
     if(response.status===401){void response.body?.cancel().catch(()=>{});this.auth.invalidate(token);if(attempt===0)continue;throw new ProviderError('PROVIDER_CONFIG_CHANGED');}
-    if(response.status!==200&&response.status!==403){void response.body?.cancel().catch(()=>{});if(response.status===404)throw new ProviderError('PROVIDER_SOURCE_CHANGED');if(response.status===412)throw new ProviderError('PROVIDER_CONFLICT');if(response.status===400)throw new ProviderError('PROVIDER_CONFIG_CHANGED');throw unavailable();}
+    if(response.status!==200&&response.status!==403){void response.body?.cancel().catch(()=>{});if(response.status===404){if(allowMissing)return null;throw new ProviderError('PROVIDER_SOURCE_CHANGED');}if(response.status===412)throw new ProviderError('PROVIDER_CONFLICT');if(response.status===400)throw new ProviderError('PROVIDER_CONFIG_CHANGED');throw unavailable();}
     const value=await googleJson(response,{signal:controller.signal,maxBytes:262144,check});
     if(response.status===403){const error=value.error as {errors?:unknown}|undefined,details=error&&typeof error==='object'&&Array.isArray(error.errors)?error.errors.slice(0,64):[];if(details.some(item=>item&&typeof item==='object'&&['rateLimitExceeded','userRateLimitExceeded','dailyLimitExceeded','downloadQuotaExceeded'].includes((item as any).reason)))throw unavailable();throw new ProviderError('ACCESS_DENIED');}
     await check();return value;

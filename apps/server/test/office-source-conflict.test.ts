@@ -18,9 +18,9 @@ async function fixture(t:any){
  function begin(){const now=Date.now();queue.enqueue({kind:'provider.pull',key:randomUUID(),payload:{documentId:id}},now);const job=queue.claim(now,30000,'provider.pull')!;assert.ok(job);const slotToken=randomUUID();f.db.prepare("INSERT INTO worker_slots VALUES('provider-source',?,?) ON CONFLICT(name) DO UPDATE SET token=excluded.token,lease_until=excluded.lease_until").run(slotToken,now+30000);const snapshot=inbox.begin({documentId:id,job,slotToken,connectionRevision:1,baseLocalRevision:2,baseProviderRevision:2,baseFingerprint:'baseline',observedFingerprint:'external',declaredSize:3,observedAt:now},now);return {snapshot,job};}
  return {...f,id,office,one,two,inbox,begin};
 }
-test('a verified Google incoming conflict stops both active office sessions before local revision changes',async t=>{
+test('a verified Google incoming snapshot stops both active office sessions before local revision changes',async t=>{
  const f=await fixture(t);f.office.lock(f.one.sessionId,f.one.token,'LOCK','lock');const incoming=f.begin();await f.inbox.receive(incoming.snapshot.id,incoming.job,bytes('out'));
- assert.equal((f.db.prepare('SELECT state FROM provider_ingress_snapshots WHERE id=?').get(incoming.snapshot.id) as any).state,'conflict');
+ assert.equal((f.db.prepare('SELECT state FROM provider_ingress_snapshots WHERE id=?').get(incoming.snapshot.id) as any).state,'staged');
  for(const [browser,opened] of [[f.sessions.writer,f.one],[f.sessions.reader,f.two]] as const){const status=f.office.status(browser.token,opened.sessionId,opened.token);assert.equal(status.changed,true);assert.equal(status.write,false);assert.equal(status.errorCode,'CONFLICT');}
  assert.throws(()=>f.office.lock(f.one.sessionId,f.one.token,'REFRESH_LOCK','lock'),/CONFLICT/);
  assert.throws(()=>f.office.open(f.sessions.writer.token,f.id),/CONFLICT/);
@@ -51,7 +51,7 @@ test('a remote change found during Office validation retains both payloads and n
  const created=(f.db.prepare('SELECT created_at FROM document_versions WHERE document_id=? AND revision=2').get(f.id) as any).created_at;
  await assert.rejects(saves.save({sessionId:f.one.sessionId,token:f.one.token,lock:'lock',declaredSize:5,lastModifiedTime:new Date(created).toISOString()},bytes('edits')),/CONFLICT/);
  const recovery=f.db.prepare('SELECT id,state,error_code FROM office_ingress WHERE document_id=?').get(f.id) as any;assert.equal(recovery.state,'prepared');assert.equal(recovery.error_code,'CONFLICT');assert.ok(await ingress.payloadStore('writer',recovery.id));assert.equal((f.db.prepare('SELECT local_revision FROM documents WHERE id=?').get(f.id) as any).local_revision,2);
- assert.equal((f.db.prepare('SELECT state FROM provider_ingress_snapshots WHERE document_id=?').get(f.id) as any).state,'conflict');
+ assert.equal((f.db.prepare('SELECT state FROM provider_ingress_snapshots WHERE document_id=?').get(f.id) as any).state,'staged');
 });
 test('save-intent polling sees external conflict without requiring a separate session status request',async t=>{
  const {OfficeSaveIntents}=await import('../src/office/save-intents.ts');const f=await fixture(t),intents=new OfficeSaveIntents(f.db),ticket=intents.issue(f.sessions.writer.token,f.one.sessionId,f.one.token),incoming=f.begin();await f.inbox.receive(incoming.snapshot.id,incoming.job,bytes('out'));

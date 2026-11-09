@@ -1,0 +1,4 @@
+export const googleFolderTrashMigration=`
+CREATE TABLE provider_google_folder_trash(job_id TEXT PRIMARY KEY REFERENCES jobs(id),resource_id TEXT NOT NULL REFERENCES resources(id),actor_id TEXT NOT NULL REFERENCES users(id),connection_id TEXT NOT NULL REFERENCES provider_connections(id),connection_revision INTEGER NOT NULL,reference TEXT NOT NULL,target_trashed INTEGER NOT NULL CHECK(target_trashed IN (0,1)),state TEXT NOT NULL CHECK(state IN ('queued','dispatched','unknown','confirmed','failed')),snapshot TEXT NOT NULL,trash_id TEXT NOT NULL REFERENCES local_trash(id),error_code TEXT,next_check_at INTEGER NOT NULL DEFAULT 0,created_at INTEGER NOT NULL);
+CREATE UNIQUE INDEX google_folder_trash_pending ON provider_google_folder_trash(resource_id) WHERE state NOT IN ('confirmed','failed');
+`;

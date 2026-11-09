@@ -1,3 +1,4 @@
+import {supportsGoogleBinary} from '../providers/google-markdown-write.ts';
 import type {Database} from '../database.ts';
 import type {BlobStore,BlobRef} from '../storage/blobs.ts';
 import {DocumentError} from '../documents.ts';
@@ -40,6 +41,8 @@ export class OfficeSaves {
    // without a precondition must retain recovery, not overwrite changed bytes.
    if(!sameTimestamp(input.lastModifiedTime,time)&&!(input.lastModifiedTime===null&&document.size===0&&context.baseRevision===1))throw new OfficeWriteError('CONFLICT',undefined,received.id);
    await this.validator.validate(context.store,context.blob,document.format,context.signal);context.assertCurrent();
+   const binding=this.db.prepare("SELECT b.fingerprint FROM provider_source_bindings b JOIN provider_connections c ON c.id=b.connection_id WHERE b.document_id=? AND c.provider='google'").get(context.documentId) as {fingerprint:string}|undefined;
+   if(binding&&!supportsGoogleBinary(document.format,binding.fingerprint))throw new OfficeWriteError('SOURCE_SAVE_UNSUPPORTED',undefined,received.id);
    const blob=await this.store.adopt(context.store,context.blob,{signal:context.signal});context.assertCurrent();
    await this.journal.stagePrepared({operationId:received.id,userId:context.userId,documentId:context.documentId,officeSessionId:input.sessionId,baseRevision:context.baseRevision,baseDigest:context.baseDigest,blob,signal:context.signal});
    // A retained staged save must continue to fence other editor paths after expiry.

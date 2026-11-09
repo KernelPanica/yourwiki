@@ -1,0 +1,7 @@
+.purge-confirmation{width:min(560px,calc(100vw - 32px));max-height:85dvh;overflow:auto;box-sizing:border-box;border:1px solid var(--line);border-radius:12px;padding:24px;background:var(--surface);color:inherit}
+.purge-confirmation::backdrop{background:#0009}
+.purge-confirmation h2{margin-top:0;font-size:20px}
+.purge-confirmation p,.purge-confirmation strong{overflow-wrap:anywhere}
+.purge-confirmation label{display:grid;gap:8px}
+.purge-confirmation input{width:100%;box-sizing:border-box}
+.purge-confirmation footer{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:12px;margin-top:20px}

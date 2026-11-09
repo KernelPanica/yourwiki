@@ -47,7 +47,7 @@ export class DeliveryWorker {
     if(unknown){this.attempts.settle(attempt,'unknown','PROVIDER_UNKNOWN',now);return 'unknown';}
     if(!writing&&safe.code==='PROVIDER_UNAVAILABLE'){this.attempts.reschedulePrepared(attempt,now);return 'deferred';}
     const state=safe.code==='PROVIDER_CONFLICT'?'conflict':writing&&['PROVIDER_UNAVAILABLE','PROVIDER_CANCELLED'].includes(safe.code)?'retryable':'blocked';
-    const code=state==='conflict'?'PROVIDER_CONFLICT':state==='retryable'?'PROVIDER_UNAVAILABLE':['ACCESS_DENIED','PROVIDER_CONFIG_CHANGED','PROVIDER_SOURCE_CHANGED'].includes(safe.code)?safe.code:'PROVIDER_SOURCE_CHANGED';this.attempts.settle(attempt,state,code,now);return state;
+    const code=state==='conflict'?'PROVIDER_CONFLICT':state==='retryable'?'PROVIDER_UNAVAILABLE':['SOURCE_SAVE_UNSUPPORTED','ACCESS_DENIED','PROVIDER_CONFIG_CHANGED','PROVIDER_SOURCE_CHANGED'].includes(safe.code)?safe.code:'PROVIDER_SOURCE_CHANGED';this.attempts.settle(attempt,state,code,now);return state;
    }catch{return 'interrupted';}
   }finally{
    if(heartbeat)clearInterval(heartbeat);signal?.removeEventListener('abort',abort);if(adapter)try{await adapter.close();}catch{}this.db.prepare("DELETE FROM worker_slots WHERE name='provider-source' AND token=?").run(slot);this.busy=false;

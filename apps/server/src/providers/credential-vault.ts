@@ -1,3 +1,5 @@
+import {rcloneEntry,rcloneFingerprint} from '../rclone/client.ts';
+import type {RcloneSource} from '../rclone/adapter.ts';
 import {googleFileId} from './google-read-http.ts';
 import {ingressContext} from './ingress-guards.ts';
 import type {Database} from '../database.ts';
@@ -5,7 +7,7 @@ import {AccessService} from '../access.ts';
 import {SecretConfigs} from './secret-config.ts';
 import {ProviderError,type ProviderCheck} from './adapter.ts';
 import type {Provider} from './connection-types.ts';
-import type {DeliveryAttempt} from './delivery-attempts.ts';
+import {DeliveryAttempts,type DeliveryAttempt} from './delivery-attempts.ts';
 import {googleManagedRecipients} from './google-grants.ts';
 import {GoogleAuthPool,type GoogleAuthPoolOptions} from './google-auth-pool.ts';
 import {GoogleUploadJournal} from './google-upload-journal.ts';
@@ -33,6 +35,15 @@ export class CredentialVault {
   const pinned={authorId:attempt.authorId,documentId:attempt.documentId,connectionRevision:attempt.connectionRevision,bindingGeneration:attempt.bindingGeneration},row=this.outgoing(pinned);
   try{const connection:AdapterConnection={provider:row.provider,reference:row.reference,config:this.configs.decrypt(row.encrypted_config)};this.minted.set(connection,{documentId:pinned.documentId,id:row.connection_id,revision:row.revision,provider:row.provider,attempt:{...attempt,job:{...attempt.job,payload:{...attempt.job.payload}}},check:()=>{this.outgoing(pinned);}});return connection;}catch{throw new ProviderError('PROVIDER_CONFIG_CHANGED');}
  }
+ /** Canonical rclone source capability; a copied descriptor cannot borrow credentials. */
+ rcloneSource(connection:AdapterConnection):RcloneSource|null{
+  this.live();const scope=this.minted.get(connection);if(!scope||scope.provider!=='google')throw new ProviderError('PROVIDER_CONFIG_CHANGED');scope.check();
+  const mount=this.db.prepare('SELECT binary_path,config_path,mount_path,staging_path FROM rclone_drive_mounts WHERE connection_id=?').get(scope.id) as {binary_path:string;config_path:string;mount_path:string;staging_path:string}|undefined;
+  if(!mount){if(process.env.YOURWIKI_DRIVE_TRANSPORT==='rclone')throw new ProviderError('PROVIDER_UNAVAILABLE');return null;}
+  const reference=this.googleSource(connection).reference;const entry=this.db.prepare('SELECT path FROM rclone_drive_entries WHERE connection_id=? AND reference=?').get(scope.id,reference) as {path:string}|undefined;if(!entry)throw new ProviderError('PROVIDER_SOURCE_CHANGED');const path=entry.path;
+  const check=()=>{this.live();scope.check();const current=this.db.prepare('SELECT path FROM rclone_drive_entries WHERE connection_id=? AND reference=?').get(scope.id,reference) as {path:string}|undefined;if(current?.path!==path)throw new ProviderError('PROVIDER_SOURCE_CHANGED');};
+  const parentPath=path.includes('/')?path.slice(0,path.lastIndexOf('/')):'';const parent=parentPath?this.db.prepare('SELECT reference FROM rclone_drive_entries WHERE connection_id=? AND path=?').get(scope.id,parentPath) as {reference:string}|undefined:undefined;return {maxBytes:(this.db.prepare('SELECT document_limit_bytes AS n FROM administration_state WHERE id=1').get() as {n:number}).n,parentId:parent?.reference,probe:()=>{check();const row=this.db.prepare('SELECT metadata,seen_at FROM rclone_drive_entries WHERE connection_id=? AND reference=?').get(scope.id,reference) as {metadata:string;seen_at:number}|undefined;return row?{fingerprint:rcloneFingerprint(rcloneEntry(JSON.parse(row.metadata))),checkedAt:row.seen_at}:null;},runtime:{binary:mount.binary_path,config:mount.config_path,mount:mount.mount_path,staging:mount.staging_path},reference,path,check,record:metadata=>{check();this.db.prepare('UPDATE rclone_drive_entries SET metadata=?,seen_at=? WHERE connection_id=? AND reference=?').run(JSON.stringify(metadata),Date.now(),scope.id,reference);}};
+ }
  /** Outgoing-only private receipt capability; caller copies cannot select another attempt. */
  googleUploads(connection:AdapterConnection){
   this.live();const scope=this.minted.get(connection);if(!scope?.attempt||scope.provider!=='google')throw new ProviderError('PROVIDER_CONFIG_CHANGED');scope.check();const attempt=scope.attempt,journal=new GoogleUploadJournal(this.db,this.configs),check=()=>{this.live();scope.check();};
@@ -44,6 +55,11 @@ export class CredentialVault {
    markDispatched:(now?:number)=>{check();journal.markDispatched(attempt,now);},
    markUnknown:(now?:number)=>{this.live();journal.markUnknown(attempt,now);}
   });
+ }
+ /** Outgoing capability only: a read-side binding cannot mint a Google writer. */
+ googleWriteAuthority(connection:AdapterConnection){
+  this.live();const scope=this.minted.get(connection);if(!scope?.attempt||scope.provider!=='google')throw new ProviderError('SOURCE_SAVE_UNSUPPORTED');const attempt=scope.attempt,journal=new DeliveryAttempts(this.db);
+  const check=()=>{this.live();scope.check();try{journal.check(attempt);}catch(error){if(error&&typeof error==='object'&&'code' in error&&error.code==='ACCESS_DENIED')throw new ProviderError('ACCESS_DENIED');throw new ProviderError('LEASE_LOST');}};check();return Object.freeze({operationId:attempt.id,check});
  }
  /** Canonical internal source descriptor. Never serialize root/reference as a public DTO. */
  googleSource(connection:AdapterConnection):Readonly<{root:string;reference:string;format:string;fingerprint:string;check:()=>void;checkBaseline:()=>void}>{
@@ -71,5 +87,6 @@ export class CredentialVault {
    await check();const recipients=googleManagedRecipients(this.db,scope.id,scope.revision,reference);await check();return recipients;
   };
  }
+ persistRefresh(connection:AdapterConnection,token:string){this.live();const scope=this.minted.get(connection);if(!scope)throw new ProviderError('PROVIDER_CONFIG_CHANGED');scope.check();const row=this.db.prepare('SELECT encrypted_config FROM provider_connections WHERE id=? AND revision=? AND enabled=1').get(scope.id,scope.revision) as {encrypted_config:string}|undefined;if(!row)throw new ProviderError('PROVIDER_CONFIG_CHANGED');this.db.prepare('UPDATE provider_connections SET encrypted_config=? WHERE id=? AND revision=?').run(this.configs.encrypt({...this.configs.decrypt(row.encrypted_config),refresh_token:token}),scope.id,scope.revision);}
  close():Promise<void>{this.closed=true;return this.ownsAuth?this.auth.close():Promise.resolve();}
 }

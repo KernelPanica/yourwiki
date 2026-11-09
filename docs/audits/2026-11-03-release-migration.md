@@ -2,6 +2,8 @@
 
 `npm run release -- migrate /absolute/new-data-root /absolute/input.json` imports a **stopped standalone backup** to a fresh target. In Docker: `docker compose run --rm maintenance migrate /migration-source/input.json`; the source mount is read-only. The tool never opens the supplied legacy database in write mode: it hashes/copies it, rejects nonempty WAL/rollback sidecars, opens only its private copy, and checks the original digest again before completion. Assets are read from administrator-supplied export paths; the importer never guesses or contacts a cloud provider.
 
+The token-protected setup browser now supports the same offline migration through an absolute server-side manifest path, and verified backup restoration through an absolute backup directory path. Both operations require a fresh data root, share the installer operation lock, and refuse existing workspace data. A blocked migration displays all blocker codes and preserves its private report; the installer cannot run another operation against that preserved stage. Restores revoke copied sessions and disable provider connections pending administrator review. The installer never modifies the supplied source or backup.
+
 Example private input (paths inside the maintenance container):
 
 ```json

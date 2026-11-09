@@ -39,7 +39,7 @@ export class OfficeSessions {
    this.db.prepare('DELETE FROM office_tokens WHERE expires_at<=? OR NOT EXISTS(SELECT 1 FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=office_tokens.browser_session_hash AND s.user_id=office_tokens.user_id AND s.expires_at>? AND s.auth_version=u.auth_version AND u.active=1)').run(now,now);
    const tokens=this.db.prepare('SELECT COUNT(*) AS total,COALESCE(SUM(CASE WHEN browser_session_hash=? THEN 1 ELSE 0 END),0) AS own FROM office_tokens WHERE expires_at>?').get(actor.tokenHash,now) as {total:number;own:number};
    if(tokens.total>=4096||tokens.own>=64)throw new OfficeError('OFFICE_LIMIT');
-   const token=randomBytes(32).toString('base64url'),expiresAt=Math.min(now+tokenLifetime,actor.expiresAt),write=writable===true&&this.access.allows(actor.userId,documentId,'write');
+   const token=randomBytes(32).toString('base64url'),expiresAt=Math.min(now+tokenLifetime,actor.expiresAt),write=writable===true&&!((this.db.prepare('SELECT fingerprint FROM provider_source_bindings WHERE document_id=?').get(documentId) as {fingerprint:string}|undefined)?.fingerprint.startsWith('["rclone-drive-native-v1",'))&&this.access.allows(actor.userId,documentId,'write');
    this.db.prepare('INSERT INTO office_tokens(token_hash,office_session_id,user_id,browser_session_hash,writable,expires_at) VALUES(?,?,?,?,?,?)').run(tokenHash(token),row.id,actor.userId,actor.tokenHash,Number(write),expiresAt);
    this.db.prepare('UPDATE office_sessions SET expires_at=? WHERE id=?').run(now+lease,row.id);
    return {sessionId:row.id,token,expiresAt,write};
