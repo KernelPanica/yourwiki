@@ -1,3 +1,12 @@
+import {registerPlugins} from './plugins/routes.ts';
+import {registerMonitoring} from './monitoring/routes.ts';
+import {GoogleRegistration} from './auth/google-registration.ts';
+import {registerGoogleRegistration} from './auth/google-registration-routes.ts';
+import {registerGoogleWatch} from './providers/google-watch.ts';
+import {registerStorageRoutes} from './providers/storage-routes.ts';
+import {registerBackupRoutes} from './backups/routes.ts';
+import {registerOfficeFonts} from './office/fonts.ts';
+import {registerTextDocuments} from './text/routes.ts';
 import {registerPresence} from './presence/routes.ts';
 import {registerMigrationRecovery} from './release/recovery-routes.ts';
 import {registerContentParity} from './content-parity/routes.ts';
@@ -37,15 +46,18 @@ import type { BlobStore } from './storage/blobs.ts';
 import { registerAuth } from './auth/routes.ts';
 
 export interface AppOptions {
+  officeFontsRoot?: string;
   contentSecrets?: SecretConfigs;
   drawioRoot?: string;
   googleLifecycle?: GoogleLifecycle;
   googleIdentities?: GoogleIdentities;
+  googleRegistration?:GoogleRegistration;
   googleImports?: GoogleImportRequests;
   googleTrash?: GoogleTrashRequests;
   googleDiscovery?: GoogleDiscoveryRequests;
   googleConnect?: GoogleConnect;
   providerConnections?: ProviderConnections;
+  workspacePath?: string;
   office?: OfficeOptions;
   database?: Database;
   publicUrl?: string;
@@ -75,6 +87,7 @@ export function buildApp(options: AppOptions = {}) {
     bodyLimit: 1024 * 1024,
     trustProxy: false,
   });
+  if(options.database){registerMonitoring(app,options.database,options.workspacePath);registerPlugins(app,options.database,options.contentSecrets,options.publicUrl??'http://localhost:3100');}
   app.addHook('onRequest', async (request, reply) => {
     reply.header('x-request-id', request.id);
     reply.header('cache-control', 'no-store');
@@ -97,19 +110,25 @@ export function buildApp(options: AppOptions = {}) {
     }
     return reply.code(500).send(errorEnvelope('INTERNAL_ERROR', request.id));
   });
+  if(options.googleRegistration&&(!options.googleIdentities||!options.database||!options.googleRegistration.belongsToDatabase(options.database,options.publicUrl??'http://localhost:3100')))throw new Error('Registration requires matching database and public origin');
+  const registration=options.googleRegistration??(options.database&&options.contentSecrets&&options.googleIdentities?new GoogleRegistration(options.database,options.contentSecrets,options.publicUrl??'http://localhost:3100'):undefined);
+  if(options.database)registerGoogleRegistration(app,options.database,new URL(options.publicUrl??'http://localhost:3100').origin,registration);
+  if(options.database&&options.storage&&options.contentSecrets&&options.providerConnections){registerStorageRoutes(app,options.database,options.storage,options.contentSecrets,options.publicUrl??'http://localhost:3100');if(options.workspacePath)registerBackupRoutes(app,options.database,options.contentSecrets,options.workspacePath,options.publicUrl??'http://localhost:3100');}
   if(options.database&&options.providerConnections)registerProviderConnections(app,options.database,options.providerConnections);
   if(options.database&&options.googleConnect)registerGoogleConnect(app,options.database,options.googleConnect,options.publicUrl??'http://localhost:3100');
-  if (options.database) registerAuth(app, options.database, options.publicUrl ?? 'http://localhost:3100', {googleConnect:!!options.googleConnect,googleDiscovery:!!options.googleDiscovery,googleImport:!!options.googleImports,googleTrash:!!options.googleTrash,googleIdentity:!!options.googleIdentities,googleLifecycle:!!options.googleLifecycle});
+  if (options.database) registerAuth(app, options.database, options.publicUrl ?? 'http://localhost:3100', {providerStorage:!!(options.contentSecrets&&options.providerConnections&&options.storage),providerBackups:!!(options.contentSecrets&&options.providerConnections&&options.storage&&options.workspacePath),googleConnect:!!options.googleConnect,googleDiscovery:!!options.googleDiscovery,googleImport:!!options.googleImports,googleTrash:!!options.googleTrash,googleIdentity:!!options.googleIdentities,googleLifecycle:!!options.googleLifecycle});
   if(options.database&&options.storage)registerMigrationRecovery(app,options.database,options.storage);
+  if(options.database&&options.storage)registerTextDocuments(app,options.database,options.storage,options.publicUrl??'http://localhost:3100');
   if(options.database&&options.storage)registerContentParity(app,options.database,options.storage,options.publicUrl??'http://localhost:3100',{secrets:options.contentSecrets,drawioRoot:options.drawioRoot});
+  if(options.database)registerGoogleWatch(app,options.database);
   if(options.database)registerPresence(app,options.database,options.publicUrl??'http://localhost:3100');
-  if (options.database) registerAdministration(app,options.database,options.publicUrl??'http://localhost:3100');
+  if (options.database) registerAdministration(app,options.database,options.publicUrl??'http://localhost:3100',{fileDashboard:!!options.storage,googleTrash:options.googleTrash});
   if (options.database) registerHistorySettings(app,options.database,options.publicUrl??'http://localhost:3100');
   if (options.database) registerChanges(app, options.database, options.publicUrl ?? 'http://localhost:3100', options.changesPollMs);
   if (options.database && options.storage) registerDocuments(app, options.database, options.storage, options.publicUrl ?? 'http://localhost:3100', options.maxFileBytes, !!options.office, !!options.googleTrash, !!options.googleIdentities);
   if(options.database&&options.storage)registerProviderSync(app,options.database,options.storage,options.publicUrl??'http://localhost:3100');
   if(options.database&&options.googleLifecycle)registerGoogleLifecycle(app,options.database,options.googleLifecycle,options.publicUrl??'http://localhost:3100');
-  if(options.database&&options.googleIdentities)registerGoogleAccess(app,options.database,options.googleIdentities,options.publicUrl??'http://localhost:3100');
+  if(options.database&&options.googleIdentities)registerGoogleAccess(app,options.database,options.googleIdentities,options.publicUrl??'http://localhost:3100',registration);
   if(options.database&&options.googleTrash)registerGoogleTrash(app,options.database,options.googleTrash,options.publicUrl??'http://localhost:3100');
   if(options.database&&options.googleImports)registerGoogleImports(app,options.database,options.googleImports,options.publicUrl??'http://localhost:3100');
   if(options.database&&options.googleDiscovery)registerGoogleDiscovery(app,options.database,options.googleDiscovery,options.publicUrl??'http://localhost:3100');
@@ -120,6 +139,7 @@ export function buildApp(options: AppOptions = {}) {
   if (options.database && options.storage) registerHistoryPreviews(app,options.database,options.storage,options.publicUrl??'http://localhost:3100');
   if (options.database && options.storage) registerUploads(app, options.database, options.storage, options.publicUrl ?? 'http://localhost:3100', { maxFileBytes: options.maxFileBytes, maxPendingBytes: options.maxPendingUploadBytes, chunkBytes: options.uploadChunkBytes });
   if(options.database&&options.storage&&options.office)registerOffice(app,options.database,options.storage,options.publicUrl??'http://localhost:3100',options.office,{maxFileBytes:options.maxFileBytes,maxPendingBytes:options.maxPendingUploadBytes});
+  registerOfficeFonts(app,options.publicUrl??'http://localhost:3100',options.officeFontsRoot);
   if (options.webRoot) registerWeb(app, options.webRoot, options.office?.publicUrl);
   app.get('/health/', async () => ({ status: 'ok', service: 'yourwiki' }));
   app.get('/ready/', async (request, reply) => {

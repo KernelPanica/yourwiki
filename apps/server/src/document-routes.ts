@@ -1,3 +1,4 @@
+import {GoogleActivity} from './providers/google-activity.ts';
 import {GoogleOriginals} from './providers/google-grant-sync.ts';
 import {SyncActions} from './providers/sync-actions.ts';
 import {ProviderSync} from './providers/sync-status.ts';
@@ -28,6 +29,7 @@ export function registerDocuments(app: FastifyInstance, db: Database, store: Blo
   const recent = new RecentDocuments(db, service);
   const sourceDelivery = new SourceDelivery(db,store);
   const sourceSync = new ProviderSync(db,store);
+  const googleActivity = new GoogleActivity(db);
   const sourceSyncActions = new SyncActions(db,store);
   const access = new AccessService(db);
   const originals=googleAccessConfigured?new GoogleOriginals(db):null;
@@ -56,7 +58,8 @@ export function registerDocuments(app: FastifyInstance, db: Database, store: Blo
 
   function visible(userId: string, id: string) {
     const document = service.getPublished(userId, id);
-    return document ? { ...document, capabilities: { office: officeConfigured && officeFormats.has(document.format), ...(googleTrashConfigured&&db.prepare("SELECT 1 FROM users u,provider_source_bindings b JOIN provider_connections c ON c.id=b.connection_id WHERE u.id=? AND u.active=1 AND u.admin_role IN ('giga','simple') AND b.document_id=? AND c.provider='google' AND c.enabled=1").get(userId,id)?{googleTrash:true}:{}),write: access.allows(userId, id, 'write'), export: access.allows(userId, id, 'export') } } : null;
+    const storagePending=!!db.prepare("SELECT 1 FROM google_storage_exports WHERE document_id=? AND state!='confirmed'").get(id);
+    return document ? { ...document,...(storagePending?{storagePending:true}:{}), capabilities: { office: !storagePending && officeConfigured && officeFormats.has(document.format), ...(googleTrashConfigured&&db.prepare("SELECT 1 FROM users u,provider_source_bindings b JOIN provider_connections c ON c.id=b.connection_id WHERE u.id=? AND u.active=1 AND u.admin_role IN ('giga','simple') AND b.document_id=? AND c.provider='google' AND c.enabled=1").get(userId,id)?{googleTrash:true}:{}),write: !storagePending && access.allows(userId, id, 'write'), export: access.allows(userId, id, 'export') } } : null;
   }
   app.get<{Querystring:{after?:string;limit?:string}}>('/api/recent', (request,reply)=>{
     const actor=identity(request,reply);if(!actor)return;
@@ -72,7 +75,7 @@ export function registerDocuments(app: FastifyInstance, db: Database, store: Blo
     type: 'object', additionalProperties: false, properties: { after: { type: 'string', maxLength: 128 }, limit: { type: 'integer', minimum: 1, maximum: 200, default: 50 } },
   } } }, async (request, reply) => {
     const actor = identity(request, reply); if (!actor) return;
-    const candidates = db.prepare('SELECT id FROM documents WHERE published_revision IS NOT NULL AND id>? ORDER BY id LIMIT 201').all(request.query.after ?? '') as { id: string }[];
+    const candidates = db.prepare('SELECT id FROM documents WHERE published_revision IS NOT NULL AND NOT EXISTS(SELECT 1 FROM dashboard_local_file x WHERE documents.id=x.document_id OR documents.id=x.previous_document_id) AND id>? ORDER BY id LIMIT 201').all(request.query.after ?? '') as { id: string }[];
     const items = [];
     let scanned = 0, last: string | null = null;
     for (const row of candidates.slice(0,200)) {
@@ -116,7 +119,7 @@ export function registerDocuments(app: FastifyInstance, db: Database, store: Blo
       if (!primary || primary.mimeType !== 'application/json' || primary.size > 1024 * 1024) throw new Error('Invalid presentation index');
       presentation = JSON.parse((await buffer(await store.read(primary.digest))).toString());
     }
-    try{return { ...(originals?{googleOriginal:originals.describe(actor.userId,document.id)}:{}),document, manifest: value, presentation,sourceDelivery:sourceDelivery.status(actor.userId,document.id),sourceSync:sourceSync.status(actor.userId,document.id),sourceSyncAction:sourceSyncActions.active(actor.userId,document.id) };}catch(error){return fail(error,request,reply);}
+    try{return { googleActivity:googleActivity.status(actor.userId,document.id),...(originals?{googleOriginal:originals.describe(actor.userId,document.id)}:{}),document, manifest: value, presentation,sourceDelivery:sourceDelivery.status(actor.userId,document.id),sourceSync:sourceSync.status(actor.userId,document.id),sourceSyncAction:sourceSyncActions.active(actor.userId,document.id) };}catch(error){return fail(error,request,reply);}
   });
   app.get<{ Params: { id: string; digest: string } }>('/api/documents/:id/previews/:digest', async (request, reply) => {
     const value = await manifest(request, reply, request.params.id, request.params.digest);

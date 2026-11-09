@@ -17,16 +17,24 @@ async function* chunks(source:AsyncIterable<Uint8Array>,signal:AbortSignal){
 /** Linux local binary originals. Optimistic conflict detection, not external-process CAS. */
 export class LocalAdapter implements ProviderAdapter {
  private paths:LocalPaths;private shutdown=new AbortController();private writes=new Set<Promise<ProviderReceipt>>();
- private constructor(paths:LocalPaths){this.paths=paths;}
- static async open(root:string){try{return new LocalAdapter(await LocalPaths.open(root));}catch(error){throw safeProviderError(error);}}
+ private rclone:boolean;
+ private constructor(paths:LocalPaths,rclone=false){this.paths=paths;this.rclone=rclone;}
+ static async open(root:string,options:{requireMount?:boolean}={}){try{return new LocalAdapter(await LocalPaths.open(root,options),options.requireMount===true);}catch(error){throw safeProviderError(error);}}
  async close(){this.shutdown.abort();await Promise.allSettled([...this.writes]);await this.paths.close();}
  private async check(options:ProviderCheck){this.paths.assertOpen();if(options.signal?.aborted)throw new ProviderError('PROVIDER_CANCELLED');await abortable(Promise.resolve().then(()=>options.check()),options.signal?AbortSignal.any([this.shutdown.signal,options.signal]):this.shutdown.signal);this.paths.assertOpen();if(options.signal?.aborted)throw new ProviderError('PROVIDER_CANCELLED');}
  private async validFile(handle:FileHandle){const stat=await handle.stat({bigint:true});if(!stat.isFile()||stat.size>BigInt(maxBytes))throw new ProviderError('PROVIDER_SOURCE_CHANGED');return stat;}
  private async scan(handle:FileHandle,path:string,options:ProviderCheck){
   await this.check(options);const before=await this.validFile(handle),hash=createHash('sha256'),data=Buffer.allocUnsafe(chunkBytes);let position=0;
   while(position<Number(before.size)){await this.check(options);const read=await handle.read(data,0,Math.min(chunkBytes,Number(before.size)-position),position);if(!read.bytesRead)throw new ProviderError('PROVIDER_CONFLICT');hash.update(data.subarray(0,read.bytesRead));position+=read.bytesRead;}
-  await this.check(options);const after=await handle.stat({bigint:true}),named=await lstat(path,{bigint:true});if(!same(before,after)||!same(after,named)||!named.isFile())throw new ProviderError('PROVIDER_CONFLICT');
-  const digest=hash.digest('hex');return {stat:after,digest,size:position,fingerprint:JSON.stringify(['local-v1',...identity(after),digest])};
+  await this.check(options);const after=await handle.stat({bigint:true}),named=await lstat(path,{bigint:true});if((!this.rclone&&(!same(before,after)||!same(after,named)))||!named.isFile()||before.size!==after.size||after.size!==named.size)throw new ProviderError('PROVIDER_CONFLICT');
+  const digest=hash.digest('hex');
+  if(this.rclone){
+   // FUSE inode/ctime can change during background upload without a content
+   // change. Re-open the named object and prove its bytes instead of trusting
+   // those synthetic attributes. A changed path/content still conflicts.
+   const current=await this.paths.own(path,localFileFlags);try{const verify=createHash('sha256');let offset=0;while(offset<position){await this.check(options);const chunk=Buffer.allocUnsafe(Math.min(chunkBytes,position-offset)),part=await current.read(chunk,0,chunk.length,offset);if(!part.bytesRead)throw new ProviderError('PROVIDER_CONFLICT');verify.update(chunk.subarray(0,part.bytesRead));offset+=part.bytesRead;}if((await this.validFile(current)).size!==BigInt(position)||verify.digest('hex')!==digest)throw new ProviderError('PROVIDER_CONFLICT');}finally{await this.paths.release(current);}
+  }
+  return {stat:after,digest,size:position,fingerprint:this.rclone?JSON.stringify(['rclone-content-v1',position,digest]):JSON.stringify(['local-v1',...identity(after),digest])};
  }
 
  /** Read-only scheduling hint from pinned stat identity; acceptance still reads and authenticates all bytes. */
@@ -34,6 +42,7 @@ export class LocalAdapter implements ProviderAdapter {
   let parent:Awaited<ReturnType<LocalPaths['parent']>>|undefined,file:FileHandle|undefined;
   try{
    await this.check(options);parent=await this.paths.parent(reference);const path=`${parent.path}/${parent.name}`;file=await this.paths.own(path,localFileFlags);
+   if(this.rclone)return (await this.scan(file,path,options)).fingerprint!==baseline;
    const before=await this.validFile(file);await this.check(options);const after=await this.validFile(file),named=await lstat(path,{bigint:true});
    if(!same(before,after)||!same(after,named)||!named.isFile())return true;
    let prior:unknown;try{if(typeof baseline!=='string'||baseline.length>1024)return true;prior=JSON.parse(baseline);}catch{return true;}
@@ -45,7 +54,7 @@ export class LocalAdapter implements ProviderAdapter {
  async read(reference:string,options:ProviderCheck){
   let parent:Awaited<ReturnType<LocalPaths['parent']>>|undefined,file:FileHandle|undefined;
   try{await this.check(options);parent=await this.paths.parent(reference);const path=`${parent.path}/${parent.name}`;file=await this.paths.own(path,localFileFlags);const proof=await this.scan(file,path,options),paths=this.paths,adapter=this,pinned=file,owner=parent;
-   const bytes=(async function*(){try{const hash=createHash('sha256');let position=0;while(position<proof.size){await adapter.check(options);const data=Buffer.allocUnsafe(Math.min(chunkBytes,proof.size-position)),read=await pinned.read(data,0,data.length,position);if(!read.bytesRead)throw new ProviderError('PROVIDER_CONFLICT');position+=read.bytesRead;hash.update(data.subarray(0,read.bytesRead));yield data.subarray(0,read.bytesRead);}await adapter.check(options);if(hash.digest('hex')!==proof.digest||!same(proof.stat,await pinned.stat({bigint:true}))||!same(proof.stat,await lstat(path,{bigint:true})))throw new ProviderError('PROVIDER_CONFLICT');}catch(error){throw safeProviderError(error);}finally{await paths.release(pinned);await paths.release(owner.handle);}})();
+   const bytes=(async function*(){try{const hash=createHash('sha256');let position=0;while(position<proof.size){await adapter.check(options);const data=Buffer.allocUnsafe(Math.min(chunkBytes,proof.size-position)),read=await pinned.read(data,0,data.length,position);if(!read.bytesRead)throw new ProviderError('PROVIDER_CONFLICT');position+=read.bytesRead;hash.update(data.subarray(0,read.bytesRead));yield data.subarray(0,read.bytesRead);}await adapter.check(options);if(hash.digest('hex')!==proof.digest||(!adapter.rclone&&(!same(proof.stat,await pinned.stat({bigint:true}))||!same(proof.stat,await lstat(path,{bigint:true}))))||(adapter.rclone&&(await adapter.scan(pinned,path,options)).digest!==proof.digest))throw new ProviderError('PROVIDER_CONFLICT');}catch(error){throw safeProviderError(error);}finally{await paths.release(pinned);await paths.release(owner.handle);}})();
    return {fingerprint:proof.fingerprint,size:proof.size,bytes};
   }catch(error){if(file)await this.paths.release(file);if(parent)await this.paths.release(parent.handle);throw safeProviderError(error);}
  }

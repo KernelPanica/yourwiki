@@ -1,0 +1,269 @@
+/* One page gutter for the application shell; readable text is constrained inside it. */
+:root{--page-gutter:32px;--panel-padding:24px;--control-gap:8px;--section-gap:24px}
+:root .library,:root .account-page,:root .settings-layout{width:100%;max-width:none;margin:0;padding:var(--section-gap) var(--page-gutter)}
+:root .site-header{padding-inline:var(--page-gutter)}
+:root .document-toolbar{padding:12px var(--page-gutter)}
+:root .dashboard-markdown{width:100%;max-width:none;margin:0;padding:var(--section-gap) var(--page-gutter)}
+:root .dashboard-markdown .telegraph-paper{width:100%;max-width:none;margin:0;padding:32px;border-radius:12px}
+:root .dashboard-markdown .telegraph-content{max-width:880px;min-height:50vh}
+:root .dashboard-markdown .telegraph-content> :first-child{margin-top:0}
+:root .dashboard-markdown .file-source-banner{margin:0 0 16px;padding:12px 16px;border:1px solid var(--line);border-radius:12px}
+:root .dashboard-markdown .text-editor-toolbar{margin:0 0 16px;border-radius:12px}
+:root .dashboard-markdown .github-md-editor{width:100%;margin:0}
+:root .dashboard-markdown>.notice{margin:16px 0}
+:root .dashboard-markdown>.text-recovery{padding:16px 0}
+:root .account-page>.profile-card,:root .account-page>dl,:root .account-page>.preferences,:root .account-page>.google-identity-panel{max-width:960px}
+:root .settings-layout>h1{margin-bottom:24px}
+:root .settings-columns{gap:24px}
+:root .settings-panels{padding:var(--panel-padding)}
+:root .settings-panels :is(form,fieldset),:root .preferences form{min-width:0}
+:root .settings-panels fieldset{display:grid;gap:16px;padding:var(--panel-padding);margin:16px 0 24px}
+:root .settings-panels label:not(.check):not(:has(input[type=checkbox])){display:grid;gap:8px;margin:0;font-size:14px}
+:root .settings-panels fieldset>button{justify-self:start}
+:root .settings-panels fieldset>input,:root .settings-panels fieldset>select{width:100%}
+:root .preferences label{margin:0 0 16px}
+:root .preferences label:not(.check){display:grid;gap:8px}
+:root .preferences fieldset{display:grid;gap:8px}
+:root .preferences fieldset>button{justify-self:start}
+:root .admin-tabs,:root .content-parity-actions,:root .graph-actions,:root .history-settings-actions,:root .source-delivery-actions,:root .recovery-actions{gap:var(--control-gap)}
+:root .admin-list li{gap:16px;padding:20px 0}
+:root .admin-list li>div:has(>button+button){display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+:root .settings-panels .notice,:root .preferences .notice{margin:16px 0}
+:root .file-command-bar{padding:16px;gap:12px;margin-bottom:24px}
+:root .file-create form fieldset{margin:16px 0 0;padding:16px;gap:16px}
+:root .file-tree{margin-top:0}
+:root .file-panel-heading{margin-bottom:8px}
+:root .document-sidebar>details{padding:8px 0}
+:root .document-sidebar details>div{padding:8px 0 16px}
+:root .telegraph-paper{margin:0 auto;padding:32px}
+:root .text-editor-toolbar{gap:8px;padding:8px 16px}
+:root .text-block-tools{gap:8px;padding:12px 16px}
+:root .office-workspace,:root .office-stage,:root .office-preview{min-width:0;max-width:100%}
+:root .office-fullscreen,:root .graph-fullscreen{inset:0;width:100%;max-width:none;margin:0}
+:root .office-toolbar{padding:8px 16px;gap:8px}
+:root .office-workspace .file-source-banner{padding:12px 16px}
+:root .graph-workspace:not(.graph-fullscreen){padding:16px}
+:root .graph-fullscreen{padding:16px}
+@media(max-width:1100px){:root{--page-gutter:24px}}
+@media(max-width:850px){:root{--page-gutter:16px;--panel-padding:16px;--section-gap:16px}:root .site-header{padding-inline:16px}:root .document-toolbar{padding:8px 16px}:root .settings-columns{gap:16px}:root .settings-layout>h1{margin-bottom:16px}:root .dashboard-markdown .telegraph-paper{padding:24px}:root .settings-panels fieldset{padding:16px;gap:16px}:root .office-toolbar{padding:8px 12px}}
+@media(max-width:600px){:root .dashboard-markdown .telegraph-paper{padding:20px 16px}:root .telegraph-paper{padding:24px 16px}:root .file-command-bar{padding:12px;gap:12px}:root .settings-panels{padding:20px 16px}:root .profile-card,:root .preferences{padding:20px}:root .graph-fullscreen{padding:8px}:root .office-toolbar>p{min-width:0;flex-basis:100%;margin:0}:root .office-toolbar>button{max-width:100%}:root .file-source-banner{gap:8px;padding:12px 16px}}
+
+/* Participant administration and account settings use the same spacing rhythm. */
+:root .member-groups-layout{display:grid;grid-template-columns:240px minmax(0,1fr);gap:24px;margin-top:24px}
+:root .member-groups-layout>aside{display:flex;flex-direction:column;gap:24px;padding-right:24px;border-right:1px solid var(--line)}
+:root .member-groups-layout nav{display:grid;gap:8px}
+:root .member-groups-layout nav button{text-align:left;overflow-wrap:anywhere}
+:root .member-groups-layout form{display:grid;gap:16px}
+:root .member-group-heading{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:16px}
+:root .group-member-list{list-style:none;padding:0;margin:0;max-height:480px;overflow:auto}
+:root .group-member-list li{padding:12px 0;border-bottom:1px solid var(--line)}
+:root .group-member-list .check{display:flex;align-items:center;gap:12px;margin:0}
+:root .group-member-list small{display:block;color:var(--muted)}
+:root .member-initials{display:grid;place-items:center;flex:0 0 40px;height:40px;border-radius:50%;background:var(--surface-raised,var(--surface));color:var(--accent)}
+:root .group-resource{display:flex;justify-content:space-between;gap:16px;width:100%;margin:8px 0;text-align:left}
+:root .group-resource small{color:var(--muted)}
+:root .group-file-picker{padding:16px;border:1px solid var(--line);border-radius:12px;display:grid;gap:8px;margin-top:16px;max-height:320px;overflow:auto}
+:root .group-file-picker>div{display:flex;gap:8px}
+:root .group-file-picker>div>button:first-child{flex:1;text-align:left}
+:root .group-acl-editor{margin-top:24px;padding-top:24px;border-top:1px solid var(--line)}
+:root .account-hub{max-width:1280px;margin-inline:auto}
+:root .account-layout{display:grid;grid-template-columns:280px minmax(0,1fr);gap:32px;align-items:start}
+:root .account-identity{position:sticky;top:24px;display:grid;gap:16px}
+:root .account-identity .profile-card{margin:0;padding:24px;flex-direction:column;align-items:flex-start;gap:16px}
+:root .account-identity .profile-card h2{margin:0 0 4px;font-size:20px}
+:root .account-identity dl{margin:0;padding:24px;display:grid;grid-template-columns:1fr;gap:8px;background:var(--surface);border:1px solid var(--line);border-radius:16px}
+:root .account-identity dt{color:var(--muted)}
+:root .account-identity dd{margin:0 0 8px}
+:root .account-settings{display:grid;gap:24px;min-width:0}
+:root .account-settings>.preferences{margin:0;width:100%;max-width:none;padding:24px}
+:root .account-preferences header{margin-bottom:24px}
+:root .account-preferences header h2{margin:0 0 8px}
+:root .account-preferences header p{margin:0}
+:root .account-preferences fieldset{padding:0;margin:0;border:0;display:grid;gap:24px}
+:root .account-photo-row{display:flex;align-items:center;gap:24px;padding-bottom:24px;border-bottom:1px solid var(--line)}
+:root .account-photo-placeholder{display:grid;place-items:center;flex:0 0 80px;height:80px;border-radius:50%;font-size:40px;background:var(--surface);color:var(--accent)}
+:root .account-photo-row .profile-avatar{width:80px;height:80px;object-fit:cover;border-radius:50%}
+:root .account-photo-row p{margin:4px 0 12px}
+:root .account-photo-actions{display:flex;flex-wrap:wrap;gap:8px}
+:root .account-preference-grid{display:grid;grid-template-columns:1fr 1fr;gap:24px}
+:root .account-preference-grid label{display:grid;gap:8px;margin:0}
+:root .account-motion-row{display:flex;align-items:center;justify-content:space-between;gap:24px;padding-top:24px;border-top:1px solid var(--line)}
+:root .account-motion-row p{margin:8px 0 0;font-size:14px;max-width:42ch}
+:root .account-motion-row .check{flex-shrink:0;margin:0;display:flex;align-items:center;gap:8px}
+:root .account-save{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-top:24px;padding-top:24px;border-top:1px solid var(--line)}
+:root .account-save [role=status]{font-size:13px;color:var(--muted)}
+:root .office-fullscreen .office-toolbar{min-height:52px;padding:4px 12px;flex-wrap:nowrap;gap:8px}
+:root .office-fullscreen .office-toolbar>p{flex:1;min-width:0;margin:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+:root .office-fullscreen .office-toolbar>button{flex-shrink:0;min-height:40px;padding:8px 12px}
+:root .office-file-details[hidden],:root .office-recovery-slot[hidden]{display:none}
+:root .canvas-edge-menu{z-index:2200;width:304px;max-width:calc(100vw - 24px);max-height:calc(100dvh - 24px);overflow:auto;padding:16px;border:1px solid var(--line);border-radius:12px;background:var(--surface);color:var(--text);box-shadow:0 12px 40px #0006}
+:root .canvas-edge-menu>header{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:12px}
+:root .canvas-edge-menu>header button{width:44px;padding:8px}
+:root .canvas-edge-menu .canvas-selection{padding:0;border:0;display:flex;flex-wrap:wrap;gap:8px;background:transparent}
+:root .canvas-edge-menu .canvas-selection>span{display:none}
+:root .canvas-edge-menu .canvas-selection>input{width:100%;flex-basis:100%}
+:root .canvas-edge-menu .canvas-selection>select{flex:1}
+:root .canvas-edge-menu .canvas-swatch{flex:0 0 32px;width:32px;min-width:32px;min-height:44px;border-radius:8px}
+:root .loading-skeleton{padding:24px;min-width:0}
+:root .loading-caption{display:flex;align-items:center;gap:12px;margin-bottom:24px;color:var(--muted)}
+:root .loading-caption>span:first-child{width:16px;height:16px;border:2px solid var(--line);border-top-color:var(--accent);border-radius:50%}
+:root .skeleton-lines{display:grid;gap:16px}
+:root .skeleton-line{height:16px;max-width:100%;border-radius:6px;background:linear-gradient(100deg,var(--line) 25%,var(--surface) 45%,var(--line) 65%);background-size:240% 100%;opacity:.65}
+:root .skeleton-line:nth-child(3n){width:65%}
+:root .skeleton-line:nth-child(3n + 2){width:85%}
+@keyframes yourwiki-loading{to{background-position:-240% 0}}
+@keyframes yourwiki-spinner{to{transform:rotate(360deg)}}
+@keyframes yourwiki-reveal{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+@media(prefers-reduced-motion:no-preference){
+ :root[data-animations=on] .skeleton-line{animation:yourwiki-loading 1.6s linear infinite}
+ :root[data-animations=on] .loading-caption>span:first-child{animation:yourwiki-spinner .9s linear infinite}
+ :root[data-animations=on] :is(.canvas-edge-menu,.site-menu-popover,.contributor-popover,.settings-panels,.account-layout){animation:yourwiki-reveal .22s cubic-bezier(.2,0,0,1) both}
+}
+@media(max-width:850px){:root .account-layout{grid-template-columns:220px minmax(0,1fr);gap:16px}:root .member-groups-layout{grid-template-columns:200px minmax(0,1fr);gap:16px}:root .member-groups-layout>aside{padding-right:16px}:root .account-preference-grid{grid-template-columns:1fr;gap:16px}:root .account-motion-row{align-items:flex-start;flex-direction:column;gap:16px}}
+@media(max-width:600px){:root .account-layout,:root .member-groups-layout{grid-template-columns:1fr}:root .account-identity{position:static;grid-template-columns:1fr}:root .account-identity .profile-card{flex-direction:row;align-items:center}:root .account-identity dl{grid-template-columns:100px 1fr;padding:20px}:root .account-settings>.preferences{padding:20px}:root .account-photo-row{gap:16px;align-items:flex-start}:root .account-save{align-items:flex-start;flex-direction:column}:root .account-save>button{width:100%}:root .member-groups-layout>aside{border-right:0;border-bottom:1px solid var(--line);padding:0 0 24px}:root .member-groups-layout nav{grid-template-columns:repeat(2,minmax(0,1fr))}:root .office-fullscreen .office-toolbar>p{flex-basis:auto}:root .office-fullscreen .office-toolbar>button{font-size:12px;padding:8px}}
+
+/* Collapse routine details, while retaining external editing and access alerts. */
+:root .office-file-details[data-collapsed=true]{display:contents}
+:root .office-file-details[data-collapsed=true] .google-activity:not([data-active=true]){display:none}
+:root .office-file-details[data-collapsed=true] .google-original{display:contents}
+:root .office-file-details[data-collapsed=true] .google-original>button,:root .office-file-details[data-collapsed=true] .google-original>span{display:none}
+:root .office-file-details[data-collapsed=true] .google-original>:is(.notice,[role=alert]){margin:8px 12px}
+
+:root .graph-fullscreen>.graph-actions{display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:4px 0;min-height:52px}
+:root .graph-fullscreen>.graph-actions>.graph-status{margin-left:auto;padding:0 8px;font-size:13px}
+:root .graph-fullscreen>.graph-actions>button{min-height:40px;padding:8px 12px}
+
+/* Forms and file details have their own layout, including lazy-loaded sections. */
+:root .resource-settings{padding:24px;width:min(700px,calc(100vw - 32px))}
+:root .resource-settings>header{display:flex;align-items:center;justify-content:space-between;gap:24px;margin-bottom:24px}
+:root .resource-settings>header h2{margin:0;overflow-wrap:anywhere}
+:root .resource-settings>header button{flex:0 0 44px;width:44px;padding:8px}
+:root .resource-settings form,:root .resource-settings fieldset{display:grid;gap:16px;min-width:0}
+:root .resource-settings fieldset{padding:16px;margin:0;border:1px solid var(--line);border-radius:8px}
+:root .resource-settings label:not(.check){display:grid;gap:8px;min-width:0}
+:root .resource-settings label.check{display:flex;align-items:center;gap:12px;margin:0}
+:root .resource-settings input[type=checkbox]{width:20px;flex:0 0 20px}
+:root .resource-settings fieldset>:is(p,h3){margin:0}
+:root .resource-settings form button{justify-self:start}
+:root .resource-settings .permission-row{display:flex;flex-wrap:wrap;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--line)}
+:root .resource-settings .permission-row strong{flex-basis:100%}
+:root .document-sidebar .sidebar-section-content{padding:8px 0 24px}
+:root .document-sidebar .sidebar-section-content>div{display:grid;gap:16px;min-width:0}
+:root .document-sidebar form{display:grid;gap:16px;min-width:0}
+:root .document-sidebar form label{display:grid;gap:8px;margin:0}
+:root .document-sidebar form label:has(>input[type=checkbox]){display:flex;align-items:center;gap:8px}
+:root .document-sidebar form label:has(>input[type=checkbox]) input{width:20px}
+:root .document-sidebar form :is(input,select,textarea){width:100%;margin:0;min-width:0}
+:root .document-sidebar form button{justify-self:start;margin:0}
+:root .document-sidebar .sidebar-section-content p{margin:0;line-height:1.6}
+:root .document-sidebar .file-contributors{padding:4px;margin:0;gap:12px}
+:root body button.file-contributor{display:flex;align-items:center;justify-content:center;width:44px;height:44px;min-width:44px;min-height:44px;padding:2px;border:0;border-radius:50%;background:transparent}
+:root .file-contributor>.file-editor-avatar{display:block;flex:0 0 40px;width:40px;height:40px;margin:0;border-radius:50%;object-fit:cover}
+:root .file-panel-heading{min-height:52px;padding:4px 0}
+:root .ai-provider-list{display:grid;gap:12px;margin:24px 0}
+:root .ai-provider-card{padding:16px;border:1px solid var(--line);border-radius:12px;display:grid;gap:12px;min-width:0}
+:root .ai-provider-card header{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
+:root .ai-provider-card h3,:root .ai-provider-card p{margin:0}
+:root .ai-provider-card small{color:var(--muted);overflow-wrap:anywhere}
+:root .ai-provider-card button{justify-self:start}
+:root .ai-provider-status{font-size:13px;color:var(--muted)}
+:root .ai-diagnostic-result{padding:12px;border:1px solid var(--line);border-radius:8px;background:var(--surface-inset);overflow-wrap:anywhere}
+:root .ai-diagnostic-result[data-ok=false]{color:var(--danger)}
+:root .ai-diagnostic-result[data-ok=true]{color:var(--success)}
+:root .user-group-badges{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+:root body .permission-group-badge{display:inline-flex;align-items:center;padding:6px 12px;min-height:36px;font-size:13px;border-radius:8px;background:var(--accent-wash);color:var(--accent-ink);border:1px solid var(--line)}
+:root .group-access-form fieldset{display:grid;gap:16px;min-width:0}
+:root .group-access-form label:not(.check){display:grid;gap:8px}
+:root .group-access-form label.check{display:flex;align-items:center;gap:8px;margin:0}
+:root .group-access-form input[type=checkbox]{width:20px;flex-shrink:0}
+:root .group-access-form .permission-row{display:flex;flex-wrap:wrap;align-items:center;gap:16px;padding:12px 0;border-bottom:1px solid var(--line)}
+:root .group-access-form .permission-row>strong{flex:1 0 120px}
+:root .group-access-form .permission-row>button{margin-left:auto}
+:root .group-access-form fieldset>:is(p,h3){margin:0}
+:root .group-permission-table{border:1px solid var(--line);border-radius:8px;padding:0 16px}
+:root .group-permission-table>p{padding:16px 0;margin:0}
+:root .group-permission-table .permission-row:last-child{border-bottom:0}
+@media(max-width:600px){:root .group-access-form .permission-row>strong{flex-basis:100%}:root .group-access-form .permission-row>button{margin-left:0}}
+
+:root .folder-page>a:first-child{display:inline-flex;align-items:center;min-height:44px;margin-bottom:16px;text-decoration:none}
+:root .folder-page>h1{margin:0 0 24px}
+:root .folder-page .file-command-bar{margin-bottom:24px}
+:root .folder-page .empty{padding:24px 0;line-height:1.6}
+
+/* Document workspace follows the full-width editor + right-hand file panel layout. */
+:root .document-toolbar{min-height:76px}
+:root .document-workspace>.document-editor>.office-workspace:not(.office-fullscreen){flex:1;min-height:0;min-width:0}
+:root .office-workspace:not(.office-fullscreen)>.office-toolbar{min-height:60px;padding:8px 16px;flex-wrap:nowrap}
+:root .office-workspace:not(.office-fullscreen)>.office-toolbar>p{margin:0;flex:1;min-width:0}
+:root .office-workspace:not(.office-fullscreen)>.office-recovery-slot{flex-shrink:0}
+:root .office-workspace:not(.office-fullscreen)>.office-stage{flex:1;min-height:160px}
+:root .document-editor>.office-workspace:not(.office-fullscreen) .file-source-banner{margin:0;border-radius:0}
+@media(max-width:850px){:root .document-toolbar{min-height:64px}:root .office-workspace:not(.office-fullscreen)>.office-toolbar{flex-wrap:wrap}}
+/* One shared action strip, followed by the editor's own controls. */
+:root .file-action-row{display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:8px 16px;min-width:0;flex-shrink:0;border-bottom:1px solid var(--line);background:var(--surface)}
+:root .file-action-row:empty{display:none}
+:root .file-action-row>button{min-height:44px;margin:0;flex-shrink:0}
+:root .file-action-row>.office-recovery,:root .file-action-row>.google-original,:root .file-action-row>.provider-sync{display:contents}
+:root .file-action-row .office-recovery>button{margin:0;min-height:44px}
+:root .file-action-row .source-delivery-options{padding:0;margin:0;min-width:0;border:0;background:transparent}
+:root .file-action-row .source-delivery-options>summary{display:flex;align-items:center;min-height:44px;padding:8px 12px;border:1px solid var(--control-line);border-radius:8px;cursor:pointer;font-size:14px;list-style:none}
+:root .file-action-row .source-delivery-options>summary::-webkit-details-marker{display:none}
+:root .file-action-row .source-delivery-options>summary::before{content:'▸';margin-right:8px}
+:root .file-action-row .source-delivery-options[open]>summary::before{content:'▾'}
+:root .file-action-row .source-delivery-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;padding-bottom:8px}
+:root .file-action-row .recovery-panel,:root .file-action-row .provider-sync>div,:root .file-action-row .google-original>:is(.notice,[role=alert]){flex:1 0 100%;order:2;min-width:0;margin:0;padding:12px 0}
+:root .file-action-row .recovery-panel{max-height:40dvh;overflow:auto}
+:root .file-action-row .google-original>span{font-size:13px;color:var(--muted)}
+:root .file-view-controls{display:inline-flex;align-items:center;gap:8px;margin-left:auto;flex-shrink:0}
+:root .office-toolbar>.file-panel-trigger,:root .graph-actions>.file-panel-trigger{margin-left:0}
+:root .editor-fullscreen{position:fixed;inset:0;z-index:1000;width:100%;height:100dvh;max-width:none;margin:0;overflow:auto;background:var(--surface)}
+:root .file-preview-workspace{display:flex;flex-direction:column;flex:1;min-height:0;min-width:0}
+:root .file-preview-toolbar{display:flex;align-items:center;flex-wrap:wrap;gap:8px;min-height:60px;padding:8px 16px;border-bottom:1px solid var(--line)}
+:root .file-preview-workspace>.presentation{flex:1;min-height:0}
+:root .pdf-workspace>.file-action-row{flex-shrink:0}
+:root .graph-workspace>.file-action-row{margin:0 -16px 8px}
+:root .graph-fullscreen>.file-action-row{margin-inline:0}
+:root .text-editor-toolbar{flex-wrap:wrap}
+@media(max-width:600px){:root .file-action-row{padding:8px;gap:8px}:root .file-action-row>button,:root .file-action-row .office-recovery>button,:root .file-action-row .google-original>button,:root .file-action-row .source-delivery-options>summary{padding-inline:10px;font-size:13px}:root .file-view-controls{max-width:100%}:root .file-preview-toolbar{padding:8px}:root .graph-workspace>.file-action-row{margin-inline:0}}
+:root .office-fullscreen .office-toolbar>button,:root .graph-fullscreen>.graph-actions>button{min-height:44px}
+
+/* File settings belong to the normal document view, leaving fullscreen for editing. */
+:root :is(.office-fullscreen,.graph-fullscreen,.editor-fullscreen)>.file-action-row{display:none}
+:root .source-delivery-options .google-activity{margin:8px 0;padding:8px 0;border:0;background:transparent}
+:root .file-action-row .source-delivery-options[open]{flex:1 0 100%;order:2}
+:root .file-action-row .source-delivery-options[open]>summary{width:fit-content}
+
+:root .source-delivery-options>.source-delivery{padding:8px 0;border:0;background:transparent;gap:8px}
+:root .source-delivery-options>.source-delivery .source-delivery-actions{margin:0;padding:0}
+
+:root .group-permission-table{padding:0;overflow:auto}
+:root .group-permission-table table{width:100%;border-collapse:collapse;text-align:left}
+:root .group-permission-table caption{text-align:left;padding:12px 16px;font-weight:600}
+:root .group-permission-table th,:root .group-permission-table td{padding:8px 12px;border-top:1px solid var(--line);overflow-wrap:anywhere}
+:root .group-permission-table thead{color:var(--muted);font-size:13px}
+:root .group-permission-table tbody th{font-weight:500}
+:root .group-permission-table select{width:100%;min-height:44px;min-width:0}
+@media(max-width:600px){:root .group-permission-table th,:root .group-permission-table td{padding:8px}:root .group-permission-table td{width:60%}:root .group-permission-table select{font-size:13px;padding-inline:6px}}
+
+:root .brand-symbol{border:0;background:transparent;overflow:hidden}
+:root .brand-symbol>img{display:block;width:100%;height:100%}
+
+:root .copy-link{display:grid;gap:8px;min-width:0}
+:root .copy-link-controls{display:flex;align-items:center;gap:8px;min-width:0}
+:root .copy-link-controls>input{flex:1;min-width:0}
+:root .copy-link-controls>button{flex-shrink:0;min-height:44px}
+:root .copy-link>[role=status]:empty{display:none}
+
+:root .password-reset-actions{display:grid;gap:8px;padding-block:8px;border-top:1px solid var(--line)}
+:root .folder-breadcrumbs{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin:0 0 12px;font-size:14px;min-height:36px;overflow-wrap:anywhere}
+:root .folder-crumb{display:inline-flex;align-items:center;gap:8px;min-width:0;max-width:100%}
+:root .folder-breadcrumbs a{display:inline-flex;align-items:center;min-height:36px}
+:root .folder-crumb>span[aria-hidden]{color:var(--muted)}
+:root .folder-create-form{display:flex;flex-wrap:wrap;align-items:end;gap:12px;margin:0 0 16px}
+:root .folder-create-form label{display:flex;flex-direction:column;gap:6px;flex:1 1 220px;max-width:480px;min-width:0}
+:root .folder-create-form input{width:100%;margin:0}
+:root .folder-page>h1{margin-bottom:8px}
+:root .ai-provider-actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+:root .ai-settings fieldset legend{font-weight:600;padding:0 8px}
+:root .ai-settings label:has(>input[type=checkbox]){flex-direction:row;align-items:center;gap:10px;min-height:44px;margin-block:8px}
+:root .ai-settings input[type=checkbox]{width:20px;min-height:20px;height:20px;flex:0 0 20px;margin:0}

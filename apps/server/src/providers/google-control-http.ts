@@ -7,7 +7,7 @@ export class GoogleControlHttp {
  private auth:GoogleAuthorization;private request:typeof fetch;private lifetime=new AbortController();private active=new Set<Promise<unknown>>();
  constructor(auth:GoogleAuthorization,options:{fetch?:typeof fetch}={}){this.auth=auth;this.request=options.fetch??fetch;}
  call(method:'GET'|'POST'|'PATCH'|'DELETE',path:string,query:Record<string,string>,body:unknown,scope:GoogleControlScope):Promise<Record<string,unknown>>{
-  if(!/^(?:files(?:\/[A-Za-z0-9_-]{1,256}(?:\/permissions(?:\/[A-Za-z0-9_-]{1,256})?)?)?|files\/generateIds|changes(?:\/startPageToken)?|about)$/.test(path)||Object.keys(query).some(k=>!['fields','pageSize','pageToken','q','spaces','corpora','count','type','space','addParents','removeParents','sendNotificationEmail','supportsAllDrives','restrictToMyDrive','includeRemoved'].includes(k)))return Promise.reject(new ProviderError('PROVIDER_INVALID_REFERENCE'));
+  if(!/^(?:files(?:\/[A-Za-z0-9_-]{1,256}(?:\/(?:watch|permissions(?:\/[A-Za-z0-9_-]{1,256})?))?)?|files\/generateIds|changes(?:\/startPageToken)?|about)$/.test(path)||Object.keys(query).some(k=>!['fields','pageSize','pageToken','q','spaces','corpora','count','type','space','addParents','removeParents','sendNotificationEmail','supportsAllDrives','restrictToMyDrive','includeRemoved'].includes(k)))return Promise.reject(new ProviderError('PROVIDER_INVALID_REFERENCE'));
   if(this.active.size>=8||this.lifetime.signal.aborted)return Promise.reject(new ProviderError('PROVIDER_UNAVAILABLE'));
   const work=this.perform(method,path,{...query},body,scope).finally(()=>this.active.delete(work));this.active.add(work);return work;
  }

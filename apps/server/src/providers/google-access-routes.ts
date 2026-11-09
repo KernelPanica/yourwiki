@@ -1,3 +1,5 @@
+import {registrationCallback} from '../auth/google-registration-routes.ts';
+import type {GoogleRegistration} from '../auth/google-registration.ts';
 import {GoogleOriginalSessions} from './google-original-sessions.ts';
 import {randomBytes} from 'node:crypto';
 import type {FastifyInstance,FastifyRequest,FastifyReply} from 'fastify';
@@ -12,7 +14,7 @@ import {GoogleIdentities} from './google-identities.ts';
 import {GoogleOriginals,GoogleGrantPlanner} from './google-grant-sync.ts';
 
 /** Identity belongs to the signed-in person; Drive ownership belongs to the configured central account. */
-export function registerGoogleAccess(app:FastifyInstance,db:Database,identities:GoogleIdentities,publicUrl:string){
+export function registerGoogleAccess(app:FastifyInstance,db:Database,identities:GoogleIdentities,publicUrl:string,registration?:GoogleRegistration){
  const origin=new URL(publicUrl).origin,originals=new GoogleOriginals(db),planner=new GoogleGrantPlanner(db),sessions=new GoogleOriginalSessions(db);
  function actor(request:FastifyRequest,write=false,admin=false){
   const token=sessionCookie(request),user=authenticateSession(db,token);if(!user)throw new DocumentError('SESSION_REQUIRED');
@@ -30,7 +32,7 @@ export function registerGoogleAccess(app:FastifyInstance,db:Database,identities:
  app.post('/api/google/identity/result',{bodyLimit:512},(request,reply)=>{try{const {token,csrf}=actor(request,true),value=body(request,['state']);return identities.result(token,csrf,value.state);}catch(e){return fail(e,request,reply);}});
  app.post('/api/google/identity/complete',{bodyLimit:12288},async(request,reply)=>{try{const {token,csrf}=actor(request,true),value=body(request,['state','code']);return await identities.complete(token,csrf,value.state,value.code);}catch(e){return fail(e,request,reply);}});
  app.post('/api/google/identity/disconnect',{bodyLimit:512},(request,reply)=>{try{const {token,csrf}=actor(request,true);empty(request);return identities.disconnect(token,csrf);}catch(e){return fail(e,request,reply);}});
- app.get('/api/google/identity/callback',(_request,reply)=>{const nonce=randomBytes(18).toString('base64url');return reply.type('text/html').header('referrer-policy','no-referrer').header('content-security-policy',`default-src 'none'; script-src 'self'; connect-src 'self'; style-src 'nonce-${nonce}'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'`).send(googleCallbackHtml(nonce).replaceAll('/api/admin/google/oauth/callback.js','/api/google/identity/callback.js').replaceAll('/settings','/account'));});
+ app.get('/api/google/identity/callback',(_request,reply)=>{if(registration&&typeof (_request.query as {state?:unknown}).state==='string'&&/^r_[A-Za-z0-9_-]{43}$/.test(String((_request.query as {state:string}).state)))return registrationCallback(_request,reply,origin,registration);const nonce=randomBytes(18).toString('base64url');return reply.type('text/html').header('referrer-policy','no-referrer').header('content-security-policy',`default-src 'none'; script-src 'self'; connect-src 'self'; style-src 'nonce-${nonce}'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'`).send(googleCallbackHtml(nonce).replaceAll('/api/admin/google/oauth/callback.js','/api/google/identity/callback.js').replaceAll('/settings','/account'));});
  app.get('/api/google/identity/callback.js',(_request,reply)=>reply.type('text/javascript').header('referrer-policy','no-referrer').header('cross-origin-resource-policy','same-origin').send(googleCallbackScript.replaceAll('/api/admin/google/connect/','/api/google/identity/').replaceAll('yourwiki:google-connect','yourwiki:google-identity').replaceAll('administrator session','session').replaceAll('сессии администратора','сессии').replaceAll('настройки','аккаунт').replaceAll('настройках','аккаунте').replaceAll('settings','account')));
  app.get<{Params:{id:string}}>('/api/documents/:id/google-original',(request,reply)=>{try{const {user}=actor(request);empty(request);return originals.describe(user.userId,request.params.id);}catch(e){return fail(e,request,reply);}});
  app.get<{Params:{id:string}}>('/api/documents/:id/google-original/open',(request,reply)=>{try{const {user}=actor(request);empty(request);const value=originals.describe(user.userId,request.params.id);if(!value.available||!value.url)throw new DocumentError('CONFLICT');return reply.header('referrer-policy','no-referrer').redirect(value.url,303);}catch(e){return fail(e,request,reply);}});

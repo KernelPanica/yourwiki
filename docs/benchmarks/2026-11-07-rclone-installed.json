@@ -1,0 +1,277 @@
+{
+  "measurement": "installed rclone test integration",
+  "results": [
+    {
+      "phase": "configuration",
+      "date": "2026-11-07T15:17:55.788Z",
+      "method": "installed YourWiki DocumentService + running bridge/provider workers + persistent rclone",
+      "sizes": [
+        65536,
+        8388608
+      ],
+      "repetitions": 3,
+      "confirmation": "Google Drive size + md5Checksum",
+      "pollMs": 250,
+      "folderId": "3159f90f-5eda-4782-9e73-140e2c82394e"
+    },
+    {
+      "phase": "create",
+      "bytes": 65536,
+      "repeat": 0,
+      "localMs": 153,
+      "vfsMs": 2915,
+      "driveMs": 3173
+    },
+    {
+      "phase": "save",
+      "bytes": 65536,
+      "repeat": 0,
+      "localMs": 18,
+      "vfsMs": 269,
+      "driveMs": 1948
+    },
+    {
+      "phase": "create",
+      "bytes": 65536,
+      "repeat": 1,
+      "localMs": 12,
+      "vfsMs": 2521,
+      "driveMs": 2870
+    },
+    {
+      "phase": "save",
+      "bytes": 65536,
+      "repeat": 1,
+      "localMs": 13,
+      "vfsMs": 2771,
+      "driveMs": 4516
+    },
+    {
+      "phase": "create",
+      "bytes": 65536,
+      "repeat": 2,
+      "localMs": 13,
+      "vfsMs": 2773,
+      "driveMs": 3057
+    },
+    {
+      "phase": "save",
+      "bytes": 65536,
+      "repeat": 2,
+      "localMs": 16,
+      "vfsMs": 267,
+      "driveMs": 2025
+    },
+    {
+      "phase": "create",
+      "bytes": 8388608,
+      "repeat": 0,
+      "localMs": 95,
+      "vfsMs": 4108,
+      "driveMs": 4399
+    },
+    {
+      "phase": "save",
+      "bytes": 8388608,
+      "repeat": 0,
+      "localMs": 116,
+      "vfsMs": 2874,
+      "driveMs": 5161
+    },
+    {
+      "phase": "create",
+      "bytes": 8388608,
+      "repeat": 1,
+      "localMs": 87,
+      "vfsMs": 3848,
+      "driveMs": 4145
+    },
+    {
+      "phase": "save",
+      "bytes": 8388608,
+      "repeat": 1,
+      "localMs": 88,
+      "vfsMs": 2345,
+      "driveMs": 4627
+    },
+    {
+      "phase": "create",
+      "bytes": 8388608,
+      "repeat": 2,
+      "localMs": 89,
+      "vfsMs": 4357,
+      "driveMs": 4654
+    },
+    {
+      "phase": "save",
+      "bytes": 8388608,
+      "repeat": 2,
+      "localMs": 100,
+      "vfsMs": 3108,
+      "driveMs": 5381
+    },
+    {
+      "phase": "read",
+      "source": "local CAS",
+      "cache": "warm",
+      "bytes": 8388608,
+      "repeat": 0,
+      "ms": 43
+    },
+    {
+      "phase": "read",
+      "source": "local CAS",
+      "cache": "warm",
+      "bytes": 8388608,
+      "repeat": 1,
+      "ms": 49
+    },
+    {
+      "phase": "read",
+      "source": "local CAS",
+      "cache": "warm",
+      "bytes": 8388608,
+      "repeat": 2,
+      "ms": 75
+    },
+    {
+      "phase": "read",
+      "source": "rclone mount",
+      "cache": "cold",
+      "bytes": 8388608,
+      "repeat": 0,
+      "ms": 903
+    },
+    {
+      "phase": "read",
+      "source": "rclone mount",
+      "cache": "warm",
+      "bytes": 8388608,
+      "repeat": 1,
+      "ms": 98
+    },
+    {
+      "phase": "read",
+      "source": "rclone mount",
+      "cache": "warm",
+      "bytes": 8388608,
+      "repeat": 2,
+      "ms": 78
+    },
+    {
+      "phase": "external",
+      "bytes": 65536,
+      "repeat": 0,
+      "googleSaveMs": 1322,
+      "mountAfterGoogleMs": 2167,
+      "appAfterGoogleMs": 13227
+    },
+    {
+      "phase": "external",
+      "bytes": 65536,
+      "repeat": 1,
+      "googleSaveMs": 1445,
+      "mountAfterGoogleMs": 3185,
+      "appAfterGoogleMs": 28328
+    },
+    {
+      "phase": "external",
+      "bytes": 65536,
+      "repeat": 2,
+      "googleSaveMs": 1413,
+      "mountAfterGoogleMs": 3118,
+      "appAfterGoogleMs": 28272
+    },
+    {
+      "phase": "resources",
+      "rclonePeakRssMiB": 109,
+      "rcloneCpuSeconds": 3.83,
+      "elapsedSeconds": 126
+    }
+  ],
+  "aggregates": {
+    "create-65536": {
+      "localMs": {
+        "medianMs": 13,
+        "minMs": 12,
+        "maxMs": 153
+      },
+      "vfsMs": {
+        "medianMs": 2773,
+        "minMs": 2521,
+        "maxMs": 2915
+      },
+      "driveMs": {
+        "medianMs": 3057,
+        "minMs": 2870,
+        "maxMs": 3173
+      }
+    },
+    "create-8388608": {
+      "localMs": {
+        "medianMs": 89,
+        "minMs": 87,
+        "maxMs": 95
+      },
+      "vfsMs": {
+        "medianMs": 4108,
+        "minMs": 3848,
+        "maxMs": 4357
+      },
+      "driveMs": {
+        "medianMs": 4399,
+        "minMs": 4145,
+        "maxMs": 4654
+      }
+    },
+    "save-65536": {
+      "localMs": {
+        "medianMs": 16,
+        "minMs": 13,
+        "maxMs": 18
+      },
+      "vfsMs": {
+        "medianMs": 269,
+        "minMs": 267,
+        "maxMs": 2771
+      },
+      "driveMs": {
+        "medianMs": 2025,
+        "minMs": 1948,
+        "maxMs": 4516
+      }
+    },
+    "save-8388608": {
+      "localMs": {
+        "medianMs": 100,
+        "minMs": 88,
+        "maxMs": 116
+      },
+      "vfsMs": {
+        "medianMs": 2874,
+        "minMs": 2345,
+        "maxMs": 3108
+      },
+      "driveMs": {
+        "medianMs": 5161,
+        "minMs": 4627,
+        "maxMs": 5381
+      }
+    },
+    "googleSaveMs": {
+      "medianMs": 1413,
+      "minMs": 1322,
+      "maxMs": 1445
+    },
+    "mountAfterGoogleMs": {
+      "medianMs": 3118,
+      "minMs": 2167,
+      "maxMs": 3185
+    },
+    "appAfterGoogleMs": {
+      "medianMs": 28272,
+      "minMs": 13227,
+      "maxMs": 28328
+    }
+  }
+}

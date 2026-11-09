@@ -1,3 +1,4 @@
+import {queueGoogleStorageExport} from './providers/google-storage-export.ts';
 import {stagePreviewRequest} from './preview-request.ts';
 import {requestSourceDelivery,assertSourceDeliveryWritable} from './providers/delivery-requests.ts';
 import {DocumentError} from './document-errors.ts';
@@ -21,7 +22,7 @@ export interface PreviewManifest {
 export {DocumentError} from './document-errors.ts';
 type Doc = { id: string; title: string; format: string; local_revision: number; published_revision: number | null; provider_revision: number | null };
 type Actor = { active: number; admin_role: string };
-type CreateInput = { userId: string; parentId: string | null; groupId?: string; title: string; format: string; signal?: AbortSignal };
+type CreateInput = { localOnly?:boolean; userId: string; parentId: string | null; groupId?: string; title: string; format: string; signal?: AbortSignal };
 type SaveInput = { officeSessionId?: string; userId: string; documentId: string; baseRevision: number; signal?: AbortSignal };
 
 export class DocumentService {
@@ -53,6 +54,7 @@ export class DocumentService {
     return input.groupId;
   }
   private draftVisible(userId: string, documentId: string, published: number | null): boolean {
+    if(this.db.prepare('SELECT 1 FROM dashboard_local_file WHERE document_id=?').get(documentId))return true;
     if (published !== null) return true;
     const owner = this.db.prepare('SELECT owner_id FROM resources WHERE id=?').get(documentId) as { owner_id: string } | undefined;
     return owner?.owner_id === userId || this.actor(userId).admin_role !== 'member';
@@ -122,6 +124,7 @@ export class DocumentService {
       this.db.prepare("INSERT INTO resources(id,kind,parent_id,owner_id,group_id) VALUES(?,'document',?,?,?)").run(id, input.parentId, input.userId, group);
       this.db.prepare('INSERT INTO documents(id,title,format,created_at) VALUES(?,?,?,?)').run(id, input.title.trim(), input.format, this.clock());
       const jobId = this.stageVersion(id, 1, input.userId, blob);
+      if(!input.localOnly)queueGoogleStorageExport(this.db,id,input.userId);
       return { documentId: id, revision: 1, jobId, blob };
     });
   }
@@ -162,7 +165,7 @@ export class DocumentService {
     if (!this.access.allows(userId, documentId, 'read')) return null;
     const row = this.db.prepare(`SELECT d.*,r.owner_id,u.admin_role FROM documents d JOIN resources r ON r.id=d.id
       JOIN users u ON u.id=? WHERE d.id=?`).get(userId, documentId) as (Doc & { owner_id: string; admin_role: string }) | undefined;
-    if (!row || (row.published_revision === null && row.owner_id !== userId && row.admin_role === 'member')) return null;
+    if (!row || !this.draftVisible(userId,documentId,row.published_revision)) return null;
     const job = this.db.prepare('SELECT state,error_code FROM jobs WHERE id=(SELECT preview_job_id FROM documents WHERE id=?)').get(documentId) as { state: string; error_code: string | null } | undefined;
     const state = row.published_revision === row.local_revision && job?.state === 'succeeded' ? 'ready' : job?.state === 'failed' ? 'failed' : job?.state === 'running' ? 'preparing' : 'queued';
     return { documentId, localRevision: row.local_revision, publishedRevision: row.published_revision, state, errorCode: job?.error_code ?? null };

@@ -1,0 +1,10 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {mkdtemp,rm} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {LocalAdapter} from '../src/providers/local-adapter.ts';
+import {openLocalStorage} from '../src/providers/local-storage.ts';
+import {rcloneMounted} from '../src/providers/rclone-mount-guard.ts';
+test('mount guard parses exact FUSE mount paths including kernel escapes',()=>{assert(rcloneMounted('/srv/test drive','1 2 0:1 / /srv/test\\040drive rw - fuse.rclone bench: rw'));assert(!rcloneMounted('/srv/test','1 2 0:1 / /srv/test-other rw - fuse.rclone bench: rw'));assert(!rcloneMounted('/srv/test','1 2 0:1 / /srv/test rw - ext4 /dev/x rw'));});
+test('required mount refuses an ordinary empty directory; normal local storage remains available',async()=>{const root=await mkdtemp(join(tmpdir(),'wiki-mount-guard-'));try{await assert.rejects(LocalAdapter.open(root,{requireMount:true}),{code:'PROVIDER_UNAVAILABLE'});await assert.rejects(openLocalStorage(root,{requireMount:true}),{code:'PROVIDER_UNAVAILABLE'});const adapter=await LocalAdapter.open(root);await adapter.close();}finally{await rm(root,{recursive:true,force:true});}});

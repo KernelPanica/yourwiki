@@ -1,9 +1,10 @@
 import { sessionSnapshot,sessionGenerationIsCurrent } from './session-fence.ts';
-export interface Account { features?: {googleConnect?:boolean;googleDiscovery?:boolean;googleImport?:boolean;googleTrash?:boolean;googleIdentity?:boolean;googleLifecycle?:boolean}; user: { id: string; username: string; displayName: string; adminRole: string; canInvite?:boolean; groups: {id:string;name:string}[] }; csrf: string }
-export interface DocumentInfo { id: string; title: string; format: string; revision: number; manifestDigest: string; capabilities: {write:boolean;export:boolean;office?:boolean;googleTrash?:boolean} }
+export interface Account { features?: {providerStorage?:boolean;providerBackups?:boolean;googleConnect?:boolean;googleDiscovery?:boolean;googleImport?:boolean;googleTrash?:boolean;googleIdentity?:boolean;googleLifecycle?:boolean}; user: { id: string; username: string; displayName: string; adminRole: string; canInvite?:boolean; groups: {id:string;name:string}[] }; csrf: string }
+export interface DocumentInfo { storagePending?:boolean; id: string; title: string; format: string; revision: number; manifestDigest: string; capabilities: {write:boolean;export:boolean;office?:boolean;googleTrash?:boolean} }
 export interface Artifact { name:string;digest:string;size:number;mimeType:string }
 export type GoogleOriginal={available:boolean;reason?:string;write?:boolean;url?:string};
-export interface DocumentView { googleOriginal?:GoogleOriginal; sourceSync?:unknown; sourceSyncAction?:unknown; sourceDelivery?:unknown; document: DocumentInfo; manifest: {kind:string;primary:string;artifacts:Artifact[]}; presentation: unknown }
+export type GoogleActivity={observedAt:number;revision:number;serverNow:number;activeForMs:number};
+export interface DocumentView { googleActivity?:GoogleActivity|null; googleOriginal?:GoogleOriginal; sourceSync?:unknown; sourceSyncAction?:unknown; sourceDelivery?:unknown; document: DocumentInfo; manifest: {kind:string;primary:string;artifacts:Artifact[]}; presentation: unknown }
 export class ApiError extends Error {
   code: string; requestId: string; operationId: string|null;
   constructor(code: string, requestId='', operationId:string|null=null) { super(code); this.code=code; this.requestId=requestId; this.operationId=operationId; }

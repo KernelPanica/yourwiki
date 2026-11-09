@@ -1,3 +1,4 @@
+import {trashBaselineMatches} from './google-trash-worker.ts';
 import {randomUUID} from 'node:crypto';
 import {transaction,type Database} from '../database.ts';
 import {JobQueue} from '../jobs.ts';
@@ -34,7 +35,7 @@ export class GoogleLifecycleWorker{
     const send=async(method:'POST'|'PATCH',path:string,query:Record<string,string>,body:unknown)=>{try{return await control!.call(method,path,query,body,{signal,check:guard,beforeDispatch:()=>this.repo.dispatched(job)});}catch(error){definitelyRejected=error instanceof ProviderError&&error.outcome==='not_written';throw error;}};
     const guard=()=>{owns();this.repo.scope(job);};
     if(row.action==='move'){
-     const source=await metadata.verify(row.reference!,connection.root,scope);if(googleSourceFingerprint(source)!==row.baseline)throw new ProviderError('PROVIDER_CONFLICT');
+     const source=await metadata.verify(row.reference!,connection.root,scope);if(!trashBaselineMatches(row.baseline!,source))throw new ProviderError('PROVIDER_CONFLICT');
      await send('PATCH','files/'+row.reference,{addParents:destination.id,removeParents:source.parents[0],fields:'id'}, {name:row.title,appProperties:{yourwikiLifecycleOperation:job.id}});
     }else{
      await send('POST','files',{fields:'id'}, {name:row.title,mimeType:'application/vnd.google-apps.'+row.kind,parents:[destination.id],appProperties:{yourwikiLifecycleOperation:job.id},writersCanShare:false}).then(receipt=>{const reference=googleFileId(receipt.id);check();this.db.prepare('UPDATE provider_google_operations SET reference=? WHERE job_id=?').run(reference,job.id);});

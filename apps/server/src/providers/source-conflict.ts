@@ -9,5 +9,9 @@ export function hasIncomingSourceConflict(db:Database,documentId:string):boolean
   JOIN provider_ingress_snapshots s ON s.document_id=b.document_id AND s.connection_id=b.connection_id
    AND s.connection_revision=c.revision AND s.binding_generation=b.generation AND s.base_fingerprint=b.fingerprint
   WHERE b.document_id=? AND s.state IN ('staged','conflict','discarding','discarded') AND s.digest IS NOT NULL
-   AND s.observed_fingerprint!=b.fingerprint LIMIT 1`).get(documentId);
+   AND s.observed_fingerprint!=b.fingerprint
+   AND NOT(c.provider='google' AND EXISTS(SELECT 1 FROM provider_ingress_snapshots accepted
+    WHERE accepted.document_id=s.document_id AND accepted.generation>s.generation AND accepted.state='applied'
+     AND accepted.connection_id=b.connection_id AND accepted.connection_revision=c.revision AND accepted.binding_generation=b.generation
+     AND accepted.observed_fingerprint=b.fingerprint)) LIMIT 1`).get(documentId);
 }

@@ -10,6 +10,9 @@ function setup(t:any,request:(url:string,init?:RequestInit)=>Promise<unknown>,re
 function loaded(f:ReturnType<typeof setup>){f.connection.receive({origin:'https://office.example',source:f.frame,data:{MessageId:'App_LoadingStatus',Values:{Status:'Document_Loaded'}}});}
 test('bootstrap rejects malformed permissions, secret-bearing actions and mismatched document bindings',()=>{
  assert.equal(parseOfficeBootstrap(opened).actionUrl,opened.actionUrl);
+ assert.equal(parseOfficeBootstrap({...opened,baseRevision:7}).baseRevision,7);
+ assert.equal(parseOfficeBootstrap(opened).baseRevision,undefined);
+ for(const baseRevision of [0,-1,1.5,NaN,Infinity,'7',null,Number.MAX_SAFE_INTEGER+1])assert.throws(()=>parseOfficeBootstrap({...opened,baseRevision}),/INVALID_OFFICE_BOOTSTRAP/);
  for(const change of [{write:'false'},{export:1},{expiresAt:0},{sessionId:'bad/room'},{accessToken:'secret'},{actionUrl:'javascript:alert(1)'},{actionUrl:'https://name:password@office.example/editor'},{actionUrl:opened.actionUrl+'&access_token=secret'},{actionUrl:'https://office.example/editor?WOPISrc=https%3A%2F%2Fwiki.example%2Fwopi%2Ffiles%2Fother'}])assert.throws(()=>parseOfficeBootstrap({...opened,...change}),/INVALID_OFFICE_BOOTSTRAP/);
 });
 test('opening is single-flight, uses CSRF and retains its frame across status refreshes',async t=>{
@@ -93,4 +96,18 @@ test('a missing versioned opening route declines allocation instead of trapping 
 });
 test('handoff-aware clients negotiate expiry and check their own capability rather than just the shared room',async t=>{
  const calls:any[]=[];const f=setup(t,async(url,init)=>{calls.push({url,init});return url.endsWith('/office-opening')?opened:status;});await f.connection.open();f.connection.attach(f.frame);await f.connection.check();assert.equal(calls[0].init.headers['x-yourwiki-office-handoff'],'check-file-info-v1');assert.deepEqual(JSON.parse(calls[1].init.body),{accessToken:opened.accessToken});
+});
+test('explicit viewer requests a server-enforced read-only capability',async t=>{
+ resumeSession();let body:any;const c=new OfficeConnection({documentId:'doc',csrf:'csrf',language:'ru',format:'docx',readonly:true,request:async(_url,init)=>{body=JSON.parse(String(init?.body));return {...opened,write:false};}});t.after(()=>c.dispose());await c.open();assert.equal(body.readonly,true);assert.equal(c.snapshot().bootstrap?.write,false);
+});
+test('changed originals retain writable capabilities and only clean true viewers request reopening',async t=>{
+ const f=setup(t,async url=>url.endsWith('/office-opening')?opened:{...status,changed:true,write:false,errorCode:'CONFLICT'});await f.connection.open();f.connection.attach(f.frame);loaded(f);await f.connection.check();assert.notEqual(f.connection.snapshot().reloadRequested,true);assert.equal(f.connection.snapshot().sourceChanged,true);assert.equal(f.sent.some(x=>x.MessageId==='Action_Save'),false);
+ const dirty=setup(t,async url=>url.endsWith('/office-opening')?opened:{...status,changed:true});await dirty.connection.open();dirty.connection.attach(dirty.frame);loaded(dirty);dirty.connection.receive({origin:'https://office.example',source:dirty.frame,data:{MessageId:'Doc_ModifiedStatus',Values:{Modified:true}}});await dirty.connection.check();assert.notEqual(dirty.connection.snapshot().reloadRequested,true);assert.equal(dirty.connection.bridge?.snapshot().needsRecovery,true);
+});
+
+test('a clean read-only bootstrap can request automatic refresh after source change',async t=>{const f=setup(t,async url=>url.endsWith('/office-opening')?{...opened,write:false}:{...status,changed:true,write:false,errorCode:'CONFLICT'});await f.connection.open();f.connection.attach(f.frame);loaded(f);await f.connection.check();assert.equal(f.connection.snapshot().sourceChanged,true);assert.equal(f.connection.snapshot().reloadRequested,true);});
+test('an accepted local save does not permit writable replacement and source change remains latched',async t=>{
+ let changed=true;const calls:string[]=[],f=setup(t,async url=>{calls.push(url);return url.endsWith('/office-opening')?opened:{...status,changed};});await f.connection.open();const bridge=f.connection.attach(f.frame);loaded(f);
+ f.connection.receive({origin:'https://office.example',source:f.frame,data:{MessageId:'Doc_ModifiedStatus',Values:{Modified:true}}});const tag='yourwiki-save-'+'a'.repeat(32);bridge.beginSave({tag,baseRevision:1,expiresAt:Date.now()+60000});f.connection.receive({origin:'https://office.example',source:f.frame,data:{MessageId:'Doc_ModifiedStatus',Values:{Modified:false}}});assert.equal(bridge.acceptProof({tag,state:'saved',operationId:'saved',revision:2,currentRevision:2,changed:false,expired:false,delivery:'local'}),'saved');assert.equal(bridge.snapshot().needsRecovery,false);
+ await f.connection.check();assert.equal(f.connection.snapshot().sourceChanged,true);assert.notEqual(f.connection.snapshot().reloadRequested,true);assert.equal(f.connection.bridge,bridge);changed=false;await f.connection.check();assert.equal(f.connection.snapshot().sourceChanged,true);assert.notEqual(f.connection.snapshot().reloadRequested,true);assert.equal(calls.some(url=>url.endsWith('/release')),false);
 });

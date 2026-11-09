@@ -30,7 +30,7 @@ export class GoogleDiscoveryClient{
  private clearTimer(){clearTimeout(this.timer);this.timer=undefined;}
  private schedule(){this.clearTimer();if(!this.current())return;if(performance.now()-this.startedAt>=120000){this.update({phase:'unknown',errorCode:'DISCOVERY_WAIT'});return;}this.timer=setTimeout(()=>{this.timer=undefined;void this.check();},Math.min(15000,(this.options.pollMs??750)*2**Math.min(this.failures,4)));}
  private accept(value:unknown){const result=parseGoogleDiscovery(value,this.state.operationId??undefined);if(result.page&&this.pending?.input.folderId&&result.page.folderId!==this.pending.input.folderId)invalid();this.failures=0;
-  if(result.state==='failed'&&['ACCESS_DENIED','PROVIDER_CONFIG_CHANGED'].includes(result.errorCode??'')){this.error(new ApiError(result.errorCode!));return;}
+  if(result.state==='failed'&&['ACCESS_DENIED','PROVIDER_CONFIG_CHANGED'].includes(result.errorCode??'')){if(result.errorCode==='ACCESS_DENIED'){this.pending=undefined;this.update({phase:'failed',errorCode:'GOOGLE_ACCESS_DENIED',page:null,operationId:null,hasMore:false});return;}this.error(new ApiError(result.errorCode!));return;}
   if(result.state==='succeeded'){this.pageOperationId=result.operationId;this.update({operationId:result.operationId,page:result.page,hasMore:result.hasMore,errorCode:result.errorCode,phase:'ready',trail:this.pending?.trail.map(x=>({...x}))??this.state.trail});}
   else{this.update({operationId:result.operationId,phase:result.state,errorCode:result.errorCode,hasMore:this.state.hasMore});if(result.state!=='failed')this.schedule();}
  }

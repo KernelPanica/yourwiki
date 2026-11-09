@@ -19,7 +19,7 @@ export function legacyMarkdown(value:string,maxOutputBytes=16*1024**2):string{
  const bounded=(text:string)=>{if(Buffer.byteLength(text)>maxOutputBytes)throw new Error('PREVIEW_TOO_COMPLEX');return text;};
  if(!object(snapshot)||snapshot.format!=='yourwiki'||snapshot.version!==1)return bounded(source);
  if(snapshot.kind!=='document'||!object(snapshot.data))invalid();
- const types=new Set(['doc','paragraph','text','heading','blockquote','bulletList','orderedList','listItem','codeBlock','hardBreak','horizontalRule','image','table','tableRow','tableCell','tableHeader']);
+ const types=new Set(['doc','paragraph','text','heading','blockquote','bulletList','orderedList','listItem','codeBlock','hardBreak','horizontalRule','image','table','tableRow','tableCell','tableHeader','resourceReference']);
  let nodes=0,marks=0;
  function validate(node:unknown,depth=0):asserts node is Node{
   if(!object(node))throw new Error('INVALID_NATIVE_DOCUMENT');
@@ -37,6 +37,7 @@ export function legacyMarkdown(value:string,maxOutputBytes=16*1024**2):string{
   }
   const content=bounded((node.content??[]).map(render).join(''));
   switch(node.type){
+   case 'resourceReference':return '[[resource:'+String(node.attrs?.resourceId??'')+']]';
    case 'heading':return bounded('#'.repeat(Number(node.attrs?.level??2))+' '+content+'\n\n');
    case 'paragraph':return bounded(content+'\n\n');
    case 'listItem':return bounded('- '+content.trim()+'\n');

@@ -4,16 +4,17 @@ import {OfficeSaveCoordinator} from './office-save-coordinator.ts';
 import {blockSession,onSessionBlocked,sessionIsCurrent,sessionSnapshot} from './session-fence.ts';
 import type {Language} from './i18n.ts';
 type Frame=ConstructorParameters<typeof OfficeBridge>[0]['frame'];
-export type OfficeBootstrap={sessionId:string;accessToken:string;expiresAt:number;write:boolean;export:boolean;actionUrl:string};
-export type OfficeConnectionSnapshot={phase:'idle'|'opening'|'open'|'failed'|'paused'|'closing'|'closed';bootstrap:OfficeBootstrap|null;errorCode:string|null;readiness:'waiting'|'delayed'|'ready'};
-type Options={documentId:string;csrf:string;language:Language;format:'docx'|'xlsx'|'pptx';request?:(url:string,init?:RequestInit)=>Promise<unknown>;statusMs?:number;readinessMs?:number;now?:()=>number;onSessionLost?:()=>void};
+export type OfficeBootstrap={sessionId:string;baseRevision?:number;accessToken:string;expiresAt:number;write:boolean;export:boolean;actionUrl:string};
+export type OfficeConnectionSnapshot={phase:'idle'|'opening'|'open'|'failed'|'paused'|'closing'|'closed';bootstrap:OfficeBootstrap|null;errorCode:string|null;readiness:'waiting'|'delayed'|'ready';reloadRequested?:boolean;sourceChanged?:boolean};
+type Options={documentId:string;csrf:string;language:Language;format:'docx'|'xlsx'|'pptx';readonly?:boolean;request?:(url:string,init?:RequestInit)=>Promise<unknown>;statusMs?:number;readinessMs?:number;now?:()=>number;onSessionLost?:()=>void};
 const record=(v:unknown):v is Record<string,unknown>=>!!v&&typeof v==='object'&&!Array.isArray(v);
 export function parseOfficeBootstrap(value:unknown):OfficeBootstrap {
  try{
   if(!record(value)||typeof value.sessionId!=='string'||!/^[-A-Za-z0-9_]{1,128}$/.test(value.sessionId)||typeof value.accessToken!=='string'||!/^[A-Za-z0-9_-]{43}$/.test(value.accessToken)||!Number.isSafeInteger(value.expiresAt)||Number(value.expiresAt)<=0||typeof value.write!=='boolean'||typeof value.export!=='boolean'||typeof value.actionUrl!=='string'||value.actionUrl.length>16384)throw 0;
   const url=new URL(value.actionUrl);if(!['http:','https:'].includes(url.protocol)||url.username||url.password||url.hash||[...url.searchParams.keys()].some(key=>/^(access_token|access_token_ttl)$/i.test(key))||url.searchParams.getAll('WOPISrc').length!==1)throw 0;
   const source=new URL(url.searchParams.get('WOPISrc')!);if(!['http:','https:'].includes(source.protocol)||source.username||source.password||source.search||source.hash||!source.pathname.endsWith(`/wopi/files/${value.sessionId}`))throw 0;
-  return {sessionId:value.sessionId,accessToken:value.accessToken,expiresAt:Number(value.expiresAt),write:value.write,export:value.export,actionUrl:value.actionUrl};
+  if(value.baseRevision!==undefined&&(!Number.isSafeInteger(value.baseRevision)||Number(value.baseRevision)<1))throw 0;
+  return {sessionId:value.sessionId,...(value.baseRevision===undefined?{}:{baseRevision:Number(value.baseRevision)}),accessToken:value.accessToken,expiresAt:Number(value.expiresAt),write:value.write,export:value.export,actionUrl:value.actionUrl};
  }catch{throw new ApiError('INVALID_OFFICE_BOOTSTRAP');}
 }
 /** Owns one iframe capability. Call close() and await true before unmounting a live frame. */
@@ -47,7 +48,7 @@ export class OfficeConnection {
  open(){
   if(this.opening)return this.opening;if(!this.current()||this.state.phase!=='idle')return Promise.resolve();this.update({phase:'opening',errorCode:null});this.startReadiness();
   this.opening=(async()=>{try{
-   const value=await this.request(`/api/documents/${encodeURIComponent(this.options.documentId)}/office-opening`,{method:'POST',signal:this.lifetime.signal,headers:{'content-type':'application/json','x-csrf-token':this.options.csrf,'x-yourwiki-office-open':this.openId,'x-yourwiki-office-handoff':'check-file-info-v1'},body:JSON.stringify({language:this.options.language})});
+   const value=await this.request(`/api/documents/${encodeURIComponent(this.options.documentId)}/office-opening`,{method:'POST',signal:this.lifetime.signal,headers:{'content-type':'application/json','x-csrf-token':this.options.csrf,'x-yourwiki-office-open':this.openId,'x-yourwiki-office-handoff':'check-file-info-v1'},body:JSON.stringify({language:this.options.language,...(this.options.readonly===undefined?{}:{readonly:this.options.readonly})})});
    if(!this.current()||this.state.phase==='closed')return;const bootstrap=parseOfficeBootstrap(value);if(bootstrap.expiresAt<=(this.options.now??Date.now)())throw new ApiError('OFFICE_EXPIRED');if(this.state.phase==='opening')this.update({phase:'open',bootstrap});else if(this.cancellingOpening)this.update({bootstrap});
   }catch(error){if(error instanceof ApiError&&['OFFICE_NOT_READY','NOT_FOUND'].includes(error.code))this.explicitlyDeclined=true;if(!this.cancellingOpening)this.failed(error);}})();return this.opening;
  }
@@ -63,14 +64,17 @@ export class OfficeConnection {
   if(!this.current()||this.state.phase!=='open')return false;const accepted=this.bridge?.receive(event)??false;
   if(accepted&&this.bridge?.snapshot().loaded&&this.state.readiness!=='ready'){this.stopReadiness();this.update({readiness:'ready'});}return accepted;
  }
+ markSourceChanged(){if(!this.current()||this.state.sourceChanged)return;this.save?.dispose();this.bridge?.saveFailed('CONFLICT');this.update({sourceChanged:true});}
  async check():Promise<boolean>{
   if(!this.current()||this.checking||this.state.phase!=='open'||!this.state.bootstrap||!this.bridge)return false;
   this.stopStatus();if(this.expire())return false;this.checking=true;const id=this.state.bootstrap.sessionId;
   try{
    const value=await this.request(`/api/office/${encodeURIComponent(id)}/status`,{method:'POST',signal:this.lifetime.signal,headers:{'x-csrf-token':this.options.csrf,'content-type':'application/json'},body:JSON.stringify({accessToken:this.state.bootstrap.accessToken})});
    if(!this.current()||this.state.phase!=='open')return false;
+   const clean=this.bridge.snapshot().loaded&&!this.bridge.snapshot().needsRecovery&&!this.bridge.pendingSave();
    if(!record(value)||value.sessionId!==id||value.documentId!==this.options.documentId||typeof value.recovery!=='boolean'||!this.bridge.status(value))throw new ApiError('INVALID_OFFICE_STATUS');
-   this.update({errorCode:this.bridge.snapshot().errorCode});return true;
+   if(value.changed===true)this.markSourceChanged();
+   this.update({errorCode:this.bridge.snapshot().errorCode,...(clean&&value.changed===true&&!value.expired&&this.state.bootstrap?.write===false?{reloadRequested:true}:{})});return true;
   }catch(error){if(this.state.phase==='open')this.failed(error);return false;}finally{this.checking=false;this.scheduleStatus();}
  }
  async exportCurrent(){if(!await this.check()||!this.current()||this.state.phase!=='open')return false;return this.bridge?.exportCurrent()??false;}

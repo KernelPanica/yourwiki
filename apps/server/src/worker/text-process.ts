@@ -1,5 +1,5 @@
 // Runs only as an isolated subprocess, never imported by the HTTP runtime.
-import MarkdownIt from 'markdown-it';
+import {renderGithubMarkdown} from '../text/github-markdown.ts';
 import {legacyMarkdown} from '../office/legacy-markdown.ts';
 
 const [format, limitValue, compatibility] = process.argv.slice(2);
@@ -17,11 +17,7 @@ try {
   const text = new TextDecoder('utf-8', { fatal: true }).decode(Buffer.concat(chunks));
   let html: string;
   if (format === 'md' || format === 'markdown') {
-    const md = new MarkdownIt({ html: false, linkify: false, typographer: false });
-    // External images must not leak private viewing activity. Attachment images
-    // will be resolved through authenticated document references in a later step.
-    md.renderer.rules.image = (tokens, index) => escape(tokens[index].content);
-    html = md.render(compatibility==='plain-v1'?text:legacyMarkdown(text,limit));
+    html = renderGithubMarkdown(compatibility==='plain-v1'?text:legacyMarkdown(text,limit));
   } else html = '<pre>' + escape(text) + '</pre>';
   process.stdout.write('<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body>' + html + '</body></html>');
 } catch (error) {

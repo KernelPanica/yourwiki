@@ -1,0 +1,17 @@
+[Unit]
+Description=YourWiki test initial exports to rclone folder
+Requires=yourwiki-rclone-test.service
+PartOf=yourwiki-rclone-test.service
+After=yourwiki-rclone-test.service
+
+[Service]
+Type=simple
+WorkingDirectory=/root/yourwiki
+ExecStart=/root/yourwiki/instance/runtime/node_modules/node/bin/node /root/yourwiki/apps/server/src/rclone/bridge-main.ts /root/yourwiki/instance/prototype-v2/workspace /root/yourwiki/instance/rclone-test/settings.json
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

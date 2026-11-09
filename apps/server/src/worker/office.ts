@@ -83,7 +83,7 @@ export async function convertOffice(store: BlobStore, source: BlobRef, format: s
 set -eu
 /opt/office/program/soffice -env:UserInstallation=file:///profile --headless --nologo --nodefault --norestore --convert-to '${filter}' --outdir /out /input.${format} >&2
 ` + (presentation ? `test -s /out/input.pdf
-pages=$(/usr/bin/pdfinfo /out/input.pdf | /usr/bin/awk '/^Pages:/ {print $2}')
+pages=$(/usr/bin/pdfinfo /out/input.pdf | while read -r key value rest; do if [ "$key" = "Pages:" ]; then printf '%s\\n' "$value"; fi; done)
 case "$pages" in ''|*[!0-9]*) exit 30;; esac
 [ "$pages" -ge 1 ] && [ "$pages" -le ${slidesLimit} ] || exit 31
 i=1
@@ -97,7 +97,7 @@ rm /out/input.pdf
     await writeFile(runner, script, { mode: 0o400 }); await writeFile(registry, profile, { mode: 0o400 });
     const args = ['--as=8589934592', `--fsize=${limit}`, '--cpu=90', '--', bwrap, '--unshare-all','--die-with-parent','--new-session','--cap-drop','ALL',
       '--ro-bind','/usr','/usr','--symlink','usr/bin','/bin','--symlink','usr/lib','/lib','--symlink','usr/lib64','/lib64',
-      '--ro-bind','/etc/fonts','/etc/fonts','--ro-bind',root,'/opt/office','--ro-bind',await store.localFile(source.digest),`/input.${format}`,
+      '--ro-bind','/etc/fonts','/etc/fonts','--ro-bind-try','/etc/libreoffice','/etc/libreoffice','--ro-bind',root,'/opt/office','--ro-bind',await store.localFile(source.digest),`/input.${format}`,
       '--ro-bind',runner,'/runner.sh','--proc','/proc','--dev','/dev','--size','67108864','--tmpfs','/tmp',
       '--size','33554432','--tmpfs','/profile','--dir','/profile/user','--ro-bind',registry,'/profile/user/registrymodifications.xcu',
       '--size',String(limit),'--tmpfs','/out','--setenv','HOME','/profile','--setenv','TMPDIR','/tmp','--setenv','MALLOC_ARENA_MAX','2','--setenv','MAX_CONCURRENCY','2','--setenv','OMP_NUM_THREADS','1','--setenv','SAL_DISABLE_OPENCL','1','--setenv','LANG','C.UTF-8','--setenv','PATH','/usr/bin:/bin',

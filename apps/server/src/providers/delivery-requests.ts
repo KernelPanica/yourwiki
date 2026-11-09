@@ -13,6 +13,7 @@ export function requestSourceDelivery(db:Database,documentId:string,revision:num
 
 /** Reuse the editor's existing conflict/recovery contract, never save on exit. */
 export function assertSourceDeliveryWritable(db:Database,documentId:string,now=Date.now()):void {
+ if(db.prepare("SELECT 1 FROM google_storage_exports WHERE document_id=? AND state!='confirmed'").get(documentId))throw new DocumentError('CONFLICT');
  if(googleLifecyclePending(db,documentId))throw new DocumentError('CONFLICT');
  if(db.prepare("SELECT 1 FROM provider_delivery_attempts a JOIN jobs j ON j.id=a.lease_job_id WHERE a.document_id=? AND (a.state IN ('unknown','retryable','conflict','blocked') OR (a.state='writing' AND (a.lease_until<=? OR j.state!='running' OR COALESCE(j.lease_until,0)<=?))) LIMIT 1").get(documentId,now,now))throw new DocumentError('CONFLICT');
 }

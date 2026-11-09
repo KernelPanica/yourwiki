@@ -1,3 +1,17 @@
+import {userPurgeMigration} from './administration/user-purge-schema.ts';
+import {pluginsMigration} from './plugins/schema.ts';
+import {passwordResetMigration} from './auth/password-reset-schema.ts';
+import {monitoringMigration} from './monitoring/schema.ts';
+import {googleWatchMigration} from './providers/google-watch-schema.ts';
+import {googleIngressPriorityMigration} from './providers/google-ingress-priority-schema.ts';
+import {googleMarkdownRepairMigration} from './providers/google-markdown-repair-schema.ts';
+import {markdownEditorMigration} from './text/editor-schema.ts';
+import {googleReconciliationMigration} from './providers/google-reconciliation-schema.ts';
+import {googleFolderTrashMigration} from './providers/google-folder-trash-schema.ts';
+import {backupMigration} from './backups/schema.ts';
+import {resourcePurgeCleanupMigration} from './administration/purge-schema.ts';
+import {textWorkspaceMigration} from './text/schema.ts';
+import {googleStorageMigration,googleStorageExportsMigration} from './providers/google-storage-schema.ts';
 import {invitationPermissionsMigration} from './administration/invitation-schema.ts';
 import {presenceMigration} from './presence/schema.ts';
 import {contentParityMigration} from './content-parity/migration.ts';
@@ -1108,5 +1122,46 @@ BEGIN SELECT RAISE(ABORT,'Google operation limit'); END;
 `;
 /** Parent-table rebuilds run atomically with FK actions suspended, checked before commit, then enforced again. */
 export const migrationForeignKeyRebuilds:readonly number[]=[23,31,38];
-export const migrations = [core + epochTriggers, authInvalidation, authSettings, jobs, documents, workerSlots, uploads, pdfLayers, saveJournal, officeSessions, officeIngress, officeCleanup, officeRecovery, officePrepared, officePreparedBindings, officeSaveIntents, officeOpenings, officeHandoff, documentVisits, versionHistory, historyPreviews, historyRestores, legacyHistory, historyImports, historyCatalogue, providerConnections, providerSourceRequests, providerDeliveryAttempts, providerDeliveryRecoveryIndex, providerDeliveryRequestJob, providerVersionOrigins, providerIngressInbox, providerIngressScheduling, providerSyncActions, providerAcceptedJobIndex, providerOAuthRefreshes, providerGoogleGrantImports, providerIngressBounded, providerGoogleUploads, providerGoogleConnectStates, providerGoogleConnectResults, providerGoogleNativeCommands, providerGoogleDiscovery, providerGoogleImports, providerGoogleTrash, providerGoogleAccess, providerGoogleLifecycle, administrationMigration, contentParityMigration, presenceMigration, invitationPermissionsMigration] as const;
+const googleRegistrationMigration=`
+CREATE TABLE google_registration_attempts (
+ state_hash TEXT PRIMARY KEY,browser_hash TEXT NOT NULL,encrypted_context TEXT NOT NULL,
+ phase TEXT NOT NULL CHECK(phase IN ('pending','claimed','completed','failed')),
+ created_at INTEGER NOT NULL,expires_at INTEGER NOT NULL,
+ user_id TEXT REFERENCES users(id),session_hash TEXT,encrypted_session TEXT
+);
+CREATE INDEX google_registration_expiry ON google_registration_attempts(expires_at);
+`;
+const localDashboardMigration=`
+CREATE TABLE dashboard_local_file(id INTEGER PRIMARY KEY CHECK(id=1),document_id TEXT NOT NULL UNIQUE REFERENCES documents(id),previous_document_id TEXT REFERENCES documents(id));
+CREATE TRIGGER dashboard_local_no_trash BEFORE UPDATE OF trashed,parent_id ON resources WHEN OLD.id IN(SELECT document_id FROM dashboard_local_file) AND (NEW.trashed!=0 OR NEW.parent_id IS NOT NULL)
+BEGIN SELECT RAISE(ABORT,'DASHBOARD_PROTECTED'); END;
+CREATE TRIGGER dashboard_local_no_delete BEFORE DELETE ON resources WHEN OLD.id IN(SELECT document_id FROM dashboard_local_file)
+BEGIN SELECT RAISE(ABORT,'DASHBOARD_PROTECTED'); END;
+CREATE TRIGGER dashboard_local_document_no_delete BEFORE DELETE ON documents WHEN OLD.id IN(SELECT document_id FROM dashboard_local_file)
+BEGIN SELECT RAISE(ABORT,'DASHBOARD_PROTECTED'); END;
+CREATE TRIGGER dashboard_local_no_rename BEFORE UPDATE OF title,format ON documents WHEN OLD.id IN(SELECT document_id FROM dashboard_local_file) AND (NEW.title!='Dashboard.md' OR NEW.format!='md')
+BEGIN SELECT RAISE(ABORT,'DASHBOARD_PROTECTED'); END;
+CREATE TRIGGER dashboard_local_binding BEFORE UPDATE OF document_id ON dashboard_document WHEN NEW.document_id NOT IN(SELECT document_id FROM dashboard_local_file) AND EXISTS(SELECT 1 FROM dashboard_local_file)
+BEGIN SELECT RAISE(ABORT,'DASHBOARD_PROTECTED'); END;
+`;
+const rcloneDriveMigration=`
+CREATE TABLE rclone_drive_mounts (
+ connection_id TEXT PRIMARY KEY REFERENCES provider_connections(id),
+ binary_path TEXT NOT NULL,config_path TEXT NOT NULL,mount_path TEXT NOT NULL UNIQUE,staging_path TEXT NOT NULL,
+ next_scan_at INTEGER NOT NULL DEFAULT 0,scanned_at INTEGER NOT NULL DEFAULT 0,error_code TEXT
+);
+CREATE TABLE rclone_drive_entries (
+ connection_id TEXT NOT NULL REFERENCES rclone_drive_mounts(connection_id),reference TEXT NOT NULL,
+ path TEXT NOT NULL,metadata TEXT NOT NULL,seen_at INTEGER NOT NULL,
+ PRIMARY KEY(connection_id,reference),UNIQUE(connection_id,path)
+);
+CREATE TABLE rclone_drive_exports (
+ document_id TEXT PRIMARY KEY REFERENCES documents(id),path TEXT NOT NULL,digest TEXT NOT NULL,size INTEGER NOT NULL
+);
+`;
+const rcloneFolderJournalMigration=`
+CREATE TABLE rclone_drive_folder_exports(resource_id TEXT PRIMARY KEY REFERENCES resources(id) ON DELETE CASCADE,connection_id TEXT NOT NULL REFERENCES rclone_drive_mounts(connection_id),path TEXT NOT NULL,UNIQUE(connection_id,path));
+CREATE TRIGGER rclone_export_document_cleanup BEFORE DELETE ON documents BEGIN DELETE FROM rclone_drive_exports WHERE document_id=OLD.id; END;
+`;
+export const migrations = [core + epochTriggers, authInvalidation, authSettings, jobs, documents, workerSlots, uploads, pdfLayers, saveJournal, officeSessions, officeIngress, officeCleanup, officeRecovery, officePrepared, officePreparedBindings, officeSaveIntents, officeOpenings, officeHandoff, documentVisits, versionHistory, historyPreviews, historyRestores, legacyHistory, historyImports, historyCatalogue, providerConnections, providerSourceRequests, providerDeliveryAttempts, providerDeliveryRecoveryIndex, providerDeliveryRequestJob, providerVersionOrigins, providerIngressInbox, providerIngressScheduling, providerSyncActions, providerAcceptedJobIndex, providerOAuthRefreshes, providerGoogleGrantImports, providerIngressBounded, providerGoogleUploads, providerGoogleConnectStates, providerGoogleConnectResults, providerGoogleNativeCommands, providerGoogleDiscovery, providerGoogleImports, providerGoogleTrash, providerGoogleAccess, providerGoogleLifecycle, administrationMigration, contentParityMigration, presenceMigration, invitationPermissionsMigration, googleStorageMigration, googleStorageExportsMigration, textWorkspaceMigration, resourcePurgeCleanupMigration, backupMigration, googleFolderTrashMigration, googleReconciliationMigration, markdownEditorMigration, googleMarkdownRepairMigration, googleIngressPriorityMigration, googleWatchMigration, googleRegistrationMigration, monitoringMigration, localDashboardMigration, passwordResetMigration, pluginsMigration, userPurgeMigration, rcloneDriveMigration, rcloneFolderJournalMigration] as const;
 export const applicationId = 0x5957494b; // YWIK; legacy Django uses no marker.

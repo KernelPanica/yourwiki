@@ -1,0 +1,2 @@
+export type Preferences={language:'auto'|'ru'|'en';theme:'auto'|'light'|'dark';animations:number;avatar:string|null;revision:number};
+export function applyPreferences(p:Preferences){document.documentElement.dataset.theme=p.theme;document.documentElement.dataset.animations=p.animations?'on':'off';window.dispatchEvent(new CustomEvent('yourwiki:preferences',{detail:{avatar:p.avatar}}));try{localStorage.setItem('yourwiki.preferences',JSON.stringify({language:p.language,theme:p.theme,animations:p.animations}));}catch{/* Appearance works without persistent browser storage. */}}

@@ -37,14 +37,17 @@ function parse(raw:Record<string,unknown>,requested:string,lifecycle=false):Goog
 /** Worker-only metadata gate. No source bytes, grants, deletion or local commit side effects.
  * Caller must repeat verification after streaming and compare version/parents before acceptance. */
 export class GoogleMetadata{
- private http:Reader;private managed:ManagedRecipients;
- constructor(http:Reader,managed:ManagedRecipients){this.http=http;this.managed=managed;}
- private async file(id:string,options:ProviderCheck):Promise<GoogleFile>{
-  await current(options);const raw=await this.http.file(id,fields,options);return this.inspect(raw,id,options);
+ private http:Reader;private managed:ManagedRecipients;private allowExistingShares:boolean;
+ constructor(http:Reader,managed:ManagedRecipients,options:{allowExistingShares?:boolean}={}){this.http=http;this.managed=managed;this.allowExistingShares=options.allowExistingShares===true;}
+ private async file(id:string,options:ProviderCheck,requireEdit=false):Promise<GoogleFile>{
+  await current(options);const raw=await this.http.file(id,requireEdit?fields.replace('capabilities(canDownload)','capabilities(canDownload,canEdit)'):fields,options);const result=await this.inspect(raw,id,options);if(requireEdit&&(raw.capabilities as {canEdit?:unknown}|undefined)?.canEdit!==true)deny();return result;
  }
  private async inspect(raw:Record<string,unknown>,id:string,options:ProviderCheck,lifecycle=false):Promise<GoogleFile>{
   await current(options);const result=parse(raw,id,lifecycle);
-  if(raw.shared!==false){
+  // Existing Drive recipients grant no local rights. Read-side owner access is
+  // separate from stricter lifecycle/write admission and YourWiki ACL.
+  if(this.allowExistingShares&&typeof raw.shared!=='boolean')deny();
+  if(raw.shared!==false&&!this.allowExistingShares){
    if(raw.shared!==true)deny();
    const recipients=await this.managed(result.id,options);await current(options);
    if(!Array.isArray(recipients)||recipients.length<1||recipients.length>10000||recipients.some(value=>typeof value!=='string'||value.length<1||value.length>320||/[\x00-\x20\x7f]/.test(value)))deny();
@@ -79,17 +82,16 @@ export class GoogleMetadata{
   invalid();
  }
  /** Lifecycle evidence only. A trashed target never becomes a readable source or a deletion receipt. */
- async trashState(reference:string,root:string,options:ProviderCheck):Promise<Readonly<{file:GoogleFile;trashed:boolean;explicitlyTrashed:boolean;operationId:string|null}>>{
+ async trashState(reference:string,root:string,options:ProviderCheck,kind:'file'|'folder'='file'):Promise<Readonly<{file:GoogleFile;trashed:boolean;explicitlyTrashed:boolean;operationId:string|null}>>{
   googleFileId(reference);googleFileId(root);if(reference==='root')invalid();const rootInfo=await this.root(root,options);if(reference===rootInfo.id)invalid();await current(options);
   const raw=await this.http.file(reference,fields+',explicitlyTrashed,appProperties',options);await current(options);if(typeof raw.trashed!=='boolean'||typeof raw.explicitlyTrashed!=='boolean'||raw.explicitlyTrashed&&!raw.trashed)invalid();
   let operationId:string|null=null;if(raw.appProperties!==undefined){if(!raw.appProperties||typeof raw.appProperties!=='object'||Array.isArray(raw.appProperties))invalid();const marker=(raw.appProperties as Record<string,unknown>).yourwikiTrashOperation;if(marker!==undefined){if(typeof marker!=='string'||!/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(marker))invalid();operationId=marker;}}
-  const source=await this.inspect({...raw,trashed:false},reference,options,true);if(source.kind==='folder')invalid();await this.within(source,rootInfo,options);await current(options);return Object.freeze({file:source,trashed:raw.trashed,explicitlyTrashed:raw.explicitlyTrashed,operationId});
+  const source=await this.inspect({...raw,trashed:false},reference,options,true);if((source.kind==='folder')!==(kind==='folder'))invalid();await this.within(source,rootInfo,options);await current(options);return Object.freeze({file:source,trashed:raw.trashed,explicitlyTrashed:raw.explicitlyTrashed,operationId});
  }
- async verify(reference:string,root:string,options:ProviderCheck):Promise<GoogleFile>{
+ async verify(reference:string,root:string,options:ProviderCheck,requireEdit=false):Promise<GoogleFile>{
   googleFileId(reference);googleFileId(root);if(reference==='root')invalid();
-  const rootInfo=await this.root(root,options);
-  if(reference===rootInfo.id)invalid();
-  const source=await this.file(reference,options);if(source.kind==='folder')invalid();
+  const [rootInfo,source]=await Promise.all([this.root(root,options),this.file(reference,options,requireEdit)]);
+  if(reference===rootInfo.id||source.kind==='folder')invalid();
   return this.within(source,rootInfo,options);
  }
 }

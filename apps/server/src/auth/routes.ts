@@ -1,3 +1,5 @@
+import {PasswordResets} from './password-reset.ts';
+import {DocumentError} from '../document-errors.ts';
 import { createHash } from 'node:crypto';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { Database } from '../database.ts';
@@ -19,7 +21,7 @@ export function sessionCookie(request: FastifyRequest): string {
   return values.length === 1 ? values[0].slice(cookieName.length + 1) : '';
 }
 
-export function registerAuth(app: FastifyInstance, db: Database, publicUrl: string, features: {googleConnect?:boolean;googleDiscovery?:boolean;googleImport?:boolean;googleTrash?:boolean;googleIdentity?:boolean;googleLifecycle?:boolean} = {}): void {
+export function registerAuth(app: FastifyInstance, db: Database, publicUrl: string, features: {providerStorage?:boolean;providerBackups?:boolean;googleConnect?:boolean;googleDiscovery?:boolean;googleImport?:boolean;googleTrash?:boolean;googleIdentity?:boolean;googleLifecycle?:boolean} = {}): void {
   const url = new URL(publicUrl);
   if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash || url.pathname !== '/') throw new Error('Public URL must be an HTTP(S) origin');
   const origin = url.origin;
@@ -62,11 +64,16 @@ export function registerAuth(app: FastifyInstance, db: Database, publicUrl: stri
     return reply.header('set-cookie', cookieValue(session.token, session.maxAge)).send({ csrf: session.csrf, expiresAt: session.expiresAt });
   });
 
+  app.post('/api/auth/reset-password',{bodyLimit:16384},async(request,reply)=>{
+    if(!sameOrigin(request))return reply.code(403).send(errorEnvelope('CSRF_REJECTED',request.id));
+    try{const resets=new PasswordResets(db);resets.attempt(request.ip);const body=request.body as Record<string,unknown>;if(!body||typeof body!=='object'||Array.isArray(body)||Object.keys(body).some(key=>!['token','password','passwordConfirmation'].includes(key)))throw new DocumentError('INVALID_REQUEST');return await resets.redeem(body.token,body.password,body.passwordConfirmation);}catch(error){if(!(error instanceof DocumentError))throw error;return reply.code(error.code==='RATE_LIMITED'?429:400).send(errorEnvelope(error.code,request.id));}
+  });
+
   app.get('/api/account', async (request, reply) => {
     const token = sessionCookie(request), session = authenticateSession(db, token);
     if (!session) return reply.code(401).send(errorEnvelope('SESSION_REQUIRED', request.id));
     const groups = db.prepare('SELECT g.id,g.name FROM groups g JOIN memberships m ON m.group_id=g.id WHERE m.user_id=? ORDER BY g.id').all(session.userId);
-    const visibleFeatures={...(features.googleIdentity?{googleIdentity:true}:{}),...(session.adminRole==='giga'?{...(features.googleLifecycle?{googleLifecycle:true}:{}),...(features.googleConnect?{googleConnect:true}:{}),...(features.googleDiscovery?{googleDiscovery:true}:{}),...(features.googleImport?{googleImport:true}:{})}:{}),...(['giga','simple'].includes(session.adminRole)&&features.googleTrash?{googleTrash:true}:{})};
+    const visibleFeatures={...(features.googleIdentity?{googleIdentity:true}:{}),...(session.adminRole==='giga'?{...(features.providerStorage?{providerStorage:true}:{}),...(features.providerBackups?{providerBackups:true}:{}),...(features.googleLifecycle?{googleLifecycle:true}:{}),...(features.googleConnect?{googleConnect:true}:{}),...(features.googleDiscovery?{googleDiscovery:true}:{}),...(features.googleImport?{googleImport:true}:{})}:{}),...(['giga','simple'].includes(session.adminRole)&&features.googleTrash?{googleTrash:true}:{})};
     return { user: { id: session.userId, username: session.username, displayName: session.displayName, adminRole: session.adminRole, canInvite:(db.prepare('SELECT can_invite FROM users WHERE id=?').get(session.userId) as {can_invite:number}).can_invite===1, groups }, csrf: csrfForToken(token), ...(Object.keys(visibleFeatures).length?{features:visibleFeatures}:{}) };
   });
 

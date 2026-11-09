@@ -1,3 +1,4 @@
+import {mermaidCsp} from './mermaid-csp.mjs';
 import { build } from 'esbuild';
 import { readFile,writeFile,mkdir,rename,copyFile,readdir } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
@@ -18,7 +19,7 @@ if(!pdfStyle)throw new Error('Missing PDF styles');
 const archiveWorker=await build({absWorkingDir:root,entryPoints:['src/archive-hash-worker.ts'],outdir:'dist/assets',bundle:true,minify:true,format:'esm',target:'es2022',metafile:true,entryNames:'archive-hash-[hash]'});
 const archiveWorkerPath=Object.keys(archiveWorker.metafile.outputs).find(name=>name.endsWith('.js'));
 if(!archiveWorkerPath)throw new Error('Missing archive hash worker');
-const result=await build({absWorkingDir:root,entryPoints:['src/main.tsx'],outdir:'dist/assets',bundle:true,minify:true,splitting:true,format:'esm',target:'es2022',jsx:'automatic',metafile:true,entryNames:'[name]-[hash]',chunkNames:'chunk-[hash]',assetNames:'[name]-[hash]',publicPath:'/assets',loader:{'.woff2':'file','.svg':'dataurl','.gif':'dataurl','.png':'dataurl'},define:{'process.env.NODE_ENV':'"production"',__PDF_ASSET_BASE__:JSON.stringify('/assets/'+pdfDirectory+'/'),__PDF_STYLESHEET__:JSON.stringify('/assets/'+basename(pdfStyle)),__ARCHIVE_HASH_WORKER__:JSON.stringify('/assets/'+basename(archiveWorkerPath))}});
+const result=await build({absWorkingDir:root,entryPoints:['src/main.tsx'],plugins:[mermaidCsp],outdir:'dist/assets',bundle:true,minify:true,splitting:true,format:'esm',target:'es2022',jsx:'automatic',metafile:true,entryNames:'[name]-[hash]',chunkNames:'chunk-[hash]',assetNames:'[name]-[hash]',publicPath:'/assets',loader:{'.woff2':'file','.woff':'file','.ttf':'file','.svg':'dataurl','.gif':'dataurl','.png':'dataurl'},define:{'process.env.NODE_ENV':'"production"',__PDF_ASSET_BASE__:JSON.stringify('/assets/'+pdfDirectory+'/'),__PDF_STYLESHEET__:JSON.stringify('/assets/'+basename(pdfStyle)),__ARCHIVE_HASH_WORKER__:JSON.stringify('/assets/'+basename(archiveWorkerPath))}});
 let previous={assets:{}};
 try{previous=JSON.parse(await readFile(resolve(dist,'manifest.json'),'utf8'));}catch(error){if(error.code!=='ENOENT')throw error;}
 Object.assign(result.metafile.outputs,pdfCss.metafile.outputs,archiveWorker.metafile.outputs);
@@ -26,13 +27,13 @@ const assets={...previous.assets};
 let script='',css='',font='';
 for(const [name,meta] of Object.entries(result.metafile.outputs)) {
   const file=basename(name),content=await readFile(resolve(root,name));
-  const type=file.endsWith('.js')?'text/javascript':file.endsWith('.css')?'text/css':'font/woff2';
+  const type=file.endsWith('.js')?'text/javascript':file.endsWith('.css')?'text/css':file.endsWith('.ttf')?'font/ttf':file.endsWith('.woff')?'font/woff':'font/woff2';
   const gzip=gzipSync(content),br=brotliCompressSync(content,{params:{[constants.BROTLI_PARAM_QUALITY]:9}});
   await writeFile(resolve(dist,'assets',file+'.gz'),gzip);await writeFile(resolve(dist,'assets',file+'.br'),br);
   assets[file]={type,size:content.length,gzipSize:gzip.length,brSize:br.length};
   if(meta.entryPoint==='src/main.tsx')script=file;
   if(file.startsWith('main-')&&file.endsWith('.css'))css=file;
-  if(file.endsWith('.woff2'))font=file;
+  if(file.startsWith('IBMPlexSans-Latin')&&file.endsWith('.woff2'))font=file;
 }
 for(const item of pdfFiles){
  const name=pdfDirectory+'/'+item.name,path=resolve(dist,'assets',name),type={'.mjs':'text/javascript','.wasm':'application/wasm','.ttf':'font/ttf','.otf':'font/otf','.svg':'image/svg+xml','.png':'image/png','.gif':'image/gif'}[extname(item.name)]??'application/octet-stream';
@@ -40,14 +41,20 @@ for(const item of pdfFiles){
  await mkdir(dirname(path),{recursive:true});await writeFile(path,item.content);await writeFile(path+'.gz',gzip);await writeFile(path+'.br',br);
  assets[name]={type,size:item.content.length,gzipSize:gzip.length,brSize:br.length};
 }
+const favicon={};
+for(const extension of ['svg','ico']){
+ const content=await readFile(resolve(root,'src/assets/favicon.'+extension)),name='favicon-'+createHash('sha256').update(content).digest('hex').slice(0,16)+'.'+extension,gzip=gzipSync(content),br=brotliCompressSync(content);
+ await writeFile(resolve(dist,'assets',name),content);await writeFile(resolve(dist,'assets',name+'.gz'),gzip);await writeFile(resolve(dist,'assets',name+'.br'),br);
+ assets[name]={type:extension==='svg'?'image/svg+xml':'image/x-icon',size:content.length,gzipSize:gzip.length,brSize:br.length};favicon[extension]=name;
+}
 if(!script||!css||!font)throw new Error('Incomplete web build');
 const mainOutput=Object.entries(result.metafile.outputs).find(([name,meta])=>meta.entryPoint==='src/main.tsx'&&name.endsWith('.js'))?.[0];
 if(!mainOutput)throw new Error('Missing main module output');
 const preloads=modulePreloads(result.metafile.outputs,mainOutput).map(name=>`<link rel="modulepreload" href="/assets/${name}">`).join('');
-const html=`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#f6f7f9"><title>Yourwiki</title><link rel="preload" href="/assets/${font}" as="font" type="font/woff2" crossorigin><link rel="stylesheet" href="/assets/${css}">${preloads}<script type="module" src="/assets/${script}"></script></head><body><div id="root"></div><noscript>Enable JavaScript to open Yourwiki.</noscript></body></html>`;
-await writeFile(resolve(dist,'manifest.json.next'),JSON.stringify({assets,script,css,font},null,2));
+const html=`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#f6f7f9"><title>Yourwiki</title><link rel="icon" type="image/svg+xml" href="/assets/${favicon.svg}"><link rel="alternate icon" type="image/x-icon" href="/assets/${favicon.ico}"><link rel="preload" href="/assets/${font}" as="font" type="font/woff2" crossorigin><link rel="stylesheet" href="/assets/${css}">${preloads}<script type="module" src="/assets/${script}"></script></head><body><div id="root"></div><noscript>Enable JavaScript to open Yourwiki.</noscript></body></html>`;
+await writeFile(resolve(dist,'manifest.json.next'),JSON.stringify({assets,script,css,font,favicon},null,2));
 await rename(resolve(dist,'manifest.json.next'),resolve(dist,'manifest.json'));
 await writeFile(resolve(dist,'index.html.next'),html);await rename(resolve(dist,'index.html.next'),resolve(dist,'index.html'));
 await mkdir(resolve(dist,'licenses'),{recursive:true});
-for(const [source,target] of [['../../wiki/static/wiki/fonts/Inter-OFL.txt','Inter-OFL.txt'],['node_modules/react/LICENSE','React-LICENSE.txt'],['node_modules/react-dom/LICENSE','ReactDOM-LICENSE.txt'],['node_modules/pdfjs-dist/LICENSE','PDFjs-LICENSE.txt']])await copyFile(resolve(root,source),resolve(dist,'licenses',target));
+for(const [source,target] of [['src/assets/fonts/IBMPlexSans-OFL.txt','IBMPlexSans-OFL.txt'],['../../wiki/static/wiki/fonts/JetBrainsMono-OFL.txt','JetBrainsMono-OFL.txt'],['node_modules/react/LICENSE','React-LICENSE.txt'],['node_modules/react-dom/LICENSE','ReactDOM-LICENSE.txt'],['node_modules/pdfjs-dist/LICENSE','PDFjs-LICENSE.txt'],['node_modules/@codemirror/state/LICENSE','CodeMirror-LICENSE.txt'],['node_modules/mermaid/LICENSE','Mermaid-LICENSE.txt'],['node_modules/katex/LICENSE','KaTeX-LICENSE.txt'],['node_modules/dompurify/LICENSE','DOMPurify-LICENSE.txt'],['node_modules/dompurify/LICENSE-MPL','DOMPurify-LICENSE-MPL.txt'],['node_modules/diff/LICENSE','Diff-LICENSE.txt']])await copyFile(resolve(root,source),resolve(dist,'licenses',target));
 console.log(JSON.stringify({script,css,font,assets:Object.fromEntries(Object.entries(assets).filter(([name])=>Object.keys(result.metafile.outputs).some(path=>basename(path)===name)))},null,2));

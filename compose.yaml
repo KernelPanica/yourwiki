@@ -16,10 +16,16 @@ x-runtime: &runtime
 services:
   web:
     <<: *runtime
+    security_opt:
+      - no-new-privileges:true
+      - seccomp=./docker/v2/seccomp-sandbox.json
     command: [web]
     restart: unless-stopped
     environment:
       YOURWIKI_PUBLIC_URL: ${YOURWIKI_PUBLIC_URL:-http://127.0.0.1:3000}
+      COLLABORA_URL: ${COLLABORA_URL:-}
+      COLLABORA_INTERNAL_URL: ${COLLABORA_INTERNAL_URL:-}
+      COLLABORA_WOPI_URL: ${COLLABORA_WOPI_URL:-}
     ports:
       - "127.0.0.1:${YOURWIKI_PORT:-3000}:3100"
     healthcheck:
@@ -38,6 +44,9 @@ services:
       web: {condition: service_healthy}
   conversion:
     <<: *runtime
+    security_opt:
+      - no-new-privileges:true
+      - seccomp=./docker/v2/seccomp-sandbox.json
     command: [conversion]
     restart: unless-stopped
     mem_limit: 1536m
