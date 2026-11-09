@@ -30,7 +30,7 @@ exit 0
  return {root,work,bin,calls,env};
 }
 async function stub(f:Awaited<ReturnType<typeof fixture>>,name:string,body:string){await writeFile(join(f.bin,name),`#!/bin/sh\nprintf '%s\\n' "${name} $*" >> "$YOURWIKI_TEST_DOCKER_CALLS"\n${body}\n`,{mode:0o700});}
-function run(work:string,env:NodeJS.ProcessEnv,args:string[]=[]){return spawnSync('sh',['install.sh',...args,'--no-system-setup','--no-proxy','--no-swap'],{cwd:work,env,encoding:'utf8'});}
+function run(work:string,env:NodeJS.ProcessEnv,args:string[]=[]){return spawnSync('sh',['install.sh',...args,'--no-system-setup','--no-proxy','--no-swap','--no-collabora'],{cwd:work,env,encoding:'utf8'});}
 function runRaw(work:string,env:NodeJS.ProcessEnv,args:string[]){return spawnSync('sh',['install.sh',...args],{cwd:work,env,encoding:'utf8'});}
 
 test('installer preserves provider settings, builds before setup, starts all services and checks readiness',async()=>{const f=await fixture();try{
@@ -63,7 +63,7 @@ test('server mode installs missing Ubuntu packages and enables Docker and Nginx'
 
 test('public server mode configures Nginx, obtains TLS and checks the public readiness URL',async()=>{const f=await fixture();try{
  await stub(f,'nginx','exit 0');await stub(f,'certbot','exit 0');await stub(f,'curl','exit 0');await stub(f,'getent','printf "192.0.2.10 STREAM wiki.test\\n"');await stub(f,'hostname','printf "192.0.2.10\\n"');
- const result=runRaw(f.work,f.env,['--start-only','--yes','--no-swap','--public-url','https://wiki.test']);assert.equal(result.status,0,result.stderr);const calls=await readFile(f.calls,'utf8');assert.ok(calls.includes('sudo install -D -m 644 docker/nginx-location.conf /etc/nginx/snippets/yourwiki.conf'));assert.ok(calls.includes('sudo certbot --nginx -d wiki.test'));assert.ok(calls.includes('curl -fsS --max-time 20 https://wiki.test/ready/'));
+ const result=runRaw(f.work,f.env,['--start-only','--yes','--no-swap','--public-url','https://wiki.test']);assert.equal(result.status,0,result.stderr);const calls=await readFile(f.calls,'utf8'),env=await readFile(join(f.work,'.env'),'utf8');assert.ok(env.includes('COLLABORA_URL=https://wiki.test/collabora'));assert.ok(env.includes('COLLABORA_WOPI_URL=https://wiki.test'));assert.ok(calls.includes('sudo install -D -m 644 docker/nginx-location.conf /etc/nginx/snippets/yourwiki.conf'));assert.ok(calls.includes('sudo install -D -m 644 docker/nginx-collabora.conf /etc/nginx/snippets/yourwiki-collabora.conf'));assert.ok(calls.includes('sudo certbot --nginx -d wiki.test'));assert.ok(calls.includes('compose -f compose.yaml -f compose.collabora.yaml up -d web provider conversion collabora'));assert.ok(calls.includes('curl -fsS --max-time 20 https://wiki.test/ready/'));assert.ok(calls.includes('curl -fsS --max-time 30 https://wiki.test/collabora/hosting/discovery'));
 }finally{await rm(f.root,{recursive:true,force:true});}});
 
 test('DNS mismatch skips certificate issuance and public verification without blocking installation',async()=>{const f=await fixture();try{

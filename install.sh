@@ -17,6 +17,8 @@ use_sudo=0
 system_setup=1
 configure_proxy=1
 configure_swap=1
+collabora=1
+collabora_enabled=0
 tls_email=${YOURWIKI_TLS_EMAIL:-}
 public_tls=0
 tls_ready=0
@@ -47,8 +49,9 @@ Usage: ./install.sh [OPTIONS]
 
 On Ubuntu, installs missing Docker/Compose/Nginx/Certbot packages, configures
 swap on low-memory servers, prepares Nginx, checks DNS, obtains a TLS
-certificate, builds the image, and starts the initialized workspace.
-Only the initial administrator form requires browser input.
+certificate, builds the image, configures Collabora on public HTTPS domains,
+and starts the initialized workspace. Only the initial administrator form
+requires browser input.
 
 Options:
   --public-url URL    Public HTTPS origin, or a loopback HTTP origin
@@ -61,6 +64,7 @@ Options:
   --no-system-setup   Do not install OS packages or enable system services
   --no-proxy          Do not configure Nginx, DNS, TLS, or public HTTP checks
   --no-swap           Do not create swap on a low-memory server
+  --no-collabora      Do not install or start Collabora Online
   -h, --help          Show this help
 
 Existing unrelated .env settings, including Collabora configuration, are kept.
@@ -86,6 +90,7 @@ while [ "$#" -gt 0 ]; do
   --no-system-setup) system_setup=0; shift ;;
   --no-proxy) configure_proxy=0; shift ;;
   --no-swap) configure_swap=0; shift ;;
+  --no-collabora) collabora=0; shift ;;
   -h|--help) usage; exit 0 ;;
   *) printf '%s\n' "[ERROR] Unknown option: $1" >&2; usage >&2; exit 1 ;;
  esac
@@ -114,6 +119,7 @@ if [ "$public_domain" != "$public_url" ] && [ "$public_url" = "https://$public_d
   *) public_tls=1 ;;
  esac
 fi
+if [ "$collabora" -eq 1 ] && [ "$public_tls" -eq 1 ]; then collabora_enabled=1; fi
 
 as_root() {
  if [ "$(id -u)" -eq 0 ]; then "$@"; else
@@ -184,6 +190,11 @@ fi
 docker_cmd() {
  if [ "$use_sudo" -eq 1 ]; then sudo docker "$@"; else docker "$@"; fi
 }
+compose_cmd() {
+ if [ "$collabora_enabled" -eq 1 ]; then docker_cmd compose -f compose.yaml -f compose.collabora.yaml "$@"
+ else docker_cmd compose "$@"
+ fi
+}
 if ! docker_cmd compose version >/dev/null 2>&1; then
  printf '%s\n' '[ERROR] Docker Compose v2 is required (docker compose).' >&2
  exit 1
@@ -201,11 +212,15 @@ write_configuration() {
   while IFS= read -r line || [ -n "$line" ]; do
    case $line in
     YOURWIKI_PUBLIC_URL=*|YOURWIKI_PORT=*) ;;
+    COLLABORA_URL=*|COLLABORA_WOPI_URL=*) if [ "$collabora_enabled" -eq 0 ]; then printf '%s\n' "$line"; fi ;;
     *) printf '%s\n' "$line" ;;
    esac
   done < .env > "$temporary"
  fi
  printf 'YOURWIKI_PUBLIC_URL=%s\nYOURWIKI_PORT=%s\n' "$public_url" "$port" >> "$temporary"
+ if [ "$collabora_enabled" -eq 1 ]; then
+  printf 'COLLABORA_URL=%s/collabora\nCOLLABORA_WOPI_URL=%s\n' "$public_url" "$public_url" >> "$temporary"
+ fi
  chmod 600 "$temporary"
  mv "$temporary" .env
  trap - EXIT HUP INT TERM
@@ -249,6 +264,12 @@ server {
 }
 EOF
  fi
+ if [ "$collabora_enabled" -eq 1 ]; then
+  as_root install -D -m 644 docker/nginx-collabora.conf /etc/nginx/snippets/yourwiki-collabora.conf
+  if ! as_root grep -q 'include /etc/nginx/snippets/yourwiki-collabora.conf' "$site"; then
+   as_root sed -i '/include \/etc\/nginx\/snippets\/yourwiki.conf;/a\    include /etc/nginx/snippets/yourwiki-collabora.conf;' "$site"
+  fi
+ fi
  as_root ln -sfn /etc/nginx/sites-available/yourwiki /etc/nginx/sites-enabled/yourwiki
  as_root nginx -t
  as_root systemctl reload nginx
@@ -278,7 +299,7 @@ if [ "$build" -eq 1 ]; then
  if [ "$setup" -eq 1 ]; then printf '%s\n' '[2/4] Building the production image. This can take several minutes.'
  else printf '%s\n' '[BUILD] Building the production image. This can take several minutes.'
  fi
- docker_cmd compose build
+ compose_cmd build
  printf '%s\n' '[OK] Built yourwiki:npm-local.'
 fi
 
@@ -331,12 +352,14 @@ if [ "$start" -eq 1 ]; then
    *) printf '%s\n' 'Setup complete. Start later with ./install.sh --start-only.'; exit 0 ;;
   esac
  fi
- printf '%s\n' '[4/4] Starting web, provider, and conversion.'
- docker_cmd compose up -d web provider conversion
+ services='web provider conversion'
+ if [ "$collabora_enabled" -eq 1 ]; then services="$services collabora"; fi
+ printf '%s\n' "[4/4] Starting $services."
+ compose_cmd up -d $services
  printf '%s\n' 'Waiting for the application readiness check.'
  if ! wait_for_readiness; then
   printf '%s\n' '[WARN] Readiness failed; recreating services once to repair stale container networking.' >&2
-  docker_cmd compose up -d --force-recreate web provider conversion
+  compose_cmd up -d --force-recreate $services
   if ! wait_for_readiness; then
    printf '%s\n' '[ERROR] Yourwiki is not ready. Check docker compose ps and docker compose logs.' >&2
    exit 1
@@ -345,6 +368,10 @@ if [ "$start" -eq 1 ]; then
  if [ "$tls_ready" -eq 1 ]; then
   if ! curl -fsS --max-time 20 "$public_url/ready/" >/dev/null; then
    printf '%s\n' '[ERROR] Yourwiki is ready internally, but the public HTTPS check failed. Check Nginx and DNS.' >&2
+   exit 1
+  fi
+  if [ "$collabora_enabled" -eq 1 ] && ! curl -fsS --max-time 30 "$public_url/collabora/hosting/discovery" >/dev/null; then
+   printf '%s\n' '[ERROR] Yourwiki is ready, but Collabora discovery failed. Check the collabora container and Nginx.' >&2
    exit 1
   fi
  fi
