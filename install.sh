@@ -17,6 +17,9 @@ use_sudo=0
 system_setup=1
 configure_proxy=1
 configure_swap=1
+collabora=1
+collabora_enabled=0
+rclone_drive=1
 tls_email=${YOURWIKI_TLS_EMAIL:-}
 public_tls=0
 tls_ready=0
@@ -47,8 +50,9 @@ Usage: ./install.sh [OPTIONS]
 
 On Ubuntu, installs missing Docker/Compose/Nginx/Certbot packages, configures
 swap on low-memory servers, prepares Nginx, checks DNS, obtains a TLS
-certificate, builds the image, and starts the initialized workspace.
-Only the initial administrator form requires browser input.
+certificate, builds the image, configures Collabora on public HTTPS domains,
+and starts the initialized workspace. Only the initial administrator form
+requires browser input.
 
 Options:
   --public-url URL    Public HTTPS origin, or a loopback HTTP origin
@@ -61,6 +65,8 @@ Options:
   --no-system-setup   Do not install OS packages or enable system services
   --no-proxy          Do not configure Nginx, DNS, TLS, or public HTTP checks
   --no-swap           Do not create swap on a low-memory server
+  --no-collabora      Do not install or start Collabora Online
+  --no-rclone         Use the Google API adapter instead of the default rclone transport
   -h, --help          Show this help
 
 Existing unrelated .env settings, including Collabora configuration, are kept.
@@ -86,6 +92,8 @@ while [ "$#" -gt 0 ]; do
   --no-system-setup) system_setup=0; shift ;;
   --no-proxy) configure_proxy=0; shift ;;
   --no-swap) configure_swap=0; shift ;;
+  --no-collabora) collabora=0; shift ;;
+  --no-rclone) rclone_drive=0; shift ;;
   -h|--help) usage; exit 0 ;;
   *) printf '%s\n' "[ERROR] Unknown option: $1" >&2; usage >&2; exit 1 ;;
  esac
@@ -114,6 +122,7 @@ if [ "$public_domain" != "$public_url" ] && [ "$public_url" = "https://$public_d
   *) public_tls=1 ;;
  esac
 fi
+if [ "$collabora" -eq 1 ] && [ "$public_tls" -eq 1 ]; then collabora_enabled=1; fi
 
 as_root() {
  if [ "$(id -u)" -eq 0 ]; then "$@"; else
@@ -131,11 +140,14 @@ install_system_requirements() {
  for name in docker nginx certbot curl; do
   if ! command -v "$name" >/dev/null 2>&1; then missing=1; fi
  done
+ if [ "$rclone_drive" -eq 1 ]; then
+  for name in rclone fusermount3; do if ! command -v "$name" >/dev/null 2>&1; then missing=1; fi; done
+ fi
  if command -v docker >/dev/null 2>&1 && ! docker compose version >/dev/null 2>&1; then missing=1; fi
  if [ "$missing" -eq 1 ]; then
   printf '%s\n' '[SETUP] Installing Docker, Compose, Nginx, Certbot, and utilities.'
   as_root apt-get update
-  as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y docker.io docker-compose-v2 nginx certbot python3-certbot-nginx rsync curl
+  as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y docker.io docker-compose-v2 nginx certbot python3-certbot-nginx rsync curl rclone fuse3
  fi
  if command -v systemctl >/dev/null 2>&1; then
   as_root systemctl enable --now docker nginx
@@ -184,6 +196,11 @@ fi
 docker_cmd() {
  if [ "$use_sudo" -eq 1 ]; then sudo docker "$@"; else docker "$@"; fi
 }
+compose_cmd() {
+ if [ "$collabora_enabled" -eq 1 ]; then docker_cmd compose -f compose.yaml -f compose.collabora.yaml "$@"
+ else docker_cmd compose "$@"
+ fi
+}
 if ! docker_cmd compose version >/dev/null 2>&1; then
  printf '%s\n' '[ERROR] Docker Compose v2 is required (docker compose).' >&2
  exit 1
@@ -200,17 +217,79 @@ write_configuration() {
  if [ -f .env ]; then
   while IFS= read -r line || [ -n "$line" ]; do
    case $line in
-    YOURWIKI_PUBLIC_URL=*|YOURWIKI_PORT=*) ;;
+    YOURWIKI_PUBLIC_URL=*|YOURWIKI_PORT=*|YOURWIKI_DRIVE_TRANSPORT=*) ;;
+    COLLABORA_URL=*|COLLABORA_WOPI_URL=*) if [ "$collabora_enabled" -eq 0 ]; then printf '%s\n' "$line"; fi ;;
     *) printf '%s\n' "$line" ;;
    esac
   done < .env > "$temporary"
  fi
- printf 'YOURWIKI_PUBLIC_URL=%s\nYOURWIKI_PORT=%s\n' "$public_url" "$port" >> "$temporary"
+ drive_transport=api
+ if [ "$rclone_drive" -eq 1 ]; then drive_transport=rclone; fi
+ printf 'YOURWIKI_PUBLIC_URL=%s\nYOURWIKI_PORT=%s\nYOURWIKI_DRIVE_TRANSPORT=%s\n' "$public_url" "$port" "$drive_transport" >> "$temporary"
+ if [ "$collabora_enabled" -eq 1 ]; then
+  printf 'COLLABORA_URL=%s/collabora\nCOLLABORA_WOPI_URL=%s\n' "$public_url" "$public_url" >> "$temporary"
+ fi
  chmod 600 "$temporary"
  mv "$temporary" .env
  trap - EXIT HUP INT TERM
- export YOURWIKI_PUBLIC_URL="$public_url" YOURWIKI_PORT="$port"
+ export YOURWIKI_PUBLIC_URL="$public_url" YOURWIKI_PORT="$port" YOURWIKI_DRIVE_TRANSPORT="$drive_transport"
  printf '%s\n' "[OK] Configuration saved to .env ($public_url, port $port)."
+}
+
+prepare_rclone_supervisor() {
+ if [ "$rclone_drive" -eq 0 ] || { [ "$setup" -eq 0 ] && [ "$start" -eq 0 ]; }; then return 0; fi
+ printf '%s\n' '[SETUP] Preparing the host-side rclone mount supervisor.'
+ runtime_root="$root/.runtime"
+ tools="$runtime_root/rclone-tools"
+ as_root install -d -m 755 "$runtime_root" "$tools" "$tools/fuse/usr/bin"
+ as_root ln -sfn "$(command -v rclone)" "$tools/rclone"
+ as_root ln -sfn "$(command -v fusermount3)" "$tools/fuse/usr/bin/fusermount3"
+ if [ ! -x "$runtime_root/node" ] || [ ! -d "$runtime_root/server-node_modules" ]; then
+  image_id=$(docker_cmd create yourwiki:npm-local)
+  if [ ! -x "$runtime_root/node" ]; then docker_cmd cp "$image_id:/usr/local/bin/node" "$runtime_root/node"; fi
+  if [ ! -d "$runtime_root/server-node_modules" ]; then docker_cmd cp "$image_id:/app/apps/server/node_modules" "$runtime_root/server-node_modules"; fi
+  docker_cmd rm -f "$image_id" >/dev/null
+ fi
+ if [ ! -e "$root/apps/server/node_modules" ]; then as_root ln -s "$runtime_root/server-node_modules" "$root/apps/server/node_modules"; fi
+ docker_cmd volume create yourwiki_workspace >/dev/null
+ workspace_path=$(docker_cmd volume inspect yourwiki_workspace --format '{{.Mountpoint}}')/workspace
+ as_root install -d -m 700 -o 10001 -g 10001 /data/rclone
+ as_root tee "$runtime_root/rclone-drive-settings.json" >/dev/null <<EOF
+{"toolsDir":"$tools","runtimeDir":"/run/yourwiki-rclone-drive","dataDir":"/data/rclone"}
+EOF
+ as_root chmod 600 "$runtime_root/rclone-drive-settings.json"
+ as_root tee /etc/systemd/system/yourwiki-rclone-drive.service >/dev/null <<EOF
+[Unit]
+Description=Yourwiki Google Drive rclone mounts
+Wants=network-online.target docker.service
+After=network-online.target docker.service
+
+[Service]
+Type=notify
+NotifyAccess=all
+User=10001
+Group=10001
+WorkingDirectory=$root
+Environment=PATH=$runtime_root:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+ExecStart=$runtime_root/node $root/apps/server/src/rclone/manager-main.ts $workspace_path $runtime_root/rclone-drive-settings.json
+Restart=on-failure
+RestartSec=5
+TimeoutStartSec=180
+TimeoutStopSec=45
+KillMode=mixed
+UMask=0077
+RuntimeDirectory=yourwiki-rclone-drive
+RuntimeDirectoryMode=0700
+
+[Install]
+WantedBy=multi-user.target
+EOF
+ as_root systemctl daemon-reload
+}
+
+start_rclone_supervisor() {
+ if [ "$rclone_drive" -eq 0 ]; then return 0; fi
+ as_root systemctl enable --now yourwiki-rclone-drive
 }
 
 dns_matches_server() {
@@ -249,6 +328,12 @@ server {
 }
 EOF
  fi
+ if [ "$collabora_enabled" -eq 1 ]; then
+  as_root install -D -m 644 docker/nginx-collabora.conf /etc/nginx/snippets/yourwiki-collabora.conf
+  if ! as_root grep -q 'include /etc/nginx/snippets/yourwiki-collabora.conf' "$site"; then
+   as_root sed -i '/include \/etc\/nginx\/snippets\/yourwiki.conf;/a\    include /etc/nginx/snippets/yourwiki-collabora.conf;' "$site"
+  fi
+ fi
  as_root ln -sfn /etc/nginx/sites-available/yourwiki /etc/nginx/sites-enabled/yourwiki
  as_root nginx -t
  as_root systemctl reload nginx
@@ -278,9 +363,11 @@ if [ "$build" -eq 1 ]; then
  if [ "$setup" -eq 1 ]; then printf '%s\n' '[2/4] Building the production image. This can take several minutes.'
  else printf '%s\n' '[BUILD] Building the production image. This can take several minutes.'
  fi
- docker_cmd compose build
+ compose_cmd build
  printf '%s\n' '[OK] Built yourwiki:npm-local.'
 fi
+
+prepare_rclone_supervisor
 
 stop_setup_containers() {
  setup_ids=$(docker_cmd compose ps -aq setup 2>/dev/null || true)
@@ -331,12 +418,15 @@ if [ "$start" -eq 1 ]; then
    *) printf '%s\n' 'Setup complete. Start later with ./install.sh --start-only.'; exit 0 ;;
   esac
  fi
- printf '%s\n' '[4/4] Starting web, provider, and conversion.'
- docker_cmd compose up -d web provider conversion
+ services='web provider conversion'
+ if [ "$collabora_enabled" -eq 1 ]; then services="$services collabora"; fi
+ printf '%s\n' "[4/4] Starting $services."
+ start_rclone_supervisor
+ compose_cmd up -d $services
  printf '%s\n' 'Waiting for the application readiness check.'
  if ! wait_for_readiness; then
   printf '%s\n' '[WARN] Readiness failed; recreating services once to repair stale container networking.' >&2
-  docker_cmd compose up -d --force-recreate web provider conversion
+  compose_cmd up -d --force-recreate $services
   if ! wait_for_readiness; then
    printf '%s\n' '[ERROR] Yourwiki is not ready. Check docker compose ps and docker compose logs.' >&2
    exit 1
@@ -345,6 +435,10 @@ if [ "$start" -eq 1 ]; then
  if [ "$tls_ready" -eq 1 ]; then
   if ! curl -fsS --max-time 20 "$public_url/ready/" >/dev/null; then
    printf '%s\n' '[ERROR] Yourwiki is ready internally, but the public HTTPS check failed. Check Nginx and DNS.' >&2
+   exit 1
+  fi
+  if [ "$collabora_enabled" -eq 1 ] && ! curl -fsS --max-time 30 "$public_url/collabora/hosting/discovery" >/dev/null; then
+   printf '%s\n' '[ERROR] Yourwiki is ready, but Collabora discovery failed. Check the collabora container and Nginx.' >&2
    exit 1
   fi
  fi
