@@ -5,6 +5,7 @@ x-runtime: &runtime
   user: "10001:10001"
   volumes:
     - workspace:/data
+    - ${YOURWIKI_RCLONE_DATA:-/data/rclone}:/data/rclone:shared
   security_opt:
     - no-new-privileges:true
   cap_drop: [ALL]
@@ -23,6 +24,7 @@ services:
     restart: unless-stopped
     environment:
       YOURWIKI_PUBLIC_URL: ${YOURWIKI_PUBLIC_URL:-http://127.0.0.1:3000}
+      YOURWIKI_DRIVE_TRANSPORT: ${YOURWIKI_DRIVE_TRANSPORT:-rclone}
       COLLABORA_URL: ${COLLABORA_URL:-}
       COLLABORA_INTERNAL_URL: ${COLLABORA_INTERNAL_URL:-}
       COLLABORA_WOPI_URL: ${COLLABORA_WOPI_URL:-}
@@ -38,6 +40,8 @@ services:
   provider:
     <<: *runtime
     command: [provider]
+    environment:
+      YOURWIKI_DRIVE_TRANSPORT: ${YOURWIKI_DRIVE_TRANSPORT:-rclone}
     restart: unless-stopped
     mem_limit: 384m
     depends_on:

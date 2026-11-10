@@ -43,6 +43,7 @@ htmlcov/
 
 # Local deployment state, user files and database backups
 /instance/
+/.runtime/
 /data/
 /documents/
 /secrets/

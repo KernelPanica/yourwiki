@@ -19,6 +19,7 @@ configure_proxy=1
 configure_swap=1
 collabora=1
 collabora_enabled=0
+rclone_drive=1
 tls_email=${YOURWIKI_TLS_EMAIL:-}
 public_tls=0
 tls_ready=0
@@ -65,6 +66,7 @@ Options:
   --no-proxy          Do not configure Nginx, DNS, TLS, or public HTTP checks
   --no-swap           Do not create swap on a low-memory server
   --no-collabora      Do not install or start Collabora Online
+  --no-rclone         Use the Google API adapter instead of the default rclone transport
   -h, --help          Show this help
 
 Existing unrelated .env settings, including Collabora configuration, are kept.
@@ -91,6 +93,7 @@ while [ "$#" -gt 0 ]; do
   --no-proxy) configure_proxy=0; shift ;;
   --no-swap) configure_swap=0; shift ;;
   --no-collabora) collabora=0; shift ;;
+  --no-rclone) rclone_drive=0; shift ;;
   -h|--help) usage; exit 0 ;;
   *) printf '%s\n' "[ERROR] Unknown option: $1" >&2; usage >&2; exit 1 ;;
  esac
@@ -137,11 +140,14 @@ install_system_requirements() {
  for name in docker nginx certbot curl; do
   if ! command -v "$name" >/dev/null 2>&1; then missing=1; fi
  done
+ if [ "$rclone_drive" -eq 1 ]; then
+  for name in rclone fusermount3; do if ! command -v "$name" >/dev/null 2>&1; then missing=1; fi; done
+ fi
  if command -v docker >/dev/null 2>&1 && ! docker compose version >/dev/null 2>&1; then missing=1; fi
  if [ "$missing" -eq 1 ]; then
   printf '%s\n' '[SETUP] Installing Docker, Compose, Nginx, Certbot, and utilities.'
   as_root apt-get update
-  as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y docker.io docker-compose-v2 nginx certbot python3-certbot-nginx rsync curl
+  as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y docker.io docker-compose-v2 nginx certbot python3-certbot-nginx rsync curl rclone fuse3
  fi
  if command -v systemctl >/dev/null 2>&1; then
   as_root systemctl enable --now docker nginx
@@ -211,21 +217,79 @@ write_configuration() {
  if [ -f .env ]; then
   while IFS= read -r line || [ -n "$line" ]; do
    case $line in
-    YOURWIKI_PUBLIC_URL=*|YOURWIKI_PORT=*) ;;
+    YOURWIKI_PUBLIC_URL=*|YOURWIKI_PORT=*|YOURWIKI_DRIVE_TRANSPORT=*) ;;
     COLLABORA_URL=*|COLLABORA_WOPI_URL=*) if [ "$collabora_enabled" -eq 0 ]; then printf '%s\n' "$line"; fi ;;
     *) printf '%s\n' "$line" ;;
    esac
   done < .env > "$temporary"
  fi
- printf 'YOURWIKI_PUBLIC_URL=%s\nYOURWIKI_PORT=%s\n' "$public_url" "$port" >> "$temporary"
+ drive_transport=api
+ if [ "$rclone_drive" -eq 1 ]; then drive_transport=rclone; fi
+ printf 'YOURWIKI_PUBLIC_URL=%s\nYOURWIKI_PORT=%s\nYOURWIKI_DRIVE_TRANSPORT=%s\n' "$public_url" "$port" "$drive_transport" >> "$temporary"
  if [ "$collabora_enabled" -eq 1 ]; then
   printf 'COLLABORA_URL=%s/collabora\nCOLLABORA_WOPI_URL=%s\n' "$public_url" "$public_url" >> "$temporary"
  fi
  chmod 600 "$temporary"
  mv "$temporary" .env
  trap - EXIT HUP INT TERM
- export YOURWIKI_PUBLIC_URL="$public_url" YOURWIKI_PORT="$port"
+ export YOURWIKI_PUBLIC_URL="$public_url" YOURWIKI_PORT="$port" YOURWIKI_DRIVE_TRANSPORT="$drive_transport"
  printf '%s\n' "[OK] Configuration saved to .env ($public_url, port $port)."
+}
+
+prepare_rclone_supervisor() {
+ if [ "$rclone_drive" -eq 0 ] || { [ "$setup" -eq 0 ] && [ "$start" -eq 0 ]; }; then return 0; fi
+ printf '%s\n' '[SETUP] Preparing the host-side rclone mount supervisor.'
+ runtime_root="$root/.runtime"
+ tools="$runtime_root/rclone-tools"
+ as_root install -d -m 755 "$runtime_root" "$tools" "$tools/fuse/usr/bin"
+ as_root ln -sfn "$(command -v rclone)" "$tools/rclone"
+ as_root ln -sfn "$(command -v fusermount3)" "$tools/fuse/usr/bin/fusermount3"
+ if [ ! -x "$runtime_root/node" ] || [ ! -d "$runtime_root/server-node_modules" ]; then
+  image_id=$(docker_cmd create yourwiki:npm-local)
+  if [ ! -x "$runtime_root/node" ]; then docker_cmd cp "$image_id:/usr/local/bin/node" "$runtime_root/node"; fi
+  if [ ! -d "$runtime_root/server-node_modules" ]; then docker_cmd cp "$image_id:/app/apps/server/node_modules" "$runtime_root/server-node_modules"; fi
+  docker_cmd rm -f "$image_id" >/dev/null
+ fi
+ if [ ! -e "$root/apps/server/node_modules" ]; then as_root ln -s "$runtime_root/server-node_modules" "$root/apps/server/node_modules"; fi
+ docker_cmd volume create yourwiki_workspace >/dev/null
+ workspace_path=$(docker_cmd volume inspect yourwiki_workspace --format '{{.Mountpoint}}')/workspace
+ as_root install -d -m 700 -o 10001 -g 10001 /data/rclone
+ as_root tee "$runtime_root/rclone-drive-settings.json" >/dev/null <<EOF
+{"toolsDir":"$tools","runtimeDir":"/run/yourwiki-rclone-drive","dataDir":"/data/rclone"}
+EOF
+ as_root chmod 600 "$runtime_root/rclone-drive-settings.json"
+ as_root tee /etc/systemd/system/yourwiki-rclone-drive.service >/dev/null <<EOF
+[Unit]
+Description=Yourwiki Google Drive rclone mounts
+Wants=network-online.target docker.service
+After=network-online.target docker.service
+
+[Service]
+Type=notify
+NotifyAccess=all
+User=10001
+Group=10001
+WorkingDirectory=$root
+Environment=PATH=$runtime_root:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+ExecStart=$runtime_root/node $root/apps/server/src/rclone/manager-main.ts $workspace_path $runtime_root/rclone-drive-settings.json
+Restart=on-failure
+RestartSec=5
+TimeoutStartSec=180
+TimeoutStopSec=45
+KillMode=mixed
+UMask=0077
+RuntimeDirectory=yourwiki-rclone-drive
+RuntimeDirectoryMode=0700
+
+[Install]
+WantedBy=multi-user.target
+EOF
+ as_root systemctl daemon-reload
+}
+
+start_rclone_supervisor() {
+ if [ "$rclone_drive" -eq 0 ]; then return 0; fi
+ as_root systemctl enable --now yourwiki-rclone-drive
 }
 
 dns_matches_server() {
@@ -303,6 +367,8 @@ if [ "$build" -eq 1 ]; then
  printf '%s\n' '[OK] Built yourwiki:npm-local.'
 fi
 
+prepare_rclone_supervisor
+
 stop_setup_containers() {
  setup_ids=$(docker_cmd compose ps -aq setup 2>/dev/null || true)
  if [ -n "$setup_ids" ]; then docker_cmd stop $setup_ids >/dev/null 2>&1 || true; fi
@@ -355,6 +421,7 @@ if [ "$start" -eq 1 ]; then
  services='web provider conversion'
  if [ "$collabora_enabled" -eq 1 ]; then services="$services collabora"; fi
  printf '%s\n' "[4/4] Starting $services."
+ start_rclone_supervisor
  compose_cmd up -d $services
  printf '%s\n' 'Waiting for the application readiness check.'
  if ! wait_for_readiness; then

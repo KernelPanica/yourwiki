@@ -57,9 +57,9 @@ SQLite и внутреннее хранилище должны находить�
 
 На Ubuntu установщик автоматически:
 
-1. устанавливает недостающие Docker, Compose, Nginx, Certbot и утилиты, затем включает системные сервисы;
+1. устанавливает недостающие Docker, Compose, Nginx, Certbot, rclone, FUSE и утилиты, затем включает системные сервисы;
 2. на сервере с небольшим объёмом RAM при отсутствии достаточного swap создаёт постоянный файл на 2 ГиБ;
-3. сохраняет `YOURWIKI_PUBLIC_URL` и `YOURWIKI_PORT` в `.env`, сохраняя остальные настройки;
+3. сохраняет `YOURWIKI_PUBLIC_URL` и `YOURWIKI_PORT` в `.env`, настраивает host-side rclone mount supervisor и сохраняет остальные настройки;
 4. для публичного HTTPS-домена подготавливает Nginx, сверяет DNS с адресами сервера и получает TLS-сертификат;
 5. записывает `COLLABORA_URL` и `COLLABORA_WOPI_URL`, добавляет Collabora в Nginx и Compose;
 6. собирает образ `yourwiki:npm-local`;
@@ -103,6 +103,7 @@ ssh -L 3000:127.0.0.1:3000 admin@wiki.example.com
 ./install.sh --no-proxy                # не менять Nginx, DNS и TLS
 ./install.sh --no-swap                 # не создавать swap
 ./install.sh --no-collabora            # не устанавливать Collabora Online
+./install.sh --no-rclone               # использовать Google API вместо rclone
 ```
 
 `--yes` не заменяет browser-настройку нового рабочего пространства. Если `--tls-email` не указан, Certbot использует регистрацию без email. Для собственного reverse proxy или уже настроенной инфраструктуры используйте `--no-proxy`; для сборки образа без системных изменений — `--build-only`. Collabora включается автоматически только для публичного HTTPS-домена; для локальной установки или установки без Office-редактора используйте `--no-collabora`.
@@ -340,6 +341,8 @@ docker compose up -d web provider conversion
 ## 11. Внешние провайдеры и OAuth
 
 Подключения настраиваются администратором через веб-интерфейс после установки. Учётные данные хранятся зашифрованными; права Yourwiki продолжают проверяться отдельно от прав внешнего аккаунта.
+
+**Google Drive в Docker по умолчанию работает через rclone.** Установщик создаёт systemd-сервис `yourwiki-rclone-drive.service` и общий каталог `/data/rclone`, доступный контейнерам как FUSE mount. После OAuth supervisor обнаруживает авторизацию и создаёт mount автоматически. Проверка: `systemctl status yourwiki-rclone-drive`. Для явного использования файлового Google API вместо rclone выполните `./install.sh --no-rclone` либо укажите `YOURWIKI_DRIVE_TRANSPORT=api` в `.env` и пересоздайте сервисы. При отсутствии mount rclone-режим безопасно сообщает `PROVIDER_UNAVAILABLE` и не переключается скрытно на API.
 
 Для Google:
 
