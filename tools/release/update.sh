@@ -16,7 +16,7 @@ work=$(mktemp -d "${TMPDIR:-/tmp}/yourwiki-update.XXXXXX")
 cleanup() { git worktree remove --force "$work" >/dev/null 2>&1 || true; }
 trap cleanup EXIT HUP INT TERM
 git worktree add --detach "$work" "$target"
-(cd "$work" && npm ci --ignore-scripts && npm --prefix apps/server ci && npm --prefix apps/web ci --ignore-scripts && npm --prefix apps/server test && npm --prefix apps/server run typecheck && npm --prefix apps/web test && npm --prefix apps/web run typecheck && npm --prefix apps/web run build)
+(cd "$work" && npm ci --ignore-scripts && npm --prefix apps/server ci && npm --prefix apps/web ci --ignore-scripts && npm --prefix apps/server run typecheck && npm --prefix apps/web run typecheck && npm --prefix apps/web run build)
 docker build -t "yourwiki:verified-$target" "$work"
 docker compose stop web provider conversion
 # Exclusive release lock makes an accidental second runtime/backup fail closed.

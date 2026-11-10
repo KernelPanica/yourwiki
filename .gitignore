@@ -95,3 +95,35 @@ tempCodeRunnerFile.py
 
 # Replacement React client build output
 /apps/web/dist/
+
+# Release repository: agent configuration and development-only artifacts
+/.agents/
+/.codex/
+/.superpowers/
+/.claude/
+/.kimi/
+/.aws/
+/AGENTS.md
+/CLAUDE.md
+/.github/
+/frontend/
+/tests/
+/apps/server/test/
+/apps/web/test/
+/apps/server/README.md
+/apps/web/README.md
+/tools/prototype.ts
+/tools/performance-run.sh
+/tools/performance-server.ts
+/tools/release/smoke.ts
+/docs/audits/
+/docs/superpowers/
+/docs/benchmarks/
+/docs/performance-*.md
+/docs/task*.md
+/docs/*-plan.md
+/docs/document-editor-expansion.md
+/docs/final-security-acceptance.md
+/docs/google-trash-verification.md
+/docs/ui-*.md
+/docs/rclone/test-storage.md

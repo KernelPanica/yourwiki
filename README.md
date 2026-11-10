@@ -445,23 +445,7 @@ curl -f https://wiki.example.com/ready/
 
 Не публикуйте логи без предварительной проверки и не передавайте посторонним `.env`, backup, `encryption.key` или одноразовые setup/OAuth/WOPI URL.
 
-## 14. Разработка и проверки
-
-Для локальной разработки требуется Node.js 24.12+:
-
-```sh
-npm ci --prefix apps/server
-npm ci --prefix apps/web --ignore-scripts
-npm run build
-npm --prefix apps/server run typecheck
-npm --prefix apps/server test
-npm --prefix apps/web run typecheck
-npm --prefix apps/web test
-```
-
-`npm run setup -- /absolute/path/to/data` запускает локальный GUI установщика. Рабочий сервер и обработчики задач находятся в `apps/server`; интерфейс — в `apps/web`. Команды резервного копирования и миграции: `npm run release --` (выводит синтаксис).
-
-## 15. Python и старые версии
+## 14. Python и старые версии
 
 Старый Django-сервер, его установщик, миграции, шаблоны и Python-тесты удалены. Команды `manage.py`, старый Python-установщик и legacy Docker Compose больше не используются. Импорт старых рабочих пространств реализован в TypeScript (`apps/server/src/release/legacy.ts`) и сохранён.
 

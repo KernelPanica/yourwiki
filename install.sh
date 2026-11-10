@@ -125,13 +125,15 @@ fi
 if [ "$collabora" -eq 1 ] && [ "$public_tls" -eq 1 ]; then collabora_enabled=1; fi
 
 as_root() {
- if [ "$(id -u)" -eq 0 ]; then "$@"; else
-  if ! command -v sudo >/dev/null 2>&1; then
-   printf '%s\n' '[ERROR] Root access or sudo is required for server setup.' >&2
-   exit 1
-  fi
-  sudo "$@"
+ if [ "$(id -u)" -eq 0 ]; then
+  "$@"
+  return $?
  fi
+ if ! command -v sudo >/dev/null 2>&1; then
+  printf '%s\n' '[ERROR] Root access or sudo is required for server setup.' >&2
+  exit 1
+ fi
+ sudo "$@"
 }
 
 install_system_requirements() {
@@ -253,22 +255,35 @@ prepare_rclone_supervisor() {
  if [ ! -e "$root/apps/server/node_modules" ]; then as_root ln -s "$runtime_root/server-node_modules" "$root/apps/server/node_modules"; fi
  docker_cmd volume create yourwiki_workspace >/dev/null
  workspace_path=$(docker_cmd volume inspect yourwiki_workspace --format '{{.Mountpoint}}')/workspace
+ host_workspace="$runtime_root/workspace"
+ as_root install -d -m 700 -o 10001 -g 10001 "$host_workspace"
+ if ! mountpoint -q "$host_workspace"; then as_root mount --bind "$workspace_path" "$host_workspace"; fi
+ if ! as_root grep -qF " $host_workspace " /etc/fstab; then
+  printf '%s %s none bind 0 0\n' "$workspace_path" "$host_workspace" | as_root tee -a /etc/fstab >/dev/null
+ fi
+ workspace_path=$host_workspace
+ if ! getent group 10001 >/dev/null 2>&1; then as_root groupadd --system --gid 10001 yourwiki; fi
+ if ! getent passwd 10001 >/dev/null 2>&1; then as_root useradd --system --uid 10001 --gid 10001 --no-create-home --shell /usr/sbin/nologin yourwiki; fi
+ rclone_user=$(getent passwd 10001 | cut -d: -f1)
+ rclone_group=$(getent group 10001 | cut -d: -f1)
  as_root install -d -m 700 -o 10001 -g 10001 /data/rclone
  as_root tee "$runtime_root/rclone-drive-settings.json" >/dev/null <<EOF
 {"toolsDir":"$tools","runtimeDir":"/run/yourwiki-rclone-drive","dataDir":"/data/rclone"}
 EOF
  as_root chmod 600 "$runtime_root/rclone-drive-settings.json"
+ as_root chown 10001:10001 "$runtime_root/rclone-drive-settings.json"
  as_root tee /etc/systemd/system/yourwiki-rclone-drive.service >/dev/null <<EOF
 [Unit]
 Description=Yourwiki Google Drive rclone mounts
 Wants=network-online.target docker.service
 After=network-online.target docker.service
+RequiresMountsFor=$workspace_path
 
 [Service]
 Type=notify
 NotifyAccess=all
-User=10001
-Group=10001
+User=$rclone_user
+Group=$rclone_group
 WorkingDirectory=$root
 Environment=PATH=$runtime_root:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 ExecStart=$runtime_root/node $root/apps/server/src/rclone/manager-main.ts $workspace_path $runtime_root/rclone-drive-settings.json
@@ -290,6 +305,10 @@ EOF
 start_rclone_supervisor() {
  if [ "$rclone_drive" -eq 0 ]; then return 0; fi
  as_root systemctl enable --now yourwiki-rclone-drive
+ if ! as_root systemctl is-active --quiet yourwiki-rclone-drive; then
+  printf '%s\n' '[ERROR] yourwiki-rclone-drive.service is not active. Check systemctl status and journalctl.' >&2
+  exit 1
+ fi
 }
 
 dns_matches_server() {
