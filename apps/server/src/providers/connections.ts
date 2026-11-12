@@ -28,6 +28,22 @@ export class ProviderConnections{
   insertConnectionRecord(this.db,identity,cipher,now);return metadata(this.current(identity.id));
  }));}
  private event(id:string,revision:number,now:number){this.db.prepare('INSERT INTO provider_connection_changes(connection_id,revision,created_at) VALUES(?,?,?)').run(id,revision,now);}
+ /** Remove the mount and credentials, retaining immutable historical receipts. No provider IO. */
+ remove(userId:string,id:string,input:unknown){return this.wrap(()=>transaction(this.db,()=>{
+  this.admin(userId);const before=this.current(id),value=record(input,['baseRevision'],['baseRevision']);
+  if(!Number.isSafeInteger(value.baseRevision)||Number(value.baseRevision)<1)error();
+  if(value.baseRevision!==before.revision||before.revision>=Number.MAX_SAFE_INTEGER)error('CONFLICT');
+  // Disconnecting an empty/broken mount is safe. Bound data needs an explicit migration first.
+  for(const table of ['provider_source_bindings','google_storage_exports','google_storage_folder_exports','provider_google_folders','rclone_drive_folder_exports','provider_backup_settings','provider_backups']){
+   if(this.db.prepare('SELECT 1 FROM '+table+' WHERE connection_id=? LIMIT 1').get(id))error('CONNECTION_IN_USE');
+  }
+  const now=this.clock();this.db.prepare('UPDATE provider_connections SET enabled=0,encrypted_config=?,revision=revision+1,updated_at=? WHERE id=?').run(this.configs.encrypt({}),now,id);
+  this.db.prepare('DELETE FROM provider_google_connect_states WHERE connection_id=?').run(id);
+  this.db.prepare('DELETE FROM provider_oauth_refreshes WHERE connection_id=?').run(id);
+  this.db.prepare('DELETE FROM google_storage_mounts WHERE connection_id=?').run(id);
+  this.db.prepare('DELETE FROM provider_mounts WHERE connection_id=?').run(id);
+  this.event(id,before.revision+1,now);return {removed:true};
+ }));}
  update(userId:string,id:string,input:UpdateConnection){return this.wrap(()=>transaction(this.db,()=>{
   this.admin(userId);const before=this.current(id),value=record(input,['baseRevision','label','enabled','configPatch'],['baseRevision']);if(!Number.isSafeInteger(value.baseRevision)||Number(value.baseRevision)<1||value.label!==undefined&&!label(value.label)||value.enabled!==undefined&&typeof value.enabled!=='boolean')error();if(value.baseRevision!==before.revision)error('CONFLICT');let cipher:string|undefined;
   if(Object.hasOwn(value,'configPatch')){

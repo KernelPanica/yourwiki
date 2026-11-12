@@ -1,5 +1,6 @@
 export function googleError(code:string|undefined|null,ru:boolean){const errors:Record<string,[string,string]>={
  SOURCE_SAVE_UNSUPPORTED:['Файл не может быть сохранён в Google: безопасная запись в оригинал пока не поддерживается. Изменения сохранены в локальной версии или буфере восстановления.','This file cannot be saved to Google: safe original replacement is not supported. Changes are retained locally or in recovery.'],
+ CONNECTION_IN_USE:['Подключение используется документами, папками или резервными копиями. Сначала перенесите их в другое хранилище.','Documents, folders or backups use this connection. Migrate them to another storage first.'],
  CONNECTION_EXISTS:['Этот путь уже занят подключением. Используйте «Подключить / восстановить» у существующего подключения.','This path is already mounted. Connect or restore the existing connection.'],
  GOOGLE_CLIENT_SECRET_REQUIRED:['Введите Secret OAuth-приложения. После сохранения повторный ввод не требуется.','Enter the OAuth application secret once.'],
  GOOGLE_OAUTH_CLIENT:['Google отклонил Client ID или Secret. Проверьте общие настройки OAuth-приложения.','Google rejected the application Client ID or Secret. Check application settings.'],
