@@ -6,6 +6,8 @@ case "${1:-web}" in
  web)
   : "${YOURWIKI_PUBLIC_URL:?Set YOURWIKI_PUBLIC_URL to the public origin}"
   exec flock --shared --no-fork "$root/release.lock" npm --prefix /app/apps/server run start -- "$root/workspace/database.sqlite3" "$root/workspace/storage" "$root/workspace/encryption.key" "$YOURWIKI_PUBLIC_URL" /app/apps/web/dist --port 3100 --host 0.0.0.0;;
+ rclone)
+  exec node /app/apps/server/src/rclone/manager-main.ts "$root/workspace" /opt/yourwiki-rclone-settings.json;;
  provider)
   exec flock --shared --no-fork "$root/release.lock" npm --prefix /app/apps/server run provider-worker -- "$root/workspace/database.sqlite3" "$root/workspace/storage" "$root/workspace/encryption.key";;
  conversion)

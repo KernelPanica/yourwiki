@@ -1,0 +1,65 @@
+# Linux rootful Docker only. install.sh prepares the shared host mount first.
+x-drive-volumes: &drive-volumes
+  - type: bind
+    source: ${YOURWIKI_RCLONE_DATA:-/var/lib/yourwiki/rclone}
+    target: /data/rclone
+    bind:
+      propagation: rshared
+      create_host_path: false
+  - type: bind
+    source: ${YOURWIKI_RCLONE_RUNTIME:-/var/lib/yourwiki/rclone-runtime}
+    target: /run/yourwiki-rclone-drive
+    bind:
+      create_host_path: false
+services:
+  rclone:
+    image: yourwiki:npm-local
+    user: "10001:10001"
+    command: [rclone]
+    restart: unless-stopped
+    init: true
+    read_only: true
+    stop_grace_period: 45s
+    mem_limit: 384m
+    pids_limit: 128
+    cap_drop: [ALL]
+    cap_add: [SYS_ADMIN]
+    # fusermount3 needs its setuid helper; app containers retain no-new-privileges.
+    security_opt:
+      - seccomp=unconfined
+      - apparmor=unconfined
+    devices:
+      - /dev/fuse:/dev/fuse
+    tmpfs:
+      - /tmp:mode=1777,size=64m
+    volumes:
+      - workspace:/data
+      - type: bind
+        source: ${YOURWIKI_RCLONE_DATA:-/var/lib/yourwiki/rclone}
+        target: /data/rclone
+        bind:
+          propagation: rshared
+          create_host_path: false
+      - type: bind
+        source: ${YOURWIKI_RCLONE_RUNTIME:-/var/lib/yourwiki/rclone-runtime}
+        target: /run/yourwiki-rclone-drive
+        bind:
+          create_host_path: false
+    healthcheck:
+      test: [CMD-SHELL, "test -f /run/yourwiki-rclone-drive/ready && node /app/apps/server/src/rclone/ready-main.ts /data/workspace"]
+      interval: 5s
+      timeout: 10s
+      retries: 24
+      start_period: 10s
+  web:
+    volumes: *drive-volumes
+    depends_on:
+      rclone: {condition: service_healthy}
+  provider:
+    volumes: *drive-volumes
+    depends_on:
+      rclone: {condition: service_healthy}
+  conversion:
+    volumes: *drive-volumes
+    depends_on:
+      rclone: {condition: service_healthy}

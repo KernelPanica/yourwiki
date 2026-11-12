@@ -1,3 +1,5 @@
+FROM rclone/rclone:1.76.0 AS rclone-binary
+
 FROM node:24-bookworm-slim AS web-build
 WORKDIR /app/apps/web
 COPY apps/web/package.json apps/web/package-lock.json ./
@@ -21,9 +23,15 @@ RUN python docker/fetch_drawio.py
 FROM node:24-bookworm-slim AS runtime
 ENV NODE_ENV=production HOME=/tmp YOURWIKI_DATA=/data YOURWIKI_DRAWIO_ROOT=/app/drawio YOURWIKI_OFFICE_FONTS_ROOT=/app/office-fonts
 WORKDIR /app
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates util-linux bubblewrap libreoffice-writer libreoffice-calc libreoffice-impress poppler-utils fonts-dejavu-core python3 python3-venv && rm -rf /var/lib/apt/lists/* \
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates util-linux fuse3 bubblewrap libreoffice-writer libreoffice-calc libreoffice-impress poppler-utils fonts-dejavu-core python3 python3-venv && rm -rf /var/lib/apt/lists/* \
     && groupadd --gid 10001 wiki && useradd --uid 10001 --gid wiki --no-create-home wiki \
     && mkdir -p /data /backups && chown wiki:wiki /data /backups
+COPY --from=rclone-binary /usr/local/bin/rclone /usr/bin/rclone
+RUN mkdir -p /opt/yourwiki-rclone-tools/fuse/usr/bin \
+    && ln -s /usr/bin/rclone /opt/yourwiki-rclone-tools/rclone \
+    && ln -s /usr/bin/fusermount3 /opt/yourwiki-rclone-tools/fuse/usr/bin/fusermount3 \
+    && chmod u+s /usr/bin/fusermount3
+COPY docker/v2/rclone-settings.json /opt/yourwiki-rclone-settings.json
 COPY docker/v2/network-requirements.txt /tmp/network-requirements.txt
 RUN python3 -m venv /opt/yourwiki-network \
     && /opt/yourwiki-network/bin/pip install --no-cache-dir -r /tmp/network-requirements.txt \

@@ -20,6 +20,7 @@ configure_swap=1
 collabora=1
 collabora_enabled=0
 rclone_drive=1
+runtime_compose=0
 tls_email=${YOURWIKI_TLS_EMAIL:-}
 public_tls=0
 tls_ready=0
@@ -31,6 +32,16 @@ env_value() {
 
 file_public_url=$(env_value YOURWIKI_PUBLIC_URL)
 file_port=$(env_value YOURWIKI_PORT)
+file_transport=$(env_value YOURWIKI_DRIVE_TRANSPORT)
+case ${YOURWIKI_DRIVE_TRANSPORT:-$file_transport} in api|"'api'"|'"api"') rclone_drive=0 ;; esac
+rclone_data=${YOURWIKI_RCLONE_DATA:-$(env_value YOURWIKI_RCLONE_DATA)}
+rclone_runtime=${YOURWIKI_RCLONE_RUNTIME:-$(env_value YOURWIKI_RCLONE_RUNTIME)}
+for setting in data runtime; do
+ if [ "$setting" = data ]; then value=$rclone_data; else value=$rclone_runtime; fi
+ case $value in \'*\') value=${value#\'}; value=${value%\'} ;; \"*\") value=${value#\"}; value=${value%\"} ;; esac
+ # Values are assigned as data; never evaluate environment-file contents.
+ if [ "$setting" = data ]; then rclone_data=${value:-/var/lib/yourwiki/rclone}; else rclone_runtime=${value:-/var/lib/yourwiki/rclone-runtime}; fi
+done
 case $file_public_url in
  \'*\') file_public_url=${file_public_url#\'}; file_public_url=${file_public_url%\'} ;;
  \"*\") file_public_url=${file_public_url#\"}; file_public_url=${file_public_url%\"} ;;
@@ -48,7 +59,7 @@ Yourwiki server installer
 
 Usage: ./install.sh [OPTIONS]
 
-On Ubuntu, installs missing Docker/Compose/Nginx/Certbot packages, configures
+On Ubuntu/Debian, installs missing Docker/Compose/Nginx/Certbot packages, configures
 swap on low-memory servers, prepares Nginx, checks DNS, obtains a TLS
 certificate, builds the image, configures Collabora on public HTTPS domains,
 and starts the initialized workspace. Only the initial administrator form
@@ -66,6 +77,7 @@ Options:
   --no-proxy          Do not configure Nginx, DNS, TLS, or public HTTP checks
   --no-swap           Do not create swap on a low-memory server
   --no-collabora      Do not install or start Collabora Online
+  --rclone            Enable containerized rclone (Linux, local rootful Docker, FUSE)
   --no-rclone         Use the Google API adapter instead of the default rclone transport
   -h, --help          Show this help
 
@@ -93,6 +105,7 @@ while [ "$#" -gt 0 ]; do
   --no-proxy) configure_proxy=0; shift ;;
   --no-swap) configure_swap=0; shift ;;
   --no-collabora) collabora=0; shift ;;
+  --rclone) rclone_drive=1; shift ;;
   --no-rclone) rclone_drive=0; shift ;;
   -h|--help) usage; exit 0 ;;
   *) printf '%s\n' "[ERROR] Unknown option: $1" >&2; usage >&2; exit 1 ;;
@@ -136,23 +149,57 @@ as_root() {
  sudo "$@"
 }
 
+configure_docker_compose_repository() {
+ os_id=$(sed -n 's/^ID=//p' /etc/os-release | tr -d '\042\047')
+ os_codename=$(sed -n 's/^VERSION_CODENAME=//p' /etc/os-release | tr -d '\042\047')
+ case $os_id in ubuntu|debian) ;; *) printf '%s\n' '[ERROR] Install Docker Compose on this distribution manually, then rerun ./install.sh.' >&2; exit 1 ;; esac
+ case $os_codename in ''|*[!a-z0-9]*) printf '%s\n' '[ERROR] Cannot determine the distribution release for the Docker APT repository.' >&2; exit 1 ;; esac
+ architecture=$(dpkg --print-architecture)
+ case $architecture in amd64|arm64|armhf|ppc64el|s390x) ;; *) printf '%s\n' '[ERROR] Install Docker Compose manually for this CPU architecture.' >&2; exit 1 ;; esac
+ printf '%s\n' '[SETUP] Compose is absent from system repositories; adding the signed official Docker repository.'
+ as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ca-certificates curl
+ as_root install -d -m 755 /etc/apt/keyrings
+ key_file=$(mktemp)
+ if ! curl -fsSL "https://download.docker.com/linux/$os_id/gpg" -o "$key_file"; then rm -f "$key_file"; printf '%s\n' '[ERROR] Could not download the official Docker repository key.' >&2; exit 1; fi
+ if ! as_root install -m 644 "$key_file" /etc/apt/keyrings/yourwiki-docker.asc; then rm -f "$key_file"; exit 1; fi
+ rm -f "$key_file"
+ printf 'Types: deb\nURIs: https://download.docker.com/linux/%s\nSuites: %s\nComponents: stable\nArchitectures: %s\nSigned-By: /etc/apt/keyrings/yourwiki-docker.asc\n' "$os_id" "$os_codename" "$architecture" | as_root tee /etc/apt/sources.list.d/yourwiki-docker.sources >/dev/null
+ as_root apt-get update
+ if ! apt-cache show docker-compose-plugin >/dev/null 2>&1; then printf '%s\n' '[ERROR] Docker Compose is unavailable for this distribution/release. Install it manually before retrying.' >&2; exit 1; fi
+}
+
 install_system_requirements() {
- if [ "$system_setup" -ne 1 ] || ! command -v apt-get >/dev/null 2>&1; then return 0; fi
- missing=0
- for name in docker nginx certbot curl; do
-  if ! command -v "$name" >/dev/null 2>&1; then missing=1; fi
- done
- if [ "$rclone_drive" -eq 1 ]; then
-  for name in rclone fusermount3; do if ! command -v "$name" >/dev/null 2>&1; then missing=1; fi; done
+ if [ "$system_setup" -ne 1 ]; then return 0; fi
+ packages=''
+ if ! command -v apt-get >/dev/null 2>&1; then
+  printf '%s\n' '[INFO] Automatic packages are supported on Debian/Ubuntu. Existing Docker/Compose can be used on other Linux distributions.'
+  return 0
  fi
- if command -v docker >/dev/null 2>&1 && ! docker compose version >/dev/null 2>&1; then missing=1; fi
- if [ "$missing" -eq 1 ]; then
-  printf '%s\n' '[SETUP] Installing Docker, Compose, Nginx, Certbot, and utilities.'
+ if ! command -v docker >/dev/null 2>&1; then packages="$packages docker.io"; fi
+ need_compose=0
+ if ! command -v docker >/dev/null 2>&1 || ! docker compose version >/dev/null 2>&1; then need_compose=1; fi
+ if [ "$configure_proxy" -eq 1 ] && [ "$public_tls" -eq 1 ]; then
+  if ! command -v nginx >/dev/null 2>&1; then packages="$packages nginx"; fi
+  if ! command -v certbot >/dev/null 2>&1; then packages="$packages certbot python3-certbot-nginx"; fi
+  if ! command -v curl >/dev/null 2>&1; then packages="$packages curl ca-certificates"; fi
+ fi
+ if [ -n "$packages" ] || [ "$need_compose" -eq 1 ]; then
+  printf '%s\n' '[SETUP] Installing missing server prerequisites.'
   as_root apt-get update
-  as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y docker.io docker-compose-v2 nginx certbot python3-certbot-nginx rsync curl rclone fuse3
+  if [ "$need_compose" -eq 1 ]; then
+   if apt-cache show docker-compose-v2 >/dev/null 2>&1; then packages="$packages docker-compose-v2"
+   elif apt-cache show docker-compose-plugin >/dev/null 2>&1; then packages="$packages docker-compose-plugin"
+   else
+    configure_docker_compose_repository
+    packages="$packages docker-compose-plugin"
+   fi
+  fi
+  # Package names are fixed above, never supplied by the caller.
+  as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends $packages
  fi
- if command -v systemctl >/dev/null 2>&1; then
-  as_root systemctl enable --now docker nginx
+ if command -v systemctl >/dev/null 2>&1 && systemctl show-environment >/dev/null 2>&1; then
+  as_root systemctl enable --now docker
+  if [ "$configure_proxy" -eq 1 ] && [ "$public_tls" -eq 1 ] && command -v nginx >/dev/null 2>&1; then as_root systemctl enable --now nginx; fi
  fi
 }
 
@@ -165,18 +212,20 @@ configure_low_memory_swap() {
  if [ "$memory_kb" -ge 3145728 ] || [ "$swap_kb" -ge 1048576 ]; then return 0; fi
  printf '%s\n' '[SETUP] Low memory detected; configuring a persistent 2 GiB swap file.'
  if [ ! -f /swapfile ]; then
-  as_root fallocate -l 2G /swapfile
-  as_root chmod 600 /swapfile
-  as_root mkswap /swapfile
+  as_root fallocate -l 2G /swapfile || return 1
+  as_root chmod 600 /swapfile || return 1
+  as_root mkswap /swapfile || return 1
  fi
- if ! swapon --show=NAME --noheadings | grep -qx /swapfile; then as_root swapon /swapfile; fi
+ if ! swapon --show=NAME --noheadings | grep -qx /swapfile; then as_root swapon /swapfile || return 1; fi
  if ! as_root grep -qE '^/swapfile[[:space:]]' /etc/fstab; then
   printf '/swapfile none swap sw 0 0\n' | as_root tee -a /etc/fstab >/dev/null
  fi
 }
 
 install_system_requirements
-configure_low_memory_swap
+if ! configure_low_memory_swap; then
+ printf '%s\n' '[WARN] Swap could not be enabled on this host. Installation continues; ensure sufficient RAM or configure swap manually.' >&2
+fi
 
 if ! command -v docker >/dev/null 2>&1; then
  printf '%s\n' '[ERROR] Docker Engine with the Compose plugin is required.' >&2
@@ -199,10 +248,13 @@ docker_cmd() {
  if [ "$use_sudo" -eq 1 ]; then sudo docker "$@"; else docker "$@"; fi
 }
 compose_cmd() {
- if [ "$collabora_enabled" -eq 1 ]; then docker_cmd compose -f compose.yaml -f compose.collabora.yaml "$@"
- else docker_cmd compose "$@"
- fi
+ if [ "$runtime_compose" -eq 1 ] && [ "$rclone_drive" -eq 1 ]; then
+  if [ "$collabora_enabled" -eq 1 ]; then docker_cmd compose -f compose.yaml -f compose.rclone.yaml -f compose.collabora.yaml "$@"
+  else docker_cmd compose -f compose.yaml -f compose.rclone.yaml "$@"; fi
+ elif [ "$collabora_enabled" -eq 1 ]; then docker_cmd compose -f compose.yaml -f compose.collabora.yaml "$@"
+ else docker_cmd compose -f compose.yaml "$@"; fi
 }
+
 if ! docker_cmd compose version >/dev/null 2>&1; then
  printf '%s\n' '[ERROR] Docker Compose v2 is required (docker compose).' >&2
  exit 1
@@ -219,7 +271,7 @@ write_configuration() {
  if [ -f .env ]; then
   while IFS= read -r line || [ -n "$line" ]; do
    case $line in
-    YOURWIKI_PUBLIC_URL=*|YOURWIKI_PORT=*|YOURWIKI_DRIVE_TRANSPORT=*) ;;
+    YOURWIKI_PUBLIC_URL=*|YOURWIKI_PORT=*|YOURWIKI_DRIVE_TRANSPORT=*|YOURWIKI_RCLONE_DATA=*|YOURWIKI_RCLONE_RUNTIME=*|COMPOSE_FILE=*) ;;
     COLLABORA_URL=*|COLLABORA_WOPI_URL=*) if [ "$collabora_enabled" -eq 0 ]; then printf '%s\n' "$line"; fi ;;
     *) printf '%s\n' "$line" ;;
    esac
@@ -228,9 +280,14 @@ write_configuration() {
  drive_transport=api
  if [ "$rclone_drive" -eq 1 ]; then drive_transport=rclone; fi
  printf 'YOURWIKI_PUBLIC_URL=%s\nYOURWIKI_PORT=%s\nYOURWIKI_DRIVE_TRANSPORT=%s\n' "$public_url" "$port" "$drive_transport" >> "$temporary"
+ printf "YOURWIKI_RCLONE_DATA='%s'\nYOURWIKI_RCLONE_RUNTIME='%s'\n" "$rclone_data" "$rclone_runtime" >> "$temporary"
  if [ "$collabora_enabled" -eq 1 ]; then
   printf 'COLLABORA_URL=%s/collabora\nCOLLABORA_WOPI_URL=%s\n' "$public_url" "$public_url" >> "$temporary"
  fi
+ compose_files=compose.yaml
+ if [ "$rclone_drive" -eq 1 ]; then compose_files="$compose_files:compose.rclone.yaml"; fi
+ if [ "$collabora_enabled" -eq 1 ]; then compose_files="$compose_files:compose.collabora.yaml"; fi
+ printf 'COMPOSE_FILE=%s\n' "$compose_files" >> "$temporary"
  chmod 600 "$temporary"
  mv "$temporary" .env
  trap - EXIT HUP INT TERM
@@ -238,78 +295,62 @@ write_configuration() {
  printf '%s\n' "[OK] Configuration saved to .env ($public_url, port $port)."
 }
 
+rclone_preflight() {
+ if [ "$rclone_drive" -eq 0 ] || [ "$start" -eq 0 ]; then return 0; fi
+ if [ "$(uname -s)" != Linux ]; then
+  printf '%s\n' '[ERROR] rclone mounts require a Linux host. Use --no-rclone for the API transport.' >&2; exit 1
+ fi
+ endpoint=${DOCKER_HOST:-$(docker_cmd context inspect --format '{{(index .Endpoints "docker").Host}}')}
+ case $endpoint in unix://*|'') ;; *) printf '%s\n' '[ERROR] rclone requires a local Docker daemon. Use --no-rclone for remote Docker.' >&2; exit 1 ;; esac
+ if docker_cmd info --format '{{json .SecurityOptions}} {{.OperatingSystem}}' | grep -Eiq 'rootless|userns|docker desktop'; then
+  printf '%s\n' '[ERROR] FUSE sharing requires rootful native Linux Docker without user namespace remapping. Use --no-rclone on this Docker configuration.' >&2; exit 1
+ fi
+ for utility in mount mountpoint findmnt; do
+  if ! command -v "$utility" >/dev/null 2>&1; then printf '%s\n' "[ERROR] Missing Linux utility $utility (util-linux). Install it or use --no-rclone." >&2; exit 1; fi
+ done
+ if ! as_root test -c /dev/fuse; then
+  if command -v modprobe >/dev/null 2>&1; then as_root modprobe fuse || true; fi
+  if ! as_root test -c /dev/fuse; then printf '%s\n' '[ERROR] /dev/fuse is unavailable. Enable FUSE on the host/VPS or rerun with --no-rclone.' >&2; exit 1; fi
+ fi
+}
+validate_rclone_paths() {
+ for path in "$rclone_data" "$rclone_runtime"; do
+  case $path in /|/etc|/usr|/home|/var|/var/lib|/root|/data|/run|/tmp|*/../*|*/..|*/./*|*/.) printf '%s\n' '[ERROR] Choose dedicated absolute rclone data/runtime directories.' >&2; exit 1 ;; esac
+  if ! printf '%s' "$path" | grep -Eq '^/[A-Za-z0-9_./ -]+$'; then printf '%s\n' '[ERROR] rclone directories must be absolute paths using letters, numbers, spaces, dash, underscore or dot.' >&2; exit 1; fi
+ done
+ case "$rclone_data/" in "$rclone_runtime/"*) printf '%s\n' '[ERROR] rclone data and runtime directories must not overlap.' >&2; exit 1 ;; esac
+ case "$rclone_runtime/" in "$rclone_data/"*) printf '%s\n' '[ERROR] rclone data and runtime directories must not overlap.' >&2; exit 1 ;; esac
+}
 prepare_rclone_supervisor() {
- if [ "$rclone_drive" -eq 0 ] || { [ "$setup" -eq 0 ] && [ "$start" -eq 0 ]; }; then return 0; fi
- printf '%s\n' '[SETUP] Preparing the host-side rclone mount supervisor.'
- runtime_root="$root/.runtime"
- tools="$runtime_root/rclone-tools"
- as_root install -d -m 755 "$runtime_root" "$tools" "$tools/fuse/usr/bin"
- as_root ln -sfn "$(command -v rclone)" "$tools/rclone"
- as_root ln -sfn "$(command -v fusermount3)" "$tools/fuse/usr/bin/fusermount3"
- if [ ! -x "$runtime_root/node" ] || [ ! -d "$runtime_root/server-node_modules" ]; then
-  image_id=$(docker_cmd create yourwiki:npm-local)
-  if [ ! -x "$runtime_root/node" ]; then docker_cmd cp "$image_id:/usr/local/bin/node" "$runtime_root/node"; fi
-  if [ ! -d "$runtime_root/server-node_modules" ]; then docker_cmd cp "$image_id:/app/apps/server/node_modules" "$runtime_root/server-node_modules"; fi
-  docker_cmd rm -f "$image_id" >/dev/null
- fi
- if [ ! -e "$root/apps/server/node_modules" ]; then as_root ln -s "$runtime_root/server-node_modules" "$root/apps/server/node_modules"; fi
- docker_cmd volume create yourwiki_workspace >/dev/null
- workspace_path=$(docker_cmd volume inspect yourwiki_workspace --format '{{.Mountpoint}}')/workspace
- host_workspace="$runtime_root/workspace"
- as_root install -d -m 700 -o 10001 -g 10001 "$host_workspace"
- if ! mountpoint -q "$host_workspace"; then as_root mount --bind "$workspace_path" "$host_workspace"; fi
- if ! as_root grep -qF " $host_workspace " /etc/fstab; then
-  printf '%s %s none bind 0 0\n' "$workspace_path" "$host_workspace" | as_root tee -a /etc/fstab >/dev/null
- fi
- workspace_path=$host_workspace
- if ! getent group 10001 >/dev/null 2>&1; then as_root groupadd --system --gid 10001 yourwiki; fi
- if ! getent passwd 10001 >/dev/null 2>&1; then as_root useradd --system --uid 10001 --gid 10001 --no-create-home --shell /usr/sbin/nologin yourwiki; fi
- rclone_user=$(getent passwd 10001 | cut -d: -f1)
- rclone_group=$(getent group 10001 | cut -d: -f1)
- as_root install -d -m 700 -o 10001 -g 10001 /data/rclone
- as_root tee "$runtime_root/rclone-drive-settings.json" >/dev/null <<EOF
-{"toolsDir":"$tools","runtimeDir":"/run/yourwiki-rclone-drive","dataDir":"/data/rclone"}
-EOF
- as_root chmod 600 "$runtime_root/rclone-drive-settings.json"
- as_root chown 10001:10001 "$runtime_root/rclone-drive-settings.json"
- as_root tee /etc/systemd/system/yourwiki-rclone-drive.service >/dev/null <<EOF
-[Unit]
-Description=Yourwiki Google Drive rclone mounts
-Wants=network-online.target docker.service
-After=network-online.target docker.service
-RequiresMountsFor=$workspace_path
-
-[Service]
-Type=notify
-NotifyAccess=all
-User=$rclone_user
-Group=$rclone_group
-WorkingDirectory=$root
-Environment=PATH=$runtime_root:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-ExecStart=$runtime_root/node $root/apps/server/src/rclone/manager-main.ts $workspace_path $runtime_root/rclone-drive-settings.json
-Restart=on-failure
-RestartSec=5
-TimeoutStartSec=180
-TimeoutStopSec=45
-KillMode=mixed
-UMask=0077
-RuntimeDirectory=yourwiki-rclone-drive
-RuntimeDirectoryMode=0700
-
-[Install]
-WantedBy=multi-user.target
-EOF
- as_root systemctl daemon-reload
-}
-
-start_rclone_supervisor() {
  if [ "$rclone_drive" -eq 0 ]; then return 0; fi
- as_root systemctl enable --now yourwiki-rclone-drive
- if ! as_root systemctl is-active --quiet yourwiki-rclone-drive; then
-  printf '%s\n' '[ERROR] yourwiki-rclone-drive.service is not active. Check systemctl status and journalctl.' >&2
-  exit 1
+ printf '%s\n' '[SETUP] Preparing rclone shared storage after workspace initialization.'
+ as_root install -d -m 700 -o 10001 -g 10001 "$rclone_data" "$rclone_runtime"
+ if ! as_root mountpoint -q "$rclone_data"; then
+  if ! as_root mount --bind "$rclone_data" "$rclone_data"; then printf '%s\n' '[ERROR] This host does not allow shared bind mounts. Enable mount privileges or use --no-rclone.' >&2; exit 1; fi
+ fi
+ if ! as_root mount --make-rshared "$rclone_data"; then printf '%s\n' '[ERROR] Could not enable FUSE mount propagation. Use --no-rclone on restricted VPS/container hosts.' >&2; exit 1; fi
+ if ! as_root findmnt -n -o PROPAGATION -T "$rclone_data" | grep -q shared; then printf '%s\n' '[ERROR] rclone storage is not a shared mount.' >&2; exit 1; fi
+ # Persist only this dedicated self bind; never mount or access Docker internals.
+ fstab_path=$(printf '%s' "$rclone_data" | sed 's/ /\\040/g')
+ if ! as_root grep -qF " $fstab_path " /etc/fstab; then
+  printf '%s %s none bind,rshared 0 0\n' "$fstab_path" "$fstab_path" | as_root tee -a /etc/fstab >/dev/null
+ fi
+ runtime_compose=1
+}
+
+stop_previous_rclone_supervisor() {
+ # Migrate only a previous host unit belonging to this checkout.
+ if command -v systemctl >/dev/null 2>&1 && as_root test -f /etc/systemd/system/yourwiki-rclone-drive.service && as_root grep -Fq "$root/apps/server/src/rclone/manager-main.ts" /etc/systemd/system/yourwiki-rclone-drive.service; then
+  as_root systemctl disable --now yourwiki-rclone-drive
+ fi
+ if [ "$rclone_drive" -eq 0 ]; then
+  previous_ids=$(docker_cmd compose -f compose.yaml -f compose.rclone.yaml ps -aq rclone 2>/dev/null || true)
+  if [ -n "$previous_ids" ]; then docker_cmd compose -f compose.yaml -f compose.rclone.yaml stop rclone; fi
  fi
 }
+
+rclone_preflight
+if [ "$setup" -eq 1 ] || [ "$start" -eq 1 ]; then validate_rclone_paths; fi
 
 dns_matches_server() {
  if ! command -v getent >/dev/null 2>&1; then return 1; fi
@@ -323,6 +364,11 @@ dns_matches_server() {
  return 1
 }
 
+reload_nginx() {
+ if command -v systemctl >/dev/null 2>&1 && systemctl show-environment >/dev/null 2>&1; then as_root systemctl reload nginx
+ elif ! as_root nginx -s reload; then as_root nginx; fi
+}
+
 configure_public_proxy() {
  if [ "$configure_proxy" -ne 1 ] || [ "$public_tls" -ne 1 ]; then return 0; fi
  if ! command -v nginx >/dev/null 2>&1 || ! command -v certbot >/dev/null 2>&1; then
@@ -330,8 +376,13 @@ configure_public_proxy() {
   return 0
  fi
  printf '%s\n' "[SETUP] Configuring Nginx for $public_domain."
- as_root install -D -m 644 docker/nginx-location.conf /etc/nginx/snippets/yourwiki.conf
  site=/etc/nginx/sites-available/yourwiki
+ nginx_sites=1
+ if ! as_root test -d /etc/nginx/sites-available; then
+  nginx_sites=0
+  as_root install -d -m 755 /etc/nginx/conf.d
+  site=/etc/nginx/conf.d/yourwiki.conf
+ fi
  if [ -e "$site" ]; then
   if ! as_root grep -q "server_name $public_domain" "$site" || ! as_root grep -q 'include /etc/nginx/snippets/yourwiki.conf' "$site"; then
    printf '%s\n' "[WARN] $site has an unrecognized configuration; leaving it unchanged. Configure it manually for $public_domain." >&2
@@ -347,15 +398,17 @@ server {
 }
 EOF
  fi
+ as_root install -d -m 755 /etc/nginx/snippets
+ sed "s/127.0.0.1:3000/127.0.0.1:$port/g" docker/nginx-location.conf | as_root tee /etc/nginx/snippets/yourwiki.conf >/dev/null
  if [ "$collabora_enabled" -eq 1 ]; then
   as_root install -D -m 644 docker/nginx-collabora.conf /etc/nginx/snippets/yourwiki-collabora.conf
   if ! as_root grep -q 'include /etc/nginx/snippets/yourwiki-collabora.conf' "$site"; then
    as_root sed -i '/include \/etc\/nginx\/snippets\/yourwiki.conf;/a\    include /etc/nginx/snippets/yourwiki-collabora.conf;' "$site"
   fi
  fi
- as_root ln -sfn /etc/nginx/sites-available/yourwiki /etc/nginx/sites-enabled/yourwiki
+ if [ "$nginx_sites" -eq 1 ]; then as_root ln -sfn /etc/nginx/sites-available/yourwiki /etc/nginx/sites-enabled/yourwiki; fi
  as_root nginx -t
- as_root systemctl reload nginx
+ reload_nginx
  if ! dns_matches_server; then
   printf '%s\n' "[WARN] DNS for $public_domain does not match this server's addresses. TLS was not changed; fix DNS and rerun ./install.sh --start-only." >&2
   return 0
@@ -367,7 +420,7 @@ EOF
   as_root certbot --nginx -d "$public_domain" --noninteractive --agree-tos --register-unsafely-without-email --redirect --keep-until-expiring
  fi
  as_root nginx -t
- as_root systemctl reload nginx
+ reload_nginx
  tls_ready=1
  printf '%s\n' '[OK] Nginx and HTTPS are configured. Certbot renewal is installed by the package.'
 }
@@ -382,40 +435,45 @@ if [ "$build" -eq 1 ]; then
  if [ "$setup" -eq 1 ]; then printf '%s\n' '[2/4] Building the production image. This can take several minutes.'
  else printf '%s\n' '[BUILD] Building the production image. This can take several minutes.'
  fi
- compose_cmd build
+ compose_cmd build web
  printf '%s\n' '[OK] Built yourwiki:npm-local.'
 fi
 
-prepare_rclone_supervisor
-
 stop_setup_containers() {
- setup_ids=$(docker_cmd compose ps -aq setup 2>/dev/null || true)
+ setup_ids=$(docker_cmd compose -f compose.yaml ps -aq setup 2>/dev/null || true)
  if [ -n "$setup_ids" ]; then docker_cmd stop $setup_ids >/dev/null 2>&1 || true; fi
 }
 
+workspace_state=0
+if [ "$setup" -eq 1 ] || [ "$start" -eq 1 ]; then
+ docker_cmd compose -f compose.yaml run --rm --no-deps --entrypoint sh setup -c 'if test -f /data/workspace/database.sqlite3 && test -f /data/workspace/encryption.key && test -f /data/workspace/installation.json; then exit 0; fi; if test -e /data/workspace; then exit 2; fi; exit 1' || workspace_state=$?
+ case $workspace_state in
+  0) printf '%s\n' '[OK] Existing workspace found; setup will not overwrite it.'; setup=0 ;;
+  1) if [ "$setup" -eq 0 ]; then printf '%s\n' '[ERROR] No complete workspace exists. Run ./install.sh without --start-only to initialize it.' >&2; exit 1; fi ;;
+  2) printf '%s\n' '[ERROR] An incomplete workspace exists. Inspect or restore it; no data was overwritten.' >&2; exit 1 ;;
+  *) printf '%s\n' '[ERROR] Could not inspect the workspace. Check Docker access, image and volume permissions.' >&2; exit 1 ;;
+ esac
+fi
 if [ "$setup" -eq 1 ]; then
- if docker_cmd compose ps --status running --services 2>/dev/null | grep -Eq '^(web|provider|conversion)$'; then
-  printf '%s\n' '[ERROR] Runtime services are running. Stop them before setup; existing data will not be overwritten.' >&2
-  exit 1
+ if docker_cmd compose -f compose.yaml ps --status running --services 2>/dev/null | grep -Eq '^(web|provider|conversion)$'; then
+  printf '%s\n' '[ERROR] Runtime services are running without a complete workspace. Check Docker volumes before initializing.' >&2; exit 1
  fi
  printf '%s\n' '[3/4] Opening the browser-based workspace installer.'
  printf '%s\n' 'Open the one-time URL printed below, then choose New workspace, Migration, or Restore.'
+ printf '%s\n' "For a remote server use: ssh -L $port:127.0.0.1:$port user@server"
  printf '%s\n' 'After the browser reports success, return here and press Ctrl+C to stop the installer.'
  setup_status=0
  trap 'setup_status=130' INT
- docker_cmd compose run --rm --service-ports setup || setup_status=$?
+ docker_cmd compose -f compose.yaml run --rm --service-ports setup || setup_status=$?
  trap - INT
  stop_setup_containers
- if [ "$setup_status" -ne 0 ] && [ "$setup_status" -ne 130 ]; then
-  printf '%s\n' '[ERROR] The workspace installer stopped before completion.' >&2
-  exit 1
- fi
- if ! docker_cmd compose run --rm --no-deps --entrypoint sh setup -c 'test -f /data/workspace/database.sqlite3 && test -f /data/workspace/encryption.key && test -f /data/workspace/installation.json'; then
-  printf '%s\n' '[ERROR] No complete workspace was found. Runtime services were not started; rerun ./install.sh to finish setup.' >&2
-  exit 1
+ if [ "$setup_status" -ne 0 ] && [ "$setup_status" -ne 130 ]; then printf '%s\n' '[ERROR] The workspace installer stopped before completion.' >&2; exit 1; fi
+ if ! docker_cmd compose -f compose.yaml run --rm --no-deps --entrypoint sh setup -c 'test -f /data/workspace/database.sqlite3 && test -f /data/workspace/encryption.key && test -f /data/workspace/installation.json'; then
+  printf '%s\n' '[ERROR] No complete workspace was found. Runtime services were not started; rerun ./install.sh to finish setup.' >&2; exit 1
  fi
  printf '%s\n' '[OK] Workspace initialized. Existing data was not overwritten.'
 fi
+if [ "$start" -eq 1 ]; then stop_previous_rclone_supervisor; prepare_rclone_supervisor; fi
 
 wait_for_readiness() {
  attempt=0
@@ -438,9 +496,9 @@ if [ "$start" -eq 1 ]; then
   esac
  fi
  services='web provider conversion'
+ if [ "$rclone_drive" -eq 1 ]; then services="rclone $services"; fi
  if [ "$collabora_enabled" -eq 1 ]; then services="$services collabora"; fi
  printf '%s\n' "[4/4] Starting $services."
- start_rclone_supervisor
  compose_cmd up -d $services
  printf '%s\n' 'Waiting for the application readiness check.'
  if ! wait_for_readiness; then

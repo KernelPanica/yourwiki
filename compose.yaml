@@ -5,7 +5,6 @@ x-runtime: &runtime
   user: "10001:10001"
   volumes:
     - workspace:/data
-    - ${YOURWIKI_RCLONE_DATA:-/data/rclone}:/data/rclone:shared
   security_opt:
     - no-new-privileges:true
   cap_drop: [ALL]

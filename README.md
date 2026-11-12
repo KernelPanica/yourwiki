@@ -8,13 +8,15 @@ Yourwiki — командная база знаний с документами,
 
 Для обычной установки на сервере нужны:
 
-- Linux с Docker Engine и Docker Compose v2 (`docker compose`, не старый `docker-compose`);
+- Linux с Docker Engine и Docker Compose v2 или новее (`docker compose`, не старый `docker-compose`);
 - DNS-запись, направляющая выбранное имя на сервер;
 - HTTPS reverse proxy для доступа пользователей из сети;
 - синхронизированное системное время и свободное место для документов, истории, резервных копий и образов;
 - сетевой доступ к используемым внешним провайдерам, если они нужны.
 
 Node.js, npm и Python на сервере для Docker-установки не требуются: сборка выполняется внутри Docker. Для `tools/release/update.sh` на хосте дополнительно нужны Node.js 24.12+, npm и Git.
+
+Для rclone нужен локальный rootful Docker на Linux без user namespace remapping, доступ к `/dev/fuse` и права администратора для shared mounts. На ограниченных VPS, rootless Docker или удалённом Docker daemon используйте `./install.sh --no-rclone`: файловый транспорт Google API не требует FUSE. Автоматическая установка недостающих пакетов поддерживает APT на Ubuntu/Debian; на остальных дистрибутивах Docker и Compose нужно установить заранее.
 
 Ограничения памяти в Compose: `web` — 512 МиБ, `provider` — 384 МиБ, `conversion` — 1536 МиБ. Основным сервисам может потребоваться около 2,4 ГиБ памяти; дополнительно учитывайте ОС, Docker и Collabora. Для небольшой установки разумно предусмотреть не менее 2 CPU и 4 ГиБ RAM. Фактическое место на диске зависит от размера документов, числа версий и настроек истории.
 
@@ -55,18 +57,20 @@ SQLite и внутреннее хранилище должны находить�
 ./install.sh --public-url https://wiki.example.com --port 3000
 ```
 
-На Ubuntu установщик автоматически:
+На Ubuntu/Debian установщик автоматически:
 
-1. устанавливает недостающие Docker, Compose, Nginx, Certbot, rclone, FUSE и утилиты, затем включает системные сервисы;
+1. устанавливает недостающие Docker и Compose, а при автоматической настройке HTTPS — Nginx и Certbot; rclone и FUSE входят в образ;
 2. на сервере с небольшим объёмом RAM при отсутствии достаточного swap создаёт постоянный файл на 2 ГиБ;
-3. сохраняет `YOURWIKI_PUBLIC_URL` и `YOURWIKI_PORT` в `.env`, настраивает host-side rclone mount supervisor и сохраняет остальные настройки;
+3. сохраняет адрес, порт, транспорт и выбор Compose-файлов в `.env`, сохраняя остальные настройки;
 4. для публичного HTTPS-домена подготавливает Nginx, сверяет DNS с адресами сервера и получает TLS-сертификат;
 5. записывает `COLLABORA_URL` и `COLLABORA_WOPI_URL`, добавляет Collabora в Nginx и Compose;
 6. собирает образ `yourwiki:npm-local`;
 7. запускает одноразовый защищённый browser-установщик;
-8. проверяет созданное рабочее пространство и останавливает оставшиеся setup-контейнеры;
-9. после подтверждения запускает `web`, `provider`, `conversion` и `collabora`;
+8. проверяет созданное рабочее пространство и останавливает оставшиеся setup-контейнеры; только затем подготавливает shared mount для rclone;
+9. после подтверждения запускает `web`, `provider`, `conversion`, контейнер `rclone` и, если включена, `collabora`;
 10. проверяет `/ready/` и `/collabora/hosting/discovery` через публичный HTTPS-адрес, при сбое сети один раз пересоздаёт контейнеры.
+
+Повторный запуск использует готовое рабочее пространство без повторной регистрации. Незавершённое пространство не перезаписывается. `--start-only` требует уже созданное пространство. `--no-start` позволяет завершить browser-настройку без запуска сервисов и проверки FUSE.
 
 Вручную остаётся заполнить только форму первого администратора либо выбрать миграцию/восстановление. Если DNS не совпадает с адресами сервера, скрипт предупреждает и не запускает Certbot; после исправления DNS выполните `./install.sh --start-only`. Нераспознанная существующая конфигурация `/etc/nginx/sites-available/yourwiki` не перезаписывается.
 
@@ -195,6 +199,7 @@ curl -I http://wiki.example.com/
 | `web` | Fastify API, React-интерфейс, аутентификация и готовность |
 | `provider` | Синхронизация и доставка внешних источников |
 | `conversion` | Очередь преобразования и публикации предпросмотров |
+| `rclone` | Supervisor Google Drive и FUSE; только при rclone-транспорте |
 | `setup` | Одноразовый установщик; запускается только явно |
 | `maintenance` | Резервное копирование, проверка, восстановление и миграция |
 
@@ -243,22 +248,23 @@ include /etc/nginx/snippets/yourwiki.conf;
 include /etc/nginx/snippets/yourwiki-collabora.conf;
 ```
 
-Затем:
+В `.env` добавьте `:compose.collabora.yaml` к существующему `COMPOSE_FILE`, сохранив `compose.rclone.yaml`, если используется rclone. Например: `COMPOSE_FILE=compose.yaml:compose.rclone.yaml:compose.collabora.yaml`. Для API: `COMPOSE_FILE=compose.yaml:compose.collabora.yaml`. Затем:
 
 ```sh
 sudo nginx -t
 sudo systemctl reload nginx
 
-docker compose -f compose.yaml -f compose.collabora.yaml up -d --build web provider conversion collabora
+docker compose build web
+docker compose up -d web provider conversion collabora
 ```
 
 Collabora слушает только `127.0.0.1:9980`. При изменении `COLLABORA_PORT` обновите `proxy_pass` в соответствующем snippet. Префикс `/collabora` сохранять обязательно.
 
-Для последующих запусков и обновлений Collabora используйте оба Compose-файла. Проверка:
+Для последующих запусков используйте сохранённый в `.env` набор Compose-файлов без переопределения через `-f`. Проверка:
 
 ```sh
 curl -f https://wiki.example.com/collabora/hosting/discovery
-docker compose -f compose.yaml -f compose.collabora.yaml ps
+docker compose ps
 ```
 
 После этого откройте DOCX через Yourwiki и проверьте реальное редактирование и сохранение. Наличие discovery само по себе не доказывает работоспособность записи.
@@ -342,7 +348,14 @@ docker compose up -d web provider conversion
 
 Подключения настраиваются администратором через веб-интерфейс после установки. Учётные данные хранятся зашифрованными; права Yourwiki продолжают проверяться отдельно от прав внешнего аккаунта.
 
-**Google Drive в Docker по умолчанию работает через rclone.** Установщик создаёт systemd-сервис `yourwiki-rclone-drive.service` и общий каталог `/data/rclone`, доступный контейнерам как FUSE mount. После OAuth supervisor обнаруживает авторизацию и создаёт mount автоматически. Проверка: `systemctl status yourwiki-rclone-drive`. Для явного использования файлового Google API вместо rclone выполните `./install.sh --no-rclone` либо укажите `YOURWIKI_DRIVE_TRANSPORT=api` в `.env` и пересоздайте сервисы. При отсутствии mount rclone-режим безопасно сообщает `PROVIDER_UNAVAILABLE` и не переключается скрытно на API.
+**Google Drive в Docker по умолчанию работает через rclone.** Supervisor запускается отдельным Docker-сервисом `rclone`, без Node.js и npm на хосте. После OAuth он обнаруживает авторизацию и создаёт mount автоматически. Проверка: `docker compose ps rclone` и `docker compose logs --tail=100 rclone`. Рабочая база остаётся на локальном Docker volume; установщик не обращается к внутренним путям `/var/lib/docker`.
+
+Установщик сохраняет `COMPOSE_FILE` в `.env`: базовый файл, `compose.rclone.yaml` для rclone и `compose.collabora.yaml` для Collabora. Поэтому обычные команды `docker compose` сохраняют нужные mounts. Не удаляйте этот параметр и не передавайте только `-f compose.yaml` при запуске рабочих сервисов. Setup установщик всегда запускает отдельно с базовым Compose-файлом.
+
+Выделенные каталоги хоста: `YOURWIKI_RCLONE_DATA` (по умолчанию `/var/lib/yourwiki/rclone`) и `YOURWIKI_RCLONE_RUNTIME` (`/var/lib/yourwiki/rclone-runtime`), права 0700. Для первого установщик создаёт self bind с shared propagation и запись в `/etc/fstab`, чтобы он восстанавливался после перезагрузки. Приложение запускается после готовности supervisor. Не удаляйте эти каталоги во время работы.
+
+Для Google API вместо FUSE выполните `./install.sh --no-rclone --start-only`; установщик остановит предыдущий supervisor и сохранит выбор. Для обратного перехода — `./install.sh --rclone --start-only`. Не меняйте только переменную транспорта вручную: набор Compose-файлов должен соответствовать транспорту. При отсутствии mount rclone-режим сообщает `PROVIDER_UNAVAILABLE` и не переключается скрытно на API.
+
 
 Для Google:
 

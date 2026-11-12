@@ -19,6 +19,10 @@ function context(){const row=db.prepare("SELECT revision,enabled,encrypted_confi
 async function stopMount(){await rm(join(settings.runtimeDir,'mounted'),{force:true});await rm(join(settings.runtimeDir,'authorization'),{force:true});if(mounted){try{await run(join(settings.toolsDir,'fuse/usr/bin/fusermount3'),['-u',settings.mountDir],{timeout:15000});mounted=false;}catch{try{assertRcloneMounted(settings.mountDir);throw Error('UNMOUNT_FAILED');}catch(error){if(error instanceof Error&&error.message==='UNMOUNT_FAILED')throw error;mounted=false;}}}if(child){const old=child;child=undefined;old.kill('SIGTERM');if(old.exitCode===null)await Promise.race([new Promise(resolve=>old.once('exit',resolve)),sleep(3000)]);if(old.exitCode===null)old.kill('SIGKILL');}await rm(join(settings.runtimeDir,'rclone.conf'),{force:true});await rm(join(settings.runtimeDir,'control.sock'),{force:true});}
 for(const name of ['SIGTERM','SIGINT'] as const)process.once(name,()=>controller.abort());
 try{
+ // A killed container can leave its propagated FUSE mount disconnected.
+ // Inspect mountinfo without touching the dead filesystem, then detach only rclone.
+ let orphan=false;try{assertRcloneMounted(settings.mountDir);orphan=true;}catch{}
+ if(orphan)await run(join(settings.toolsDir,'fuse/usr/bin/fusermount3'),['-uz',settings.mountDir],{timeout:15000});
  await mkdir(settings.mountDir,{recursive:true,mode:0o700});await mkdir(settings.cacheDir,{recursive:true,mode:0o700});await mkdir(settings.runtimeDir,{recursive:true,mode:0o700});await chmod(settings.runtimeDir,0o700);
  while(!signal.aborted){const current=context();if(!current){state('waiting_google_authorization');await notify('Waiting for Google authorization');try{await sleep(5000,undefined,{signal});}catch{}continue;}
   const c=current.config,token={access_token:'refresh-required',refresh_token:c.refresh_token,token_type:'Bearer',expiry:'2000-01-01T00:00:00Z'},conf='['+(settings.remoteName??'test')+']\ntype = drive\nroot_folder_id = '+settings.remoteFolderId+'\nclient_id = '+String(c.client_id)+'\nclient_secret = '+String(c.client_secret)+'\ntoken = '+JSON.stringify(token)+'\n';
