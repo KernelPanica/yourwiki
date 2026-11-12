@@ -10,6 +10,7 @@ case "$*" in
  *'run --rm --no-deps --entrypoint sh setup -c'*)
   if [ -f "$YOURWIKI_TEST_ROOT/initialized" ] || [ "$MOCK_INITIAL" = complete ];then exit 0;fi
   if [ "$MOCK_INITIAL" = incomplete ];then exit 2;fi
+  if [ "$MOCK_INITIAL" = obstructed ];then case "$*" in *'find /data'*) echo /data/old-rclone-runtime;exit 2;; esac;fi
   exit 1;;
  *'run --rm --service-ports setup'*) if [ "$MOCK_SETUP_FAIL" = 0 ];then touch "$YOURWIKI_TEST_ROOT/initialized";fi;;
 esac
@@ -48,3 +49,5 @@ case "$*" in *'/etc/os-release') case "$*" in *'^ID='*) echo debian;; *) echo bo
 
 test('runtime overlay selection persists while bootstrap remains base-only',()=>check(async f=>{const r=run(f,['--yes',...fuse]);assert.equal(r.status,0,r.stderr);assert.match(await readFile(join(f.work,'.env'),'utf8'),/COMPOSE_FILE=compose.yaml:compose.rclone.yaml/);const c=await readFile(f.calls,'utf8');assert(c.includes('compose -f compose.yaml run --rm --service-ports setup'));}));
 test('switching to API stops the previous container supervisor',()=>check(async f=>{const r=run(f,['--start-only','--yes',...api],{MOCK_INITIAL:'complete',MOCK_EXISTING_RCLONE:'1'});assert.equal(r.status,0,r.stderr);const c=await readFile(f.calls,'utf8');assert(c.includes('compose.rclone.yaml stop rclone'));assert.match(await readFile(join(f.work,'.env'),'utf8'),/COMPOSE_FILE=compose.yaml\n/);}));
+
+test('leftovers beside workspace block setup before browser launch without deleting anything',()=>check(async f=>{const r=run(f,['--yes',...api],{MOCK_INITIAL:'obstructed'});assert.notEqual(r.status,0);assert.match(r.stdout,/old-rclone-runtime/);assert.match(r.stderr,/existing data|incomplete workspace/);const c=await readFile(f.calls,'utf8');assert(!c.includes('run --rm --service-ports setup'));assert(!c.includes('up -d'));assert(!c.includes('volume rm'));}));

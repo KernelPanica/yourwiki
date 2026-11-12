@@ -446,11 +446,11 @@ stop_setup_containers() {
 
 workspace_state=0
 if [ "$setup" -eq 1 ] || [ "$start" -eq 1 ]; then
- docker_cmd compose -f compose.yaml run --rm --no-deps --entrypoint sh setup -c 'if test -f /data/workspace/database.sqlite3 && test -f /data/workspace/encryption.key && test -f /data/workspace/installation.json; then exit 0; fi; if test -e /data/workspace; then exit 2; fi; exit 1' || workspace_state=$?
+ docker_cmd compose -f compose.yaml run --rm --no-deps --entrypoint sh setup -c 'if test -f /data/workspace/database.sqlite3 && test -f /data/workspace/encryption.key && test -f /data/workspace/installation.json; then exit 0; fi; if test -e /data/workspace || test -L /data/workspace; then printf "%s\n" "[BLOCKED] Incomplete /data/workspace exists."; exit 2; fi; existing=$(find /data -mindepth 1 -maxdepth 1 ! -name release.lock -print) || exit 3; if test -n "$existing"; then printf "%s\n" "[BLOCKED] Existing entries in the data volume:" "$existing"; exit 2; fi; exit 1' || workspace_state=$?
  case $workspace_state in
   0) printf '%s\n' '[OK] Existing workspace found; setup will not overwrite it.'; setup=0 ;;
   1) if [ "$setup" -eq 0 ]; then printf '%s\n' '[ERROR] No complete workspace exists. Run ./install.sh without --start-only to initialize it.' >&2; exit 1; fi ;;
-  2) printf '%s\n' '[ERROR] An incomplete workspace exists. Inspect or restore it; no data was overwritten.' >&2; exit 1 ;;
+  2) printf '%s\n' '[ERROR] The volume contains existing data or an incomplete workspace (listed above). Inspect or restore it before setup; nothing was deleted or overwritten.' >&2; exit 1 ;;
   *) printf '%s\n' '[ERROR] Could not inspect the workspace. Check Docker access, image and volume permissions.' >&2; exit 1 ;;
  esac
 fi
