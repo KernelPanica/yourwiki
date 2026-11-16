@@ -16,9 +16,9 @@ import {authenticateSession,validCsrf} from '../auth/sessions.ts';
 import {sessionCookie} from '../auth/routes.ts';
 import {errorEnvelope} from '../errors.ts';
 import {byteRange} from '../http/byte-range.ts';
-export type OfficeOptions={cleanupIntervalMs?:number;publicUrl:string;internalUrl?:string;wopiUrl?:string;fetch?:typeof fetch};
+export type OfficeOptions={engine?:'collabora'|'onlyoffice';cleanupIntervalMs?:number;publicUrl:string;internalUrl?:string;wopiUrl?:string;fetch?:typeof fetch};
 export function registerOffice(app:FastifyInstance,db:Database,store:BlobStore,publicUrl:string,options:OfficeOptions,limits:{maxFileBytes?:number;maxPendingBytes?:number}={}){
- const openings=new OfficeOpenings(db),intents=new OfficeSaveIntents(db),prepared=new OfficePrepared(db,store,limits),ingress=new OfficeIngress(db,store,limits),saves=new OfficeSaves(db,store,ingress,limits),office=new OfficeSessions(db),docs=new DocumentService(db,store),access=new AccessService(db),discovery=new OfficeDiscovery(options);
+ const openings=new OfficeOpenings(db),intents=new OfficeSaveIntents(db),prepared=new OfficePrepared(db,store,limits),ingress=new OfficeIngress(db,store,limits),saves=new OfficeSaves(db,store,ingress,{...limits,requireTimestamp:options.engine!=='onlyoffice'}),office=new OfficeSessions(db),docs=new DocumentService(db,store),access=new AccessService(db),discovery=new OfficeDiscovery(options);
  const cleanupInterval=options.cleanupIntervalMs??60000;
  if(!Number.isSafeInteger(cleanupInterval)||cleanupInterval<10||cleanupInterval>300000)throw new Error('Invalid office cleanup interval');
  let stopping=false,interval:ReturnType<typeof setInterval>|undefined,cleaning:Promise<void>|undefined;
@@ -28,6 +28,7 @@ export function registerOffice(app:FastifyInstance,db:Database,store:BlobStore,p
  const origin=new URL(publicUrl).origin,wopiBase=officeUrl(options.wopiUrl??publicUrl).href.replace(/\/$/,'');
  // The bounded ingress, validation, save journal and recovery pipeline below is installed.
  const editingReady=true;
+ const onlyofficeMime:Record<string,string>={docx:'application/vnd.openxmlformats-officedocument.wordprocessingml.document',xlsx:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',pptx:'application/vnd.openxmlformats-officedocument.presentationml.presentation'};
  const params={type:'object',required:['id'],properties:{id:{type:'string',minLength:1,maxLength:128}}};
  function browser(request:FastifyRequest,mutation=false){
   const actor=authenticateSession(db,sessionCookie(request));if(!actor)throw new OfficeError('SESSION_REQUIRED');
@@ -60,7 +61,7 @@ export function registerOffice(app:FastifyInstance,db:Database,store:BlobStore,p
   signal.throwIfAborted();let abort!:()=>void;try{return await Promise.race([operation,new Promise<never>((_resolve,reject)=>{abort=()=>reject(signal.reason);signal.addEventListener('abort',abort,{once:true});})]);}finally{signal.removeEventListener('abort',abort);}
  }
  for(const officePath of ['/api/documents/:id/office','/api/documents/:id/office-opening'])app.post<{Params:{id:string};Body:{readonly?:boolean;language?:string}}>(officePath,{schema:{params,body:{type:'object',additionalProperties:false,properties:{readonly:{type:'boolean',default:false},language:{type:'string',enum:['ru','en','es'],default:'en'}}}}},(request,reply)=>handle(request,reply,async()=>{
-  let actor=browser(request,true);const document=docs.getPublished(actor.userId,request.params.id);if(!document)throw new OfficeError('NOT_FOUND');
+  let actor=browser(request,true);const document=docs.getAvailable(actor.userId,request.params.id);if(!document)throw new OfficeError('NOT_FOUND');
   const writable=request.body.readonly!==true&&access.allows(actor.userId,document.id,'write');
   if(writable&&!editingReady)throw new OfficeError('OFFICE_NOT_READY');
   const handoff=request.headers['x-yourwiki-office-handoff'];if(handoff!==undefined&&handoff!=='check-file-info-v1')throw new OfficeError('INVALID_REQUEST');const openId=request.headers['x-yourwiki-office-open'];if(officePath.endsWith('/office-opening')&&openId===undefined)throw new OfficeError('INVALID_REQUEST');if(handoff!==undefined&&(!openId||!officePath.endsWith('/office-opening')))throw new OfficeError('INVALID_REQUEST');if(openId!==undefined&&(typeof openId!=='string'||!/^[A-Za-z0-9_-]{16,128}$/.test(openId)))throw new OfficeError('INVALID_REQUEST');
@@ -71,13 +72,13 @@ export function registerOffice(app:FastifyInstance,db:Database,store:BlobStore,p
   request.raw.once('aborted',cancel);reply.raw.once('close',closed);reply.raw.once('finish',remove);if(request.raw.aborted||reply.raw.destroyed)cancel();
   try{
    signal.throwIfAborted();const action=await interrupted(discovery.action(document.format,writable),signal);signal.throwIfAborted();actor=browser(request,true);if(openId)openings.assertActive(parent,openId);
-   const current=docs.getPublished(actor.userId,document.id);if(!current)throw new OfficeError('NOT_FOUND');if(current.format!==document.format)throw new OfficeError('CONFLICT');
+   const current=docs.getAvailable(actor.userId,document.id);if(!current)throw new OfficeError('NOT_FOUND');if(current.format!==document.format)throw new OfficeError('CONFLICT');
    opened=openId?openings.allocate(sessionCookie(request),openId,document.id,writable):office.open(sessionCookie(request),document.id,writable);const url=new URL(action);
    const receipt=await prepareForRequest(request,reply,opened.sessionId,opened.token,signal);signal.throwIfAborted();if(writable&&receipt.format==='md'&&receipt.blob.digest!==receipt.sourceDigest)throw new OfficeError('UNSUPPORTED_OFFICE_FORMAT');actor=browser(request,true);const authorized=office.authorize(opened.sessionId,opened.token);original(authorized);const handoffExpiresAt=openId?openings.finish(parent,openId,handoff==='check-file-info-v1'):null;
    // Native view_mode opens an editable capability in viewing mode. The legacy
    // startreadonly flag crashes CODE's format conversion prompt for DOCX/XLSX/PPTX.
    url.searchParams.set('permission',writable?'edit':'readonly');url.searchParams.set('WOPISrc',`${wopiBase}/wopi/files/${opened.sessionId}`);url.searchParams.set('lang',request.body.language??'en');
-   return {sessionId:opened.sessionId,accessToken:opened.token,expiresAt:opened.expiresAt,baseRevision:authorized.session.base_revision,write:authorized.write,export:access.allows(actor.userId,document.id,'export'),actionUrl:url.href,...(handoffExpiresAt!==null?{handoffExpiresAt}:{})};
+   return {engine:options.engine??'collabora',sessionId:opened.sessionId,accessToken:opened.token,expiresAt:opened.expiresAt,baseRevision:authorized.session.base_revision,write:authorized.write,export:access.allows(actor.userId,document.id,'export'),actionUrl:url.href,...(handoffExpiresAt!==null?{handoffExpiresAt}:{})};
   }catch(error){cancel();throw error;}finally{watch?.stop();}
  }));
  app.post<{Body:{openId:string;csrfToken:string}}>('/api/auth/office-opening-cancel',{bodyLimit:1024,schema:{body:{type:'object',additionalProperties:false,required:['openId','csrfToken'],properties:{openId:{type:'string',pattern:'^[A-Za-z0-9_-]{16,128}$'},csrfToken:{type:'string',pattern:'^[A-Za-z0-9_-]{43}$'}}}}},(request,reply)=>handle(request,reply,()=>{
@@ -112,7 +113,7 @@ export function registerOffice(app:FastifyInstance,db:Database,store:BlobStore,p
   authorize(request);const receipt=await prepareForRequest(request,reply,request.params.id,requestToken(request));
   return openings.claim(request.params.id,requestToken(request),actor=>{const row=original(actor),user=db.prepare('SELECT display_name FROM users WHERE id=?').get(actor.userId) as {display_name:string};const lossless=receipt.format!=='md'||receipt.blob.digest===receipt.sourceDigest;const write=editingReady&&lossless&&actor.write;if(receipt.sourceRevision!==actor.session.base_revision||receipt.sourceDigest!==actor.session.base_digest||receipt.format!==row.format)throw new OfficeError('CONFLICT');
   return {BaseFileName:row.title.toLowerCase().endsWith('.'+row.format)?row.title:row.title+'.'+row.format,OwnerId:row.owner_id,Size:receipt.blob.size,Version:`${actor.session.base_revision}:${row.digest}`,LastModifiedTime:new Date(row.created_at).toISOString(),UserId:actor.userId,UserFriendlyName:user.display_name,
-   UserCanWrite:write,ReadOnly:!write,SupportsUpdate:editingReady&&lossless,SupportsLocks:true,SupportsGetLock:true,SupportsExtendedLockLength:true,UserCanNotWriteRelative:true,SupportsRename:false,PostMessageOrigin:origin,
+   UserCanWrite:write,ReadOnly:!write,SupportsUpdate:editingReady&&lossless,SupportsLocks:true,SupportsGetLock:true,SupportsExtendedLockLength:true,UserCanNotWriteRelative:true,SupportsRename:false,PostMessageOrigin:origin,...(options.engine==='onlyoffice'?{EditNotificationPostMessage:true,ClosePostMessage:true}:{}),
    HideSaveOption:true,DisableExport:!actor.export,HideExportOption:true,DisablePrint:!actor.export,HidePrintOption:true,DisableCopy:!actor.export};});
  }));
  app.get<{Params:{id:string}}>('/wopi/files/:id/contents',{schema:{params}},(request,reply)=>handle(request,reply,async()=>{
@@ -120,12 +121,19 @@ export function registerOffice(app:FastifyInstance,db:Database,store:BlobStore,p
   return sendBytes(request,reply,row.blob,()=>openings.claim(request.params.id,requestToken(request),current=>{if(current.session.base_digest!==row.sourceDigest||current.session.base_revision!==row.sourceRevision||prepared.get(request.params.id,requestToken(request)).id!==row.id)throw new OfficeError('CONFLICT');original(current);}),payload.store);
  }));
  app.register(async wopi=>{
-  wopi.addContentTypeParser('application/octet-stream',(_request,payload,done)=>done(null,payload));
+  // Some WOPI clients label empty lock requests as form-urlencoded. Never parse
+  // arbitrary bodies here: locks must remain bodyless and PutFile has its own MIME gate.
+  wopi.addContentTypeParser('*',{parseAs:'buffer',bodyLimit:1024},(_request,body,done)=>{
+   done(null,body); // The lock handler rejects Content-Length > 0 and chunked bodies.
+  });
+  wopi.addContentTypeParser(['application/octet-stream',...(options.engine==='onlyoffice'?Object.values(onlyofficeMime):[])],(_request,payload,done)=>done(null,payload));
   wopi.addHook('onRequest',async(request,reply)=>{try{authorize(request);}catch(error){return fail(error,request,reply);}});
  wopi.post<{Params:{id:string}}>('/wopi/files/:id/contents',{schema:{params},onRequest:async(request,reply)=>handle(request,reply,()=>{
   const actor=authorize(request);if(!actor.write)throw new OfficeError('ACCESS_DENIED');
   if(request.headers['x-wopi-override']!=='PUT')throw new OfficeError('UNSUPPORTED_OFFICE_OPERATION');
-  if(request.headers['content-type']?.split(';')[0].trim().toLowerCase()!=='application/octet-stream')throw new OfficeError('UNSUPPORTED_MEDIA_TYPE');
+  const mime=request.headers['content-type']?.split(';')[0].trim().toLowerCase();
+  const format=(db.prepare('SELECT format FROM documents WHERE id=?').get(actor.session.document_id) as {format:string}).format;
+  if(mime!=='application/octet-stream'&&!(options.engine==='onlyoffice'&&mime===onlyofficeMime[format]))throw new OfficeError('UNSUPPORTED_MEDIA_TYPE');
   const length=request.headers['content-length'];if(length!==undefined&&(!/^\d+$/.test(length)||!Number.isSafeInteger(Number(length))))throw new OfficeError('INVALID_REQUEST');
   if(length!==undefined&&Number(length)>(limits.maxFileBytes??4*1024**3))throw new OfficeError('PAYLOAD_TOO_LARGE');
   const cool=request.headers['x-cool-wopi-timestamp'],lool=request.headers['x-lool-wopi-timestamp'];

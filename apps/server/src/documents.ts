@@ -1,3 +1,4 @@
+import {documentSourceVisible} from './document-visibility.ts';
 import {queueGoogleStorageExport} from './providers/google-storage-export.ts';
 import {stagePreviewRequest} from './preview-request.ts';
 import {requestSourceDelivery,assertSourceDeliveryWritable} from './providers/delivery-requests.ts';
@@ -54,10 +55,7 @@ export class DocumentService {
     return input.groupId;
   }
   private draftVisible(userId: string, documentId: string, published: number | null): boolean {
-    if(this.db.prepare('SELECT 1 FROM dashboard_local_file WHERE document_id=?').get(documentId))return true;
-    if (published !== null) return true;
-    const owner = this.db.prepare('SELECT owner_id FROM resources WHERE id=?').get(documentId) as { owner_id: string } | undefined;
-    return owner?.owner_id === userId || this.actor(userId).admin_role !== 'member';
+    return documentSourceVisible(this.db,userId,documentId,published);
   }
   private writable(input: SaveInput): Doc {
     const doc = this.db.prepare('SELECT * FROM documents WHERE id=?').get(input.documentId) as Doc | undefined;
@@ -125,6 +123,7 @@ export class DocumentService {
       this.db.prepare('INSERT INTO documents(id,title,format,created_at) VALUES(?,?,?,?)').run(id, input.title.trim(), input.format, this.clock());
       const jobId = this.stageVersion(id, 1, input.userId, blob);
       if(!input.localOnly)queueGoogleStorageExport(this.db,id,input.userId);
+      this.db.prepare("INSERT INTO events(kind,document_id,payload,created_at) VALUES('document.accepted',?,'{}',?)").run(id,this.clock());
       return { documentId: id, revision: 1, jobId, blob };
     });
   }
@@ -159,6 +158,18 @@ export class DocumentService {
       d.local_revision AS localRevision,d.provider_revision AS providerRevision
       FROM documents d JOIN previews p ON p.document_id=d.id AND p.revision=d.published_revision WHERE d.id=?`).get(documentId) as
       { id: string; title: string; format: string; revision: number; manifestDigest: string; converterVersion: string; localRevision: number; providerRevision: number | null } | undefined ?? null;
+  }
+
+  /** Metadata and editor access do not require a successful display conversion. */
+  getAvailable(userId:string,documentId:string){
+    const published=this.getPublished(userId,documentId);if(published)return published;
+    if(!this.access.allows(userId,documentId,'read'))return null;
+    const row=this.db.prepare(`SELECT id,title,format,local_revision AS revision,local_revision AS localRevision,
+      provider_revision AS providerRevision,published_revision FROM documents WHERE id=? AND local_revision>0`).get(documentId) as {id:string;title:string;format:string;revision:number;localRevision:number;providerRevision:number|null;published_revision:number|null}|undefined;
+    if(!row||!this.draftVisible(userId,documentId,row.published_revision))return null;
+    const status=this.processingStatus(userId,documentId);
+    const {published_revision:_,...document}=row;
+    return {...document,manifestDigest:null,converterVersion:null,previewState:status?.state??'queued',previewError:status?.errorCode??null};
   }
 
   processingStatus(userId: string, documentId: string) {

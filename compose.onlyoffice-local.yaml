@@ -1,0 +1,63 @@
+# Isolated local test installation. Never combine with production Compose files.
+name: yourwiki-onlyoffice
+x-app: &app
+  build: .
+  image: yourwiki:onlyoffice-local
+  user: "10001:10001"
+  volumes: [workspace:/data]
+  init: true
+  restart: unless-stopped
+services:
+  web:
+    <<: *app
+    command: [web]
+    environment:
+      YOURWIKI_PUBLIC_URL: http://127.0.0.1:3010
+      YOURWIKI_OFFICE_ENGINE: onlyoffice
+      ONLYOFFICE_URL: http://127.0.0.1:8082
+      ONLYOFFICE_INTERNAL_URL: http://onlyoffice
+      ONLYOFFICE_WOPI_URL: http://web:3100
+    ports: ["127.0.0.1:3010:3100"]
+    security_opt:
+      - seccomp=./docker/v2/seccomp-sandbox.json
+      - apparmor=unconfined
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:3100/ready/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+  conversion:
+    <<: *app
+    command: [conversion]
+    security_opt:
+      - seccomp=./docker/v2/seccomp-sandbox.json
+      - apparmor=unconfined
+    depends_on:
+      web: {condition: service_healthy}
+  onlyoffice:
+    image: onlyoffice/documentserver:9.2.1@sha256:fd38f611f1127190be306fa1eb09d5f4ff7d1d2509aef3dd14aa56377915829d
+    restart: unless-stopped
+    environment:
+      WOPI_ENABLED: "true"
+      PLUGINS_ENABLED: "false"
+      ALLOW_PRIVATE_IP_ADDRESS: "true"
+      ALLOW_META_IP_ADDRESS: "false"
+      JWT_ENABLED: "true"
+      JWT_SECRET: ${ONLYOFFICE_LOCAL_JWT_SECRET:?Run tools/release/onlyoffice-local.sh first}
+    ports: ["127.0.0.1:8082:80"]
+    volumes:
+      - ./docker/onlyoffice/start.sh:/onlyoffice-local-start.sh:ro
+      - onlyoffice-data:/var/www/onlyoffice/Data
+      - onlyoffice-lib:/var/lib/onlyoffice
+    entrypoint: ["/bin/bash", "/onlyoffice-local-start.sh"]
+    shm_size: 256m
+    healthcheck:
+      test: [CMD, curl, -fsS, http://localhost/healthcheck]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 90s
+volumes:
+  workspace:
+  onlyoffice-data:
+  onlyoffice-lib:

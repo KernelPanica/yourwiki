@@ -11,10 +11,10 @@ async function interrupt<T>(promise:Promise<T>,signal:AbortSignal){
  finally{signal.removeEventListener('abort',abort);}
 }
 export class OfficeDiscovery {
- private publicUrl:URL;private internalUrl:URL;private fetch:typeof fetch;private clock:()=>number;private timeout:number;
+ private engine:'collabora'|'onlyoffice';private publicUrl:URL;private internalUrl:URL;private fetch:typeof fetch;private clock:()=>number;private timeout:number;
  private cached:Action[]|undefined;private until=0;private loading:Promise<Action[]>|undefined;
- constructor(options:{publicUrl:string;internalUrl?:string;fetch?:typeof fetch;clock?:()=>number;timeoutMs?:number}){
-  this.publicUrl=officeUrl(options.publicUrl);this.internalUrl=officeUrl(options.internalUrl??options.publicUrl);this.fetch=options.fetch??globalThis.fetch;this.clock=options.clock??Date.now;this.timeout=options.timeoutMs??5000;
+ constructor(options:{engine?:'collabora'|'onlyoffice';publicUrl:string;internalUrl?:string;fetch?:typeof fetch;clock?:()=>number;timeoutMs?:number}){
+  this.engine=options.engine??'collabora';this.publicUrl=officeUrl(options.publicUrl);this.internalUrl=officeUrl(options.internalUrl??options.publicUrl);this.fetch=options.fetch??globalThis.fetch;this.clock=options.clock??Date.now;this.timeout=options.timeoutMs??5000;
   if(!Number.isSafeInteger(this.timeout)||this.timeout<1||this.timeout>60_000)throw new Error('Invalid office discovery timeout');
  }
  private async load(){
@@ -48,7 +48,8 @@ export class OfficeDiscovery {
   if(!selected)throw new OfficeError('UNSUPPORTED_OFFICE_FORMAT');
   let path:string;try{const url=new URL(selected.url);if(!['http:','https:'].includes(url.protocol))throw new Error();path=url.pathname;}catch{throw new OfficeError('INVALID_OFFICE_DISCOVERY');}
   const prefix=this.publicUrl.pathname.replace(/\/$/,'');
-  if(!path.startsWith(prefix+'/browser/')||!path.endsWith('/cool.html')||/[%\\]/.test(path)||path.split('/').some(part=>part==='.'||part==='..'))throw new OfficeError('INVALID_OFFICE_DISCOVERY');
+  const allowed=this.engine==='onlyoffice'?/^\/hosting\/wopi\/(word|cell|slide|pdf)\/(edit|view)$/.test(path):path.startsWith(prefix+'/browser/')&&path.endsWith('/cool.html');
+  if(!allowed||/[%\\]/.test(path)||path.split('/').some(part=>part==='.'||part==='..'))throw new OfficeError('INVALID_OFFICE_DISCOVERY');
   return this.publicUrl.origin+path;
  }
 }

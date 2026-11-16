@@ -19,6 +19,7 @@ configure_proxy=1
 configure_swap=1
 collabora=1
 collabora_enabled=0
+install_document_fonts=0
 rclone_drive=1
 runtime_compose=0
 tls_email=${YOURWIKI_TLS_EMAIL:-}
@@ -77,6 +78,9 @@ Options:
   --no-proxy          Do not configure Nginx, DNS, TLS, or public HTTP checks
   --no-swap           Do not create swap on a low-memory server
   --no-collabora      Do not install or start Collabora Online
+  --accept-document-fonts-eula
+                     Accept https://corefonts.sourceforge.net/eula.htm and install
+                     Impact / Times New Roman (including Cyrillic) for Collabora
   --rclone            Enable containerized rclone (Linux, local rootful Docker, FUSE)
   --no-rclone         Use the Google API adapter instead of the default rclone transport
   -h, --help          Show this help
@@ -105,6 +109,7 @@ while [ "$#" -gt 0 ]; do
   --no-proxy) configure_proxy=0; shift ;;
   --no-swap) configure_swap=0; shift ;;
   --no-collabora) collabora=0; shift ;;
+  --accept-document-fonts-eula) install_document_fonts=1; shift ;;
   --rclone) rclone_drive=1; shift ;;
   --no-rclone) rclone_drive=0; shift ;;
   -h|--help) usage; exit 0 ;;
@@ -328,12 +333,44 @@ prepare_rclone_supervisor() {
  if ! as_root mountpoint -q "$rclone_data"; then
   if ! as_root mount --bind "$rclone_data" "$rclone_data"; then printf '%s\n' '[ERROR] This host does not allow shared bind mounts. Enable mount privileges or use --no-rclone.' >&2; exit 1; fi
  fi
+ # A bind inherits its parent's peer group. Break that relationship before
+ # sharing, otherwise Docker's recursive binds can replicate mounts exponentially.
+ if ! as_root mount --make-rprivate "$rclone_data"; then printf '%s\n' '[ERROR] Could not isolate rclone mount propagation.' >&2; exit 1; fi
  if ! as_root mount --make-rshared "$rclone_data"; then printf '%s\n' '[ERROR] Could not enable FUSE mount propagation. Use --no-rclone on restricted VPS/container hosts.' >&2; exit 1; fi
  if ! as_root findmnt -n -o PROPAGATION -T "$rclone_data" | grep -q shared; then printf '%s\n' '[ERROR] rclone storage is not a shared mount.' >&2; exit 1; fi
  # Persist only this dedicated self bind; never mount or access Docker internals.
  fstab_path=$(printf '%s' "$rclone_data" | sed 's/ /\\040/g')
- if ! as_root grep -qF " $fstab_path " /etc/fstab; then
-  printf '%s %s none bind,rshared 0 0\n' "$fstab_path" "$fstab_path" | as_root tee -a /etc/fstab >/dev/null
+ fstab_temporary=$(mktemp)
+ if ! as_root env YOURWIKI_FSTAB_PATH="$fstab_path" awk '
+  BEGIN { path=ENVIRON["YOURWIKI_FSTAB_PATH"]; found=0 }
+  $1==path && $2==path { $4="bind,private"; found=1 }
+  { print }
+  END { if(!found) print path " " path " none bind,private 0 0" }
+ ' /etc/fstab > "$fstab_temporary"; then rm -f "$fstab_temporary"; exit 1; fi
+ as_root cp "$fstab_temporary" /etc/fstab
+ rm -f "$fstab_temporary"
+ if command -v systemctl >/dev/null 2>&1 && as_root systemctl show-environment >/dev/null 2>&1; then
+  as_root install -d -m 755 /etc/systemd/system
+  cat <<EOF | as_root tee /etc/systemd/system/yourwiki-rclone-shared.service >/dev/null
+[Unit]
+Description=Prepare isolated YourWiki Drive mount propagation
+RequiresMountsFor="$rclone_data"
+After=local-fs.target
+Before=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/mount --make-rprivate "$rclone_data"
+ExecStart=/bin/mount --make-rshared "$rclone_data"
+
+[Install]
+WantedBy=multi-user.target
+EOF
+  as_root systemctl daemon-reload
+  as_root systemctl enable yourwiki-rclone-shared.service
+ else
+  printf '%s\n' '[WARN] No systemd: after reboot, rerun ./install.sh --start-only before starting rclone containers.' >&2
  fi
  runtime_compose=1
 }
@@ -349,6 +386,22 @@ stop_previous_rclone_supervisor() {
  fi
 }
 
+capacity_preflight() {
+ docker_root=$(docker_cmd info --format '{{.DockerRootDir}}' 2>/dev/null || true)
+ for directory in "$root" "${docker_root:-/var/lib/docker}"; do
+  if [ ! -d "$directory" ]; then continue; fi
+  capacity=$(df -Pk "$directory" | awk 'NR==2 {print $4 " " $5}')
+  set -- $capacity
+  available=${1:-0}; used=${2:-100%}; used=${used%\%}
+  required=2097152
+  if [ "$build" -eq 1 ]; then required=6291456; fi
+  if [ "$available" -lt "$required" ] || [ "$used" -ge 94 ]; then
+   printf '%s\n' "[ERROR] Not enough free disk space on $directory: ${available} KiB available, ${used}% used. Require ${required} KiB and more than 6% free. Expand storage or remove only unused build caches; workspace data is never cleaned automatically." >&2
+   exit 1
+  fi
+ done
+}
+capacity_preflight
 rclone_preflight
 if [ "$setup" -eq 1 ] || [ "$start" -eq 1 ]; then validate_rclone_paths; fi
 
@@ -401,7 +454,7 @@ EOF
  as_root install -d -m 755 /etc/nginx/snippets
  sed "s/127.0.0.1:3000/127.0.0.1:$port/g" docker/nginx-location.conf | as_root tee /etc/nginx/snippets/yourwiki.conf >/dev/null
  if [ "$collabora_enabled" -eq 1 ]; then
-  as_root install -D -m 644 docker/nginx-collabora.conf /etc/nginx/snippets/yourwiki-collabora.conf
+  sed "s/127.0.0.1:3000/127.0.0.1:$port/g" docker/nginx-collabora.conf | as_root tee /etc/nginx/snippets/yourwiki-collabora.conf >/dev/null
   if ! as_root grep -q 'include /etc/nginx/snippets/yourwiki-collabora.conf' "$site"; then
    as_root sed -i '/include \/etc\/nginx\/snippets\/yourwiki.conf;/a\    include /etc/nginx/snippets/yourwiki-collabora.conf;' "$site"
   fi
@@ -437,6 +490,28 @@ if [ "$build" -eq 1 ]; then
  fi
  compose_cmd build web
  printf '%s\n' '[OK] Built yourwiki:npm-local.'
+fi
+
+if [ "$install_document_fonts" -eq 1 ]; then
+ if [ "$collabora_enabled" -ne 1 ]; then
+  printf '%s\n' '[ERROR] Document fonts require Collabora on a public HTTPS origin.' >&2; exit 1
+ fi
+ font_directory=${COLLABORA_CUSTOM_FONTS:-$(env_value COLLABORA_CUSTOM_FONTS)}
+ active_font_directory=${COLLABORA_ACTIVE_FONTS:-$(env_value COLLABORA_ACTIVE_FONTS)}
+ font_directory=${font_directory:-./instance/office-fonts}
+ active_font_directory=${active_font_directory:-./instance/office-active-fonts}
+ for setting in source active; do
+  if [ "$setting" = source ]; then value=$font_directory; else value=$active_font_directory; fi
+  case $value in \'*\') value=${value#\'}; value=${value%\'} ;; \"*\") value=${value#\"}; value=${value%\"} ;; esac
+  case $value in /*) ;; *) value="$root/$value" ;; esac
+  as_root install -d -m 755 "$value"
+  if [ "$setting" = source ]; then font_directory=$value; else active_font_directory=$value; fi
+ done
+ docker_cmd compose -f compose.yaml run --rm --no-deps --user 0:0 \
+  -v "$font_directory:/fonts" -v "$active_font_directory:/active-fonts" \
+  --entrypoint python3 setup /app/docker/install_document_fonts.py --accept-eula \
+  --directory /fonts --active-directory /active-fonts
+ printf '%s\n' '[OK] Private document fonts installed. Save active documents before restarting Collabora to load newly installed fonts.'
 fi
 
 stop_setup_containers() {

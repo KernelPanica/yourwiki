@@ -39,7 +39,8 @@ export class ProviderConnections{
   }
   const now=this.clock();this.db.prepare('UPDATE provider_connections SET enabled=0,encrypted_config=?,revision=revision+1,updated_at=? WHERE id=?').run(this.configs.encrypt({}),now,id);
   this.db.prepare('DELETE FROM provider_google_connect_states WHERE connection_id=?').run(id);
-  this.db.prepare('DELETE FROM provider_oauth_refreshes WHERE connection_id=?').run(id);
+  // Refresh outcomes are immutable receipts containing hashes, never credentials.
+  // Keep them; deleting authorization above fences every future refresh.
   this.db.prepare('DELETE FROM google_storage_mounts WHERE connection_id=?').run(id);
   this.db.prepare('DELETE FROM provider_mounts WHERE connection_id=?').run(id);
   this.event(id,before.revision+1,now);return {removed:true};

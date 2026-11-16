@@ -1163,5 +1163,36 @@ const rcloneFolderJournalMigration=`
 CREATE TABLE rclone_drive_folder_exports(resource_id TEXT PRIMARY KEY REFERENCES resources(id) ON DELETE CASCADE,connection_id TEXT NOT NULL REFERENCES rclone_drive_mounts(connection_id),path TEXT NOT NULL,UNIQUE(connection_id,path));
 CREATE TRIGGER rclone_export_document_cleanup BEFORE DELETE ON documents BEGIN DELETE FROM rclone_drive_exports WHERE document_id=OLD.id; END;
 `;
-export const migrations = [core + epochTriggers, authInvalidation, authSettings, jobs, documents, workerSlots, uploads, pdfLayers, saveJournal, officeSessions, officeIngress, officeCleanup, officeRecovery, officePrepared, officePreparedBindings, officeSaveIntents, officeOpenings, officeHandoff, documentVisits, versionHistory, historyPreviews, historyRestores, legacyHistory, historyImports, historyCatalogue, providerConnections, providerSourceRequests, providerDeliveryAttempts, providerDeliveryRecoveryIndex, providerDeliveryRequestJob, providerVersionOrigins, providerIngressInbox, providerIngressScheduling, providerSyncActions, providerAcceptedJobIndex, providerOAuthRefreshes, providerGoogleGrantImports, providerIngressBounded, providerGoogleUploads, providerGoogleConnectStates, providerGoogleConnectResults, providerGoogleNativeCommands, providerGoogleDiscovery, providerGoogleImports, providerGoogleTrash, providerGoogleAccess, providerGoogleLifecycle, administrationMigration, contentParityMigration, presenceMigration, invitationPermissionsMigration, googleStorageMigration, googleStorageExportsMigration, textWorkspaceMigration, resourcePurgeCleanupMigration, backupMigration, googleFolderTrashMigration, googleReconciliationMigration, markdownEditorMigration, googleMarkdownRepairMigration, googleIngressPriorityMigration, googleWatchMigration, googleRegistrationMigration, monitoringMigration, localDashboardMigration, passwordResetMigration, pluginsMigration, userPurgeMigration, rcloneDriveMigration, rcloneFolderJournalMigration] as const;
+/** Explicit verified native -> binary cutover; original Google objects remain untouched. */
+const rcloneNativeMigration=`
+CREATE TABLE rclone_native_queue (
+ document_id TEXT PRIMARY KEY REFERENCES documents(id) ON DELETE RESTRICT,
+ requested_at INTEGER NOT NULL,next_attempt_at INTEGER NOT NULL DEFAULT 0,error_code TEXT
+);
+CREATE TABLE rclone_native_migrations (
+ document_id TEXT PRIMARY KEY REFERENCES documents(id) ON DELETE RESTRICT,
+ connection_id TEXT NOT NULL REFERENCES provider_connections(id),
+ original_reference TEXT NOT NULL,original_fingerprint TEXT NOT NULL,
+ base_revision INTEGER NOT NULL,digest TEXT NOT NULL,size INTEGER NOT NULL,
+ path TEXT NOT NULL,destination_reference TEXT,destination_fingerprint TEXT,committed_at INTEGER,
+ UNIQUE(connection_id,original_reference),UNIQUE(connection_id,path),
+ FOREIGN KEY(document_id,base_revision) REFERENCES document_versions(document_id,revision),
+ CHECK((committed_at IS NULL)=(destination_reference IS NULL)),
+ CHECK((committed_at IS NULL)=(destination_fingerprint IS NULL))
+);
+CREATE TRIGGER rclone_native_context BEFORE UPDATE OF document_id,connection_id,original_reference,original_fingerprint,base_revision,digest,size,path ON rclone_native_migrations
+BEGIN SELECT RAISE(ABORT,'Native migration context is immutable'); END;
+CREATE TRIGGER rclone_native_receipt BEFORE UPDATE ON rclone_native_migrations WHEN OLD.committed_at IS NOT NULL
+BEGIN SELECT RAISE(ABORT,'Native migration receipt is immutable'); END;
+CREATE TRIGGER rclone_native_no_delete BEFORE DELETE ON rclone_native_migrations
+BEGIN SELECT RAISE(ABORT,'Native migration receipt is permanent'); END;
+DROP TRIGGER provider_source_identity;
+CREATE TRIGGER provider_source_identity BEFORE UPDATE OF document_id,connection_id,kind,reference,generation,created_at ON provider_source_bindings WHEN NOT(
+ NEW.document_id=OLD.document_id AND NEW.connection_id=OLD.connection_id AND NEW.kind=OLD.kind AND NEW.generation=OLD.generation AND NEW.created_at=OLD.created_at
+ AND EXISTS(SELECT 1 FROM rclone_native_migrations m WHERE m.document_id=OLD.document_id AND m.connection_id=OLD.connection_id
+ AND m.original_reference=OLD.reference AND m.original_fingerprint=OLD.fingerprint AND m.destination_reference=NEW.reference
+ AND m.destination_fingerprint=NEW.fingerprint AND m.committed_at IS NOT NULL AND m.base_revision=OLD.confirmed_revision AND NEW.confirmed_revision=OLD.confirmed_revision))
+BEGIN SELECT RAISE(ABORT,'Provider source identity is immutable'); END;
+`;
+export const migrations = [core + epochTriggers, authInvalidation, authSettings, jobs, documents, workerSlots, uploads, pdfLayers, saveJournal, officeSessions, officeIngress, officeCleanup, officeRecovery, officePrepared, officePreparedBindings, officeSaveIntents, officeOpenings, officeHandoff, documentVisits, versionHistory, historyPreviews, historyRestores, legacyHistory, historyImports, historyCatalogue, providerConnections, providerSourceRequests, providerDeliveryAttempts, providerDeliveryRecoveryIndex, providerDeliveryRequestJob, providerVersionOrigins, providerIngressInbox, providerIngressScheduling, providerSyncActions, providerAcceptedJobIndex, providerOAuthRefreshes, providerGoogleGrantImports, providerIngressBounded, providerGoogleUploads, providerGoogleConnectStates, providerGoogleConnectResults, providerGoogleNativeCommands, providerGoogleDiscovery, providerGoogleImports, providerGoogleTrash, providerGoogleAccess, providerGoogleLifecycle, administrationMigration, contentParityMigration, presenceMigration, invitationPermissionsMigration, googleStorageMigration, googleStorageExportsMigration, textWorkspaceMigration, resourcePurgeCleanupMigration, backupMigration, googleFolderTrashMigration, googleReconciliationMigration, markdownEditorMigration, googleMarkdownRepairMigration, googleIngressPriorityMigration, googleWatchMigration, googleRegistrationMigration, monitoringMigration, localDashboardMigration, passwordResetMigration, pluginsMigration, userPurgeMigration, rcloneDriveMigration, rcloneFolderJournalMigration, rcloneNativeMigration] as const;
 export const applicationId = 0x5957494b; // YWIK; legacy Django uses no marker.

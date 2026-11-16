@@ -1,5 +1,5 @@
 type Frame={postMessage:(message:string,origin:string)=>void};
-type Options={origin:string;frame:Frame;write:boolean;exportAllowed:boolean;exportFormat:'docx'|'xlsx'|'pptx'};
+type Options={engine?:'collabora'|'onlyoffice';origin:string;frame:Frame;write:boolean;exportAllowed:boolean;exportFormat:'docx'|'xlsx'|'pptx'};
 export type OfficeSnapshot={phase:'loading'|'ready'|'modified'|'saving'|'saved'|'failed'|'conflict'|'paused';loaded:boolean;saving:boolean;localRevision:number|null;write:boolean;exportAllowed:boolean;engineModified:boolean;needsRecovery:boolean;leaveRequested:boolean;errorCode:string|null};
 const record=(value:unknown):value is Record<string,unknown>=>!!value&&typeof value==='object'&&!Array.isArray(value);
 /** Trusted-frame protocol only. Engine modified=false is deliberately not a local-save receipt. */
@@ -24,6 +24,9 @@ export class OfficeBridge {
    if(values.Status!=='Frame_Ready'&&values.Status!=='Document_Loaded')return false;
    this.post('Host_PostmessageReady');
    if(values.Status==='Document_Loaded')this.update({loaded:true,...(this.state.phase==='loading'?{phase:'ready' as const}:{})});return true;
+  }
+  if(message.MessageId==='Edit_Notification'&&this.options.engine==='onlyoffice'){
+   if(!this.state.loaded||!this.state.write)return false;this.generation++;this.update({engineModified:true,needsRecovery:true,phase:'modified'});return true;
   }
   if(message.MessageId==='Doc_ModifiedStatus'){
    if(typeof values.Modified!=='boolean'||!this.state.loaded||!this.state.write)return false;

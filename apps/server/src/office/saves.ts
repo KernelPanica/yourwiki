@@ -15,9 +15,9 @@ function sameTimestamp(value:string|null,canonical:string){
 type Validator={validate:(store:BlobStore,blob:BlobRef,format:string,signal:AbortSignal)=>Promise<unknown>};
 /** Internal local-save pipeline with pinned Collabora timestamp preconditions. */
 export class OfficeSaves {
- private db:Database;private store:BlobStore;private ingress:OfficeIngress;private validator:Validator;private journal:SaveJournal;
- constructor(db:Database,store:BlobStore,ingress:OfficeIngress,options:{maxFileBytes?:number;maxPendingBytes?:number;clock?:()=>number;validator?:Validator}={}){
-  this.db=db;this.store=store;this.ingress=ingress;this.validator=options.validator??new OfficeValidationWorker(db);this.journal=new SaveJournal(db,store,options);
+ private requireTimestamp:boolean;private db:Database;private store:BlobStore;private ingress:OfficeIngress;private validator:Validator;private journal:SaveJournal;
+ constructor(db:Database,store:BlobStore,ingress:OfficeIngress,options:{requireTimestamp?:boolean;maxFileBytes?:number;maxPendingBytes?:number;clock?:()=>number;validator?:Validator}={}){
+  this.requireTimestamp=options.requireTimestamp??true;this.db=db;this.store=store;this.ingress=ingress;this.validator=options.validator??new OfficeValidationWorker(db);this.journal=new SaveJournal(db,store,options);
  }
  private committed<T extends {receipt:{revision:number}|null}>(id:string,result:T){
   if(!result.receipt||this.db.prepare("UPDATE office_ingress SET committed_revision=? WHERE id=? AND state='prepared'").run(result.receipt.revision,id).changes!==1)throw new OfficeWriteError('OFFICE_SAVE_INTERRUPTED',undefined,id);return result;
@@ -37,9 +37,10 @@ export class OfficeSaves {
    }));
    if(document.format==='md'&&this.db.prepare("SELECT 1 FROM office_prepared p JOIN office_sessions s ON s.prepared_id=p.id WHERE s.id=? AND p.source_digest!=p.digest").get(input.sessionId))throw new OfficeWriteError('UNSUPPORTED_OFFICE_FORMAT',undefined,received.id);
    const time=new Date(document.created_at).toISOString();
-   // Unlocked zero-byte creation is the sole WOPI exception. A forced save
-   // without a precondition must retain recovery, not overwrite changed bytes.
-   if(!sameTimestamp(input.lastModifiedTime,time)&&!(input.lastModifiedTime===null&&document.size===0&&context.baseRevision===1))throw new OfficeWriteError('CONFLICT',undefined,received.id);
+   // Collabora requires its timestamp precondition. Standard WOPI clients
+   // use the live lock plus the pinned revision/digest checked by ingress and
+   // the save journal. Missing timestamps are accepted only in that explicit mode.
+   if(!(input.lastModifiedTime===null&&!this.requireTimestamp&&input.lock.length>0)&&!sameTimestamp(input.lastModifiedTime,time)&&!(input.lastModifiedTime===null&&document.size===0&&context.baseRevision===1))throw new OfficeWriteError('CONFLICT',undefined,received.id);
    await this.validator.validate(context.store,context.blob,document.format,context.signal);context.assertCurrent();
    const binding=this.db.prepare("SELECT b.fingerprint FROM provider_source_bindings b JOIN provider_connections c ON c.id=b.connection_id WHERE b.document_id=? AND c.provider='google'").get(context.documentId) as {fingerprint:string}|undefined;
    if(binding&&!supportsGoogleBinary(document.format,binding.fingerprint))throw new OfficeWriteError('SOURCE_SAVE_UNSUPPORTED',undefined,received.id);

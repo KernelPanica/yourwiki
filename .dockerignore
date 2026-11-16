@@ -32,6 +32,8 @@ wiki/static/drawio
 # Build dependencies are installed inside their respective image stages.
 **/node_modules
 apps/web/dist
+apps/web/.dist-build-*
+apps/web/dist.previous
 output
 **/test-results
 **/playwright-report

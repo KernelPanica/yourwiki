@@ -98,7 +98,7 @@ rm /out/input.pdf
     const args = ['--as=8589934592', `--fsize=${limit}`, '--cpu=90', '--', bwrap, '--unshare-all','--die-with-parent','--new-session','--cap-drop','ALL',
       '--ro-bind','/usr','/usr','--symlink','usr/bin','/bin','--symlink','usr/lib','/lib','--symlink','usr/lib64','/lib64',
       '--ro-bind','/etc/fonts','/etc/fonts','--ro-bind-try','/etc/libreoffice','/etc/libreoffice','--ro-bind',root,'/opt/office','--ro-bind',await store.localFile(source.digest),`/input.${format}`,
-      '--ro-bind',runner,'/runner.sh','--proc','/proc','--dev','/dev','--size','67108864','--tmpfs','/tmp',
+      '--ro-bind',runner,'/runner.sh','--ro-bind','/proc','/proc','--dev','/dev','--size','67108864','--tmpfs','/tmp',
       '--size','33554432','--tmpfs','/profile','--dir','/profile/user','--ro-bind',registry,'/profile/user/registrymodifications.xcu',
       '--size',String(limit),'--tmpfs','/out','--setenv','HOME','/profile','--setenv','TMPDIR','/tmp','--setenv','MALLOC_ARENA_MAX','2','--setenv','MAX_CONCURRENCY','2','--setenv','OMP_NUM_THREADS','1','--setenv','SAL_DISABLE_OPENCL','1','--setenv','LANG','C.UTF-8','--setenv','PATH','/usr/bin:/bin',
       '/bin/sh','/runner.sh'];

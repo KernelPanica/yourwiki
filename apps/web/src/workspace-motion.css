@@ -1,0 +1,40 @@
+/* One motion vocabulary for the explorer, every editor and settings. Layout and
+   keyboard behavior remain identical with account animations disabled. */
+.file-tree-disclosure{display:grid;grid-template-rows:1fr}
+.file-tree-disclosure[data-open=false]{grid-template-rows:0fr}
+.file-tree-disclosure>div{min-height:0;overflow:hidden}
+.file-tree-chevron{display:grid;place-items:center}
+.file-tree-folder .file-tree-chevron{transform:rotate(-90deg)}
+.file-tree-folder[aria-expanded=true] .file-tree-chevron{transform:rotate(0)}
+.file-tree-row .ui-icon{stroke-width:1.75}
+.resource-settings>header button{display:grid;place-items:center}
+@keyframes workspace-fullscreen-enter{
+ from{opacity:.7;transform:translateY(8px) scale(.985)}
+ to{opacity:1;transform:none}
+}
+@keyframes workspace-panel-enter{
+ from{opacity:0;transform:translateX(20px)}
+ to{opacity:1;transform:none}
+}
+@keyframes workspace-settings-enter{
+ from{opacity:0;transform:translateY(8px)}
+ to{opacity:1;transform:none}
+}
+@keyframes workspace-dialog-enter{
+ from{opacity:0;transform:translateY(12px) scale(.98)}
+ to{opacity:1;transform:none}
+}
+@keyframes workspace-backdrop-enter{from{background-color:#0000}to{background-color:#0008}}
+@media(prefers-reduced-motion:no-preference){
+ :root[data-animations=on] .file-tree-disclosure{transition:grid-template-rows 200ms var(--ease-standard)}
+ :root[data-animations=on] .file-tree-children>li{animation:workspace-settings-enter 160ms var(--ease-enter)}
+ :root[data-animations=on] .file-tree-chevron{transition:transform 160ms var(--ease-standard)}
+ @starting-style{:root[data-animations=on] .file-tree-disclosure[data-open=true]{grid-template-rows:0fr}}
+ :root[data-animations=on] :is(.office-fullscreen,.editor-fullscreen,.graph-fullscreen){animation:workspace-fullscreen-enter 200ms var(--ease-enter)}
+ :root[data-animations=on] .document-sidebar:not([hidden]){animation:workspace-panel-enter 200ms var(--ease-enter)}
+ /* Animate the selected section, preserving mounted forms and unsaved input. */
+ :root[data-animations=on] .settings-panels>section:not([hidden]){animation:workspace-settings-enter 180ms var(--ease-enter)}
+ :root[data-animations=on] .resource-settings[open]{animation:workspace-dialog-enter 200ms var(--ease-enter)}
+ :root[data-animations=on] .resource-settings[open]::backdrop{animation:workspace-backdrop-enter 180ms var(--ease-standard)}
+}
+:root[data-animations=off] *,:root[data-animations=off] *::before,:root[data-animations=off] *::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}

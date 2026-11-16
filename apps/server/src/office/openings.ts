@@ -1,3 +1,4 @@
+import {documentSourceVisible} from '../document-visibility.ts';
 import {transaction,type Database} from '../database.ts';
 import {authenticateSession,tokenHash} from '../auth/sessions.ts';
 import {AccessService} from '../access.ts';
@@ -23,7 +24,8 @@ export class OfficeOpenings {
  begin(browserToken:string,id:string,documentId:string){
   this.valid(id);this.cleanup();return transaction(this.db,()=>{
    const actor=authenticateSession(this.db,browserToken,this.clock());if(!actor)throw new OfficeError('SESSION_REQUIRED');
-   if(!new AccessService(this.db).allows(actor.userId,documentId,'read')||!this.db.prepare('SELECT 1 FROM documents WHERE id=? AND published_revision IS NOT NULL').get(documentId))throw new OfficeError('NOT_FOUND');
+   const document=this.db.prepare('SELECT published_revision FROM documents WHERE id=? AND local_revision>0').get(documentId) as {published_revision:number|null}|undefined;
+   if(!new AccessService(this.db).allows(actor.userId,documentId,'read')||!document||!documentSourceVisible(this.db,actor.userId,documentId,document.published_revision))throw new OfficeError('NOT_FOUND');
    const old=this.row(actor.tokenHash,id);if(old)throw new OfficeError(old.state==='cancelled'?'OFFICE_OPEN_CANCELLED':'OFFICE_OPEN_REUSED');this.quota(actor.tokenHash);const pending=this.db.prepare("SELECT COUNT(*) AS n FROM office_openings WHERE state='pending'").get() as {n:number};if(pending.n>=this.maxPending)throw new OfficeError('OFFICE_OPEN_LIMIT');
    this.db.prepare("INSERT INTO office_openings(browser_session_hash,open_id,document_id,state,created_at) VALUES(?,?,?,'pending',?)").run(actor.tokenHash,id,documentId,this.clock());return actor.tokenHash;
   });

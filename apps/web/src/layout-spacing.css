@@ -267,3 +267,70 @@
 :root .ai-settings fieldset legend{font-weight:600;padding:0 8px}
 :root .ai-settings label:has(>input[type=checkbox]){flex-direction:row;align-items:center;gap:10px;min-height:44px;margin-block:8px}
 :root .ai-settings input[type=checkbox]{width:20px;min-height:20px;height:20px;flex:0 0 20px;margin:0}
+
+/* Dense working surfaces: one rhythm, with full-size interactive targets. */
+:root{--section-gap:20px}
+:root .page-heading{gap:16px;margin-bottom:16px}
+:root .page-heading .eyebrow{margin-bottom:4px}
+:root .library .file-command-bar{padding:8px 0;margin:0 0 8px;gap:8px;border:0;border-radius:0;background:transparent;box-shadow:none}
+:root .library .file-command-bar .file-actions{margin:0;gap:8px}
+:root .library .file-command-bar :is(.file-upload,.file-create){margin:0}
+:root .file-tree-location{margin:0;min-height:44px}
+:root .file-tree-location .file-tree-root-drop{min-height:44px;padding:8px 12px}
+:root .file-tree{border-radius:8px}
+:root .file-tree-row{min-height:48px}
+:root .file-tree-folder,:root .file-tree-document{min-height:48px}
+:root .settings-layout>h1{margin-bottom:20px}
+:root .settings-categories,:root .settings-panels{border-radius:12px;box-shadow:none}
+:root .settings-panels>.administration{padding-top:0;border-bottom:0}
+:root .member-admin-list{margin:8px 0 16px}
+:root .member-admin-list li{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:16px;padding:12px 0}
+:root .member-admin-list li>div:first-child{display:flex;align-items:center;flex-wrap:wrap;gap:4px 8px;min-width:0;overflow-wrap:anywhere}
+:root .member-admin-list li>div:first-child>span{color:var(--muted);font-size:14px}
+:root .member-admin-list li p{margin:0;font-size:13px;color:var(--muted)}
+:root .member-admin-list .user-group-badges{flex-basis:100%;margin:4px 0 0}
+:root .document-sidebar{font-size:14px}
+:root .document-sidebar>details{padding:4px 0}
+:root .document-sidebar details>div{padding:8px 0 12px}
+:root .office-workspace:not(.office-fullscreen)>.office-toolbar,:root .file-preview-toolbar{min-height:52px;padding-block:4px}
+:root .account-identity .profile-card,:root .account-identity dl,:root .account-settings>.preferences{border-radius:12px;box-shadow:none}
+:root .account-identity .profile-card{padding:20px;gap:12px}
+:root .account-layout{gap:24px}
+:root .office-workspace[data-loading=true]>.office-toolbar>p{display:flex;align-items:center;gap:8px}
+:root .office-workspace[data-loading=true]>.office-toolbar>p::before{content:'';flex:0 0 14px;height:14px;border:2px solid var(--line);border-top-color:var(--accent-ink);border-radius:50%}
+@media(prefers-reduced-motion:no-preference){:root[data-animations=on] .office-workspace[data-loading=true]>.office-toolbar>p::before{animation:yourwiki-spinner .9s linear infinite}}
+@media(max-width:600px){
+ :root{--section-gap:16px}
+ :root .library .file-command-bar{gap:8px}
+ :root .library .file-command-bar .file-actions{width:auto}
+ :root .file-tree-row,:root .file-tree-folder,:root .file-tree-document{min-height:56px}
+ :root .member-admin-list li{grid-template-columns:minmax(0,1fr);gap:8px}
+ :root .member-admin-list li>div:last-child{justify-content:flex-start}
+ :root .account-layout{gap:16px}
+ :root .page-heading h1{font-size:24px}
+ :root .settings-panels{padding:16px}
+}
+:root .account-identity{gap:0;border:1px solid var(--line);border-radius:12px;background:var(--surface);overflow:hidden}
+:root .account-identity .profile-card{border:0;border-radius:0;background:transparent}
+:root .account-identity dl{grid-template-columns:auto minmax(0,1fr);gap:8px 16px;border:0;border-top:1px solid var(--line);border-radius:0;padding:16px 20px;font-size:14px}
+:root .account-identity dd{margin:0}
+:root .account-preferences header{margin-bottom:16px}
+:root .account-preferences fieldset{gap:16px}
+:root .account-photo-row{gap:16px;padding-bottom:16px}
+:root .account-photo-placeholder{flex-basis:64px;height:64px;background:var(--accent-wash);color:var(--accent-ink)}
+:root .account-photo-row .profile-avatar{width:64px;height:64px}
+:root .account-photo-row p{margin:4px 0 8px;font-size:14px}
+:root .account-motion-row{gap:16px;padding-top:16px}
+:root .account-motion-row p{margin-top:4px;max-width:60ch}
+:root .account-save{margin-top:16px;padding-top:16px}
+:root .account-motion-row label.check{min-height:44px;padding:4px;cursor:pointer}
+:root body input[role=switch]{appearance:none;position:relative;width:40px;height:24px;min-height:24px;border:1px solid var(--control-line);border-radius:16px;background:var(--surface-inset);cursor:pointer;margin:0}
+:root body input[role=switch]::before{content:'';position:absolute;left:3px;top:3px;width:16px;height:16px;border-radius:50%;background:var(--muted)}
+:root body input[role=switch]:checked{background:var(--accent);border-color:var(--accent)}
+:root body input[role=switch]:checked::before{transform:translateX(16px);background:#fff}
+@media(prefers-reduced-motion:no-preference){:root[data-animations=on] input[role=switch]::before{transition:transform var(--duration-fast) var(--ease-standard)}}
+@media(forced-colors:active){:root body input[role=switch]{appearance:auto}:root body input[role=switch]::before{display:none}}
+/* Access state shares the action row and yields width before buttons wrap. */
+:root .file-action-row .google-original>span{flex:1 1 160px;min-width:0;max-width:32ch;font-size:12px;line-height:1.4}
+:root .resource-settings .loading-skeleton{padding:0;min-height:144px}
+:root .resource-settings .loading-caption{margin-bottom:16px}

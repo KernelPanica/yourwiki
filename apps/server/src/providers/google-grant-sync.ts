@@ -1,3 +1,4 @@
+import {recordGoogleGrantFailure} from './google-grant-failure.ts';
 import {UserPurge} from '../administration/user-purge.ts';
 import {createHash,randomUUID} from 'node:crypto';
 import {transaction,readTransaction,type Database} from '../database.ts';
@@ -93,7 +94,7 @@ export class GoogleGrantsWorker{
    }
    if(!exportWaiting)this.db.prepare("UPDATE provider_google_export_rules SET applied=?,desired=?,state='synced',pending_target=NULL,error_code=NULL,checked_at=? WHERE reference=?").run(wanted,wanted,Date.now(),reference);
    waiting=waiting||exportWaiting;this.db.prepare('UPDATE provider_google_grants SET checked_at=? WHERE reference=?').run(Date.now(),reference);this.db.prepare('UPDATE provider_google_export_rules SET checked_at=? WHERE reference=?').run(Date.now(),reference);if(waiting)this.queue.fail(job,'PROVIDER_UNAVAILABLE',Date.now(),60000);else this.queue.complete(job);return waiting?'deferred':'synced';
-  }catch(error){if(!this.queue.owns(job))return 'interrupted';const reference=job.payload.reference;if(typeof reference==='string'){this.db.prepare("UPDATE provider_google_grants SET error_code='PROVIDER_UNAVAILABLE',checked_at=? WHERE reference=?").run(Date.now(),reference);this.db.prepare("UPDATE provider_google_export_rules SET error_code='PROVIDER_UNAVAILABLE',checked_at=? WHERE reference=?").run(Date.now(),reference);}this.queue.fail(job,'PROVIDER_UNAVAILABLE',Date.now(),60000);return 'deferred';}
+  }catch(error){if(!this.queue.owns(job))return 'interrupted';const reference=job.payload.reference,code=typeof reference==='string'?recordGoogleGrantFailure(this.db,reference,error,Date.now()):'PROVIDER_UNAVAILABLE';this.queue.fail(job,code,Date.now(),60000);return 'deferred';}
   finally{clearInterval(heartbeat);await Promise.all([read?.close(),http?.close()]);this.db.prepare("DELETE FROM worker_slots WHERE name='provider-source' AND token=?").run(slot);}
  }
  async close(){this.lifetime.abort();await Promise.allSettled([this.running]);if(this.ownAuth)await this.auth.close();}

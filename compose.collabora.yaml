@@ -10,6 +10,11 @@ services:
   collabora:
     image: ${COLLABORA_IMAGE:-collabora/code@sha256:bb8f3c9c5c9016045f25fccb5f0649be94469ebc7c7cc379f3576e470cccf33d}
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     ports:
       - "127.0.0.1:${COLLABORA_PORT:-9980}:9980"
     environment:

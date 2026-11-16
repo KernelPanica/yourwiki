@@ -16,5 +16,6 @@ export function bindExistingSource(db:Database,input:{documentId:string;connecti
   if(current.local_revision!==confirmedRevision)throw new DocumentError('CONFLICT');
   db.prepare('INSERT INTO provider_source_bindings(document_id,connection_id,reference,fingerprint,confirmed_revision,created_at) VALUES(?,?,?,?,?,?)').run(documentId,connectionId,reference,fingerprint,confirmedRevision,now);
   db.prepare('UPDATE documents SET provider_revision=? WHERE id=?').run(confirmedRevision,documentId);
+  db.prepare("INSERT INTO events(kind,document_id,payload,created_at) VALUES('source.confirmed',?,'{}',?)").run(documentId,now);
  });
 }

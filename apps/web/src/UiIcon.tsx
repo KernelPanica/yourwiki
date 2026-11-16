@@ -1,4 +1,44 @@
 import type {CSSProperties} from 'react';
-export type IconName='info'|'edit'|'menu'|'close'|'chevron'|'home'|'files'|'recent'|'settings'|'user'|'logout'|'panel'|'grip'|'plus'|'upload'|'folder'|'search'|'arrow'|'comments'|'history'|'sparkles'|'paperclip'|'shield'|'trash';
-const paths:Record<IconName,string>={info:'M12 11v6M12 7h.01M22 12a10 10 0 1 1-20 0 10 10 0 0 1 20 0',edit:'m15 3 6 6M4 20l4-1L21 6l-4-4L4 15Zm0 0-1 5 5-1',menu:'M4 6h16M4 12h16M4 18h16',close:'m6 6 12 12M18 6 6 18',chevron:'m8 10 4 4 4-4',home:'m3 10 9-7 9 7M5 9v12h14V9M9 21v-7h6v7',files:'M14 2H5v20h14V7Zm0 0v6h5M8 12h8M8 16h6',recent:'M3 11a9 9 0 1 1 2.5 7M3 4v7h7M12 7v5l3 2',settings:'m9 3-1 3-3 1-2 3 2 2-1 4 3 2 3-1 2 3 3-1 1-3 3-1 2-3-2-2 1-4-3-2-3 1-2-3ZM9 12a3 3 0 1 0 6 0 3 3 0 0 0-6 0',user:'M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM4 21v-2a8 8 0 0 1 16 0v2',logout:'M9 4H4v16h5M13 8l4 4-4 4M8 12h12',panel:'M3 4h18v16H3ZM15 4v16',grip:'M9 5v14M15 5v14',plus:'M12 5v14M5 12h14',upload:'M12 16V3m-5 5 5-5 5 5M4 15v6h16v-6',folder:'M3 7V4h7l3 3h8v13H3Z',search:'M21 21l-5-5M18 10a8 8 0 1 0-16 0 8 8 0 0 0 16 0',arrow:'m12 5-7 7 7 7M5 12h15',comments:'M21 4H3v13h5v4l5-4h8ZM7 8h10M7 12h7',history:'M3 11a9 9 0 1 1 3 8M3 4v7h7M12 7v5l3 2',sparkles:'m12 3 2.5 6.5L21 12l-6.5 2.5L12 21l-2.5-6.5L3 12l6.5-2.5ZM20 2v4M18 4h4',paperclip:'m8 12 7-7a4 4 0 0 1 6 6L10 22a6 6 0 0 1-8-8L13 3M6 16l10-10',shield:'m12 2 9 4v6c0 5-6 9-9 10-3-1-9-5-9-10V6Zm-5 9 3 3 6-6',trash:'M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7'};
-export default function UiIcon({name,size=20,style}:{name:IconName;size?:number;style?:CSSProperties}){return <svg className="ui-icon" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={style}><path d={paths[name]}/></svg>;}
+export type IconName='info'|'edit'|'menu'|'close'|'chevron'|'home'|'files'|'recent'|'settings'|'user'|'logout'|'panel'|'grip'|'plus'|'upload'|'folder'|'search'|'arrow'|'comments'|'history'|'sparkles'|'paperclip'|'shield'|'trash'|'external'|'move'|'document'|'spreadsheet'|'presentation'|'markdown'|'pdf'|'canvas'|'diagram'|'image'|'archive'|'code'|'fullscreen'|'restore'|'hand';
+const paths:Record<IconName,string>={
+ hand:'M8 13V5a2 2 0 0 1 4 0v7-9a2 2 0 0 1 4 0v9-7a2 2 0 0 1 4 0v11c0 4-3 6-7 6h-1c-2 0-4-2-5-4l-3-5a2 2 0 0 1 3-2l3 3',
+ external:'M14 3h7v7M21 3 10 14M10 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-5',
+ move:'M4 12h16m-6-6 6 6-6 6',
+ document:'M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9Zm0 0v6h6M8 13h8M8 17h5',
+ spreadsheet:'M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2ZM3 9h18M3 15h18M9 9v12',
+ presentation:'M3 4h18M5 4v13h14V4M12 17v4M8 21h8M8 13V9m4 4V7m4 6v-3',
+ markdown:'M4 4h16a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1ZM6 15V9l3 3 3-3v6m5-6v6m-2-2 2 2 2-2',
+ pdf:'M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9Zm0 0v6h6M8 17c4-5 5-9 4-8-2 2 1 7 5 7-1-2-7-1-9 1Z',
+ canvas:'M4 3h6v6H4ZM14 15h6v6h-6ZM14 3h6v6h-6ZM7 9v9h7m3-9v6',
+ diagram:'M8 3h8v5H8ZM3 16h7v5H3ZM14 16h7v5h-7ZM12 8v4m-6 4v-4h12v4',
+ image:'M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2ZM3 17l6-6 4 4 3-3 5 5M8 7h.01',
+ archive:'M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9Zm0 0v6h6M10 3v2m0 3v2m0 3v2m-1 2h2v2H9Z',
+ code:'M8 7 3 12l5 5M16 7l5 5-5 5M14 4l-4 16',
+ fullscreen:'M8 3H3v5M16 3h5v5M3 16v5h5M21 16v5h-5',
+ restore:'M3 8h5V3M16 3v5h5M8 21v-5H3M21 16h-5v5',
+ info:'M12 11v6M12 7h.01M22 12a10 10 0 1 1-20 0 10 10 0 0 1 20 0',
+ edit:'m15 5 4 4M4 20l4-1L20 7a2.8 2.8 0 0 0-4-4L4 15Z',
+ menu:'M4 6h16M4 12h16M4 18h16',
+ close:'m6 6 12 12M18 6 6 18',
+ chevron:'m8 10 4 4 4-4',
+ home:'m3 10 9-7 9 7M5 9v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9M9 21v-7h6v7',
+ files:'M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9Zm0 0v6h6',
+ recent:'M3 11a9 9 0 1 1 2.5 7M3 4v7h7M12 7v5l3 2',
+ settings:'M9 4 10 2h4l1 2 2 1 2-.2 2 3.4-1.2 1.8v2l1.2 1.8-2 3.4-2-.2-2 1-1 2h-4l-1-2-2-1-2 .2-2-3.4L4 13v-2L2.8 9.2l2-3.4 2 .2Zm0 8a3 3 0 1 0 6 0 3 3 0 0 0-6 0',
+ user:'M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM4 21v-2a8 8 0 0 1 16 0v2',
+ logout:'M9 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h4M16 7l5 5-5 5M9 12h12',
+ panel:'M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2ZM15 3v18',
+ grip:'M9 5v14M15 5v14',
+ plus:'M12 5v14M5 12h14',
+ upload:'M12 16V3m-5 5 5-5 5 5M3 15v4a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-4',
+ folder:'M3 7V5a2 2 0 0 1 2-2h5l3 4h6a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z',
+ search:'m21 21-4.5-4.5M19 11a8 8 0 1 0-16 0 8 8 0 0 0 16 0',
+ arrow:'m12 5-7 7 7 7M5 12h15',
+ comments:'M21 15a2 2 0 0 1-2 2H8l-5 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2ZM7 7h10M7 11h7',
+ history:'M3 11a9 9 0 1 1 3 8M3 4v7h7M12 7v5l3 2',
+ sparkles:'m12 3 2.5 6.5L21 12l-6.5 2.5L12 21l-2.5-6.5L3 12l6.5-2.5ZM20 2v4M18 4h4',
+ paperclip:'m21 11-9 9a6 6 0 0 1-8.5-8.5L13 2a4 4 0 0 1 5.7 5.7l-9.5 9.5a2 2 0 0 1-2.8-2.8L15 6',
+ shield:'M12 3 3 7v5c0 5 6 8 9 10 3-2 9-5 9-10V7Zm-5 9 3 3 6-6',
+ trash:'M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7'
+};
+export default function UiIcon({name,size=20,style}:{name:IconName;size?:number;style?:CSSProperties}){return <svg data-icon={name} className="ui-icon" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={style}><path d={paths[name]}/></svg>;}

@@ -13,12 +13,18 @@ x-runtime: &runtime
   read_only: true
   init: true
   stop_grace_period: 45s
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
 services:
   web:
     <<: *runtime
     security_opt:
       - no-new-privileges:true
       - seccomp=./docker/v2/seccomp-sandbox.json
+      - apparmor=unconfined
     command: [web]
     restart: unless-stopped
     environment:
@@ -41,6 +47,7 @@ services:
     command: [provider]
     environment:
       YOURWIKI_DRIVE_TRANSPORT: ${YOURWIKI_DRIVE_TRANSPORT:-rclone}
+      YOURWIKI_RCLONE_AUTO_MIGRATE_NATIVE: ${YOURWIKI_RCLONE_AUTO_MIGRATE_NATIVE:-0}
     restart: unless-stopped
     mem_limit: 384m
     depends_on:
@@ -50,6 +57,7 @@ services:
     security_opt:
       - no-new-privileges:true
       - seccomp=./docker/v2/seccomp-sandbox.json
+      - apparmor=unconfined
     command: [conversion]
     restart: unless-stopped
     mem_limit: 1536m

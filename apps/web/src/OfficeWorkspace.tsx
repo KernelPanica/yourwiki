@@ -1,3 +1,4 @@
+import {officePresentation} from './office-presentation.ts';
 import {FileActionBar,FilePanelToggle,FileChromeContext} from './FileChrome.tsx';
 import {googleFileError} from './google-errors.ts';
 import OfficeRecoveryPanel from './OfficeRecoveryPanel.tsx';
@@ -57,9 +58,9 @@ export default function OfficeWorkspace({view,csrf,children,onSessionLost,source
  const googleSource=!!view.googleActivity||!!view.googleOriginal&&view.googleOriginal.reason!=='not_google';
  const loaded=!!editor?.loaded,paused=editor?.phase==='paused'||state.phase==='paused',closing=state.phase==='closing';
  const warning=state.errorCode==='OFFICE_RELEASE_UNCERTAIN'?t.release:paused?t.paused:editor?.phase==='conflict'||state.errorCode==='CONFLICT'?t.conflict:editor?.phase==='failed'?t.uncertain:state.errorCode?t.unavailable:state.readiness==='delayed'?t.delayed:'';
- const status=closing?t.closing:!loaded?(language==='ru'?'Открытие Collabora…':'Opening Collabora…'):editor?.saving?t.saving:editor?.phase==='saved'?t.saved:editor?.needsRecovery?t.modified:'Collabora';
+ const presentation=officePresentation(state,editor),status=presentation.status==='ready'?(state.bootstrap?.engine==='onlyoffice'?'OnlyOffice':'Collabora'):t[presentation.status];
  useEffect(()=>{if(!full)return;const escape=(e:KeyboardEvent)=>{if(e.key==='Escape'){setFull(false);}};window.addEventListener('keydown',escape);return()=>window.removeEventListener('keydown',escape);},[full]);
- return <section className={'office-workspace'+(full?' office-fullscreen':'')} data-loaded={loaded} data-readiness={state.readiness} aria-label={view.document.title}>
+ return <section className={'office-workspace'+(full?' office-fullscreen':'')} data-loaded={loaded} data-loading={presentation.loading} data-readiness={state.readiness} aria-label={view.document.title}>
   <div className="office-file-details">{sourcePanel}</div><FileActionBar recovery={<OfficeRecoveryPanel documentId={view.document.id} csrf={csrf} onSessionLost={onSessionLost} autoOpen={state.phase==='open'&&(editor?.phase==='conflict'||editor?.phase==='failed')}/>}/><div className="office-toolbar"><p role="status" aria-live="polite">{status}</p>{loaded&&<>
    {connection.current?.bridge?.pendingSave()&&<button type="button" disabled={closing||paused||editor?.phase==='conflict'} onClick={()=>void connection.current?.save?.checkNow()}>{t.check}</button>}
 
@@ -70,10 +71,10 @@ export default function OfficeWorkspace({view,csrf,children,onSessionLost,source
   {editor?.errorCode&&<p className="notice" role="alert">{googleFileError(editor.errorCode,language==='ru')}</p>}
 
   <div className="office-stage">
-   <div className="office-preview" hidden={loaded}>{state.phase==='failed'?<FileChromeContext.Provider value={null}>{children}</FileChromeContext.Provider>:<p className="loading" role="status">{language==='ru'?'Открытие Collabora…':'Opening Collabora…'}</p>}</div>
+   <div className="office-preview" hidden={loaded}>{state.phase==='failed'?<FileChromeContext.Provider value={null}>{children}</FileChromeContext.Provider>:presentation.loading?<p className="loading" role="status">{t.loading}</p>:null}</div>
    {state.bootstrap&&<>
-    <iframe ref={frame} name={name} className={'office-frame'+(loaded?' office-frame-ready':'')} title={view.document.title} referrerPolicy="no-referrer" inert={paused||closing} sandbox="allow-scripts allow-same-origin allow-forms allow-popups"/>
-    <form ref={form} action={state.bootstrap.actionUrl} method="post" target={name} hidden><input type="hidden" name="access_token" value={state.bootstrap.accessToken}/><input type="hidden" name="access_token_ttl" value={state.bootstrap.expiresAt}/></form>
+    <iframe ref={frame} name={name} className={'office-frame'+(state.phase==='failed'?' office-frame-failed':'')+(loaded?' office-frame-ready':'')} title={view.document.title} referrerPolicy="no-referrer" inert={paused||closing} sandbox="allow-scripts allow-same-origin allow-forms allow-popups"/>
+    <form ref={form} action={state.bootstrap.actionUrl} method="post" target={name} hidden><input type="hidden" name="access_token" value={state.bootstrap.accessToken}/><input type="hidden" name="access_token_ttl" value={state.bootstrap.expiresAt}/>{state.bootstrap.engine==='onlyoffice'&&<input type="hidden" name="docs_api_config" value={JSON.stringify({editorConfig:{customization:{forcesave:true,autosave:true}}})}/>}</form>
    </>}
   </div>
  </section>;

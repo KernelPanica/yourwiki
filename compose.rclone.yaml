@@ -1,10 +1,11 @@
 # Linux rootful Docker only. install.sh prepares the shared host mount first.
+# Consumers receive mounts but never propagate their own bind/unmount events back.
 x-drive-volumes: &drive-volumes
   - type: bind
     source: ${YOURWIKI_RCLONE_DATA:-/var/lib/yourwiki/rclone}
     target: /data/rclone
     bind:
-      propagation: rshared
+      propagation: rslave
       create_host_path: false
   - type: bind
     source: ${YOURWIKI_RCLONE_RUNTIME:-/var/lib/yourwiki/rclone-runtime}
@@ -17,13 +18,20 @@ services:
     user: "10001:10001"
     command: [rclone]
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     init: true
     read_only: true
     stop_grace_period: 45s
     mem_limit: 384m
     pids_limit: 128
     cap_drop: [ALL]
-    cap_add: [SYS_ADMIN]
+    cap_add: [SYS_ADMIN, DAC_OVERRIDE]
+    # The setuid FUSE helper needs DAC_OVERRIDE to traverse private 0700 parents
+    # while mounting/unmounting. Keep this capability out of application services.
     # fusermount3 needs its setuid helper; app containers retain no-new-privileges.
     security_opt:
       - seccomp=unconfined

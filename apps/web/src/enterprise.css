@@ -76,3 +76,26 @@
 :root .skip{z-index:3000;background:var(--surface-raised);color:var(--text);border:1px solid var(--control-line);border-radius:8px;box-shadow:var(--shadow-float)}
 /* Prevent automatic input zoom on iOS while keeping touch editing readable. */
 @media(max-width:760px){:root body input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=color]),:root body select,:root body textarea,:root .github-md-source .cm-editor{font-size:16px}}
+
+/* Native form controls keep OS keyboard behaviour and share the UI token set. */
+:root body select:not([multiple]):is(:not([size]),[size="1"]){
+ appearance:none;
+ -webkit-appearance:none;
+ min-width:0;
+ padding-inline-end:44px;
+ background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23687386' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+ background-position:right 12px center;
+ background-size:16px 16px;
+ background-repeat:no-repeat;
+}
+:root body select:disabled,:root body input:disabled,:root body textarea:disabled{cursor:not-allowed;opacity:.7}
+:root body :is(input,select,textarea)[aria-invalid=true]{border-color:var(--danger)}
+:root body select :is(option,optgroup){background:var(--surface-raised);color:var(--text)}
+@media(hover:hover) and (pointer:fine){
+ :root body :is(input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=color]):not([type=file]),select,textarea):not(:disabled):not([readonly]):hover{border-color:var(--accent-ink)}
+}
+@media(forced-colors:active){
+ :root body select:not([multiple]):is(:not([size]),[size="1"]){appearance:auto;background-image:none;padding-inline-end:12px}
+ :root :focus-visible{outline-color:Highlight}
+}
+:root[data-theme-changing] *,:root[data-theme-changing] *::before,:root[data-theme-changing] *::after{transition:none!important}

@@ -22,12 +22,12 @@ function redact(text,secrets){let result=String(text);for(const secret of secret
 const reason=text=>['invalid_grant','invalid_client','accessNotConfigured','SERVICE_DISABLED','insufficientPermissions','permissionDenied','rateLimitExceeded','userRateLimitExceeded','permission denied','Permission denied','no such file','No such file','Transport endpoint is not connected','Operation not permitted','failed to read config','config file not found'].find(value=>text.includes(value))??'UNCLASSIFIED';
 try{
  console.log(JSON.stringify({transport:process.env.YOURWIKI_DRIVE_TRANSPORT??'unset'}));
- const rows=db.prepare("SELECT c.id,c.enabled,c.encrypted_config,m.binary_path,m.config_path,m.mount_path,m.error_code FROM provider_connections c LEFT JOIN rclone_drive_mounts m ON m.connection_id=c.id WHERE c.provider='google'").all();
+ const rows=db.prepare("SELECT c.id,c.enabled,c.encrypted_config,m.binary_path,m.config_path,m.mount_path,m.error_code FROM provider_connections c JOIN provider_mounts p ON p.connection_id=c.id LEFT JOIN rclone_drive_mounts m ON m.connection_id=c.id WHERE c.provider='google'").all();
  for(let index=0;index<rows.length;index++){
   const row=rows[index],result={connection:index+1,enabled:!!row.enabled};let config={},privateDir;
   try{config=secrets.decrypt(row.encrypted_config);result.authorizationStored=!!config.refresh_token;result.oauthConfigured=!!config.client_id&&!!config.client_secret;}catch{result.configError='DECRYPT_FAILED';}
   result.runtimeRegistered=!!row.mount_path;
-  if(row.mount_path){
+  if(row.enabled&&row.mount_path){
    result.binaryExecutable=await exists(row.binary_path,constants.X_OK);result.configReadable=await exists(row.config_path,constants.R_OK);
    try{assertRcloneMounted(row.mount_path);result.mounted=true;}catch{result.mounted=false;}
    try{await readFile(join(dirname(row.config_path),'mounted'),'utf8');result.mountMarker=true;}catch{result.mountMarker=false;}
@@ -36,7 +36,7 @@ try{
    if(row.enabled&&result.binaryExecutable&&!result.configReadable&&config.refresh_token&&config.client_id&&config.client_secret){privateDir=await mkdtemp(join(tmpdir(),'wiki-rclone-check-'));probeConfig=join(privateDir,'rclone.conf');await writeFile(probeConfig,'[drive]\ntype = drive\nroot_folder_id = '+config.root+'\nclient_id = '+config.client_id+'\nclient_secret = '+config.client_secret+'\ntoken = '+JSON.stringify({access_token:'refresh-required',refresh_token:config.refresh_token,token_type:'Bearer',expiry:'2000-01-01T00:00:00Z'})+'\n',{mode:0o600});result.independentProbe=true;}
    if(row.enabled&&result.binaryExecutable&&(result.configReadable||privateDir)){try{const {stdout}=await run(row.binary_path,['lsjson','drive:','--config',probeConfig,'--max-depth','1','--drive-skip-gdocs','--retries','1','--low-level-retries','1','--contimeout','5s','--timeout','10s'],{timeout:15000,maxBuffer:1024*1024});result.list={ok:true,entries:JSON.parse(stdout).length};}catch(error){result.list={ok:false,code:typeof error.code==='number'?error.code:safeCode(error),reason:reason(String(error.stderr??'')),detail:redact(error.stderr??'',Object.values(config)),killed:!!error.killed};}}
    if(privateDir)await rm(privateDir,{recursive:true,force:true});
-   try{const file=await open(join(dirname(row.config_path),'rclone.log'),'r');try{const size=(await file.stat()).size,buffer=Buffer.alloc(Math.min(size,16384));const {bytesRead}=await file.read(buffer,0,buffer.length,Math.max(0,size-buffer.length));const text=buffer.subarray(0,bytesRead).toString();result.mountLogReason=reason(text);result.mountLogDetail=redact(text,Object.values(config));}finally{await file.close();}}catch{result.mountLogReason='NO_LOG';}
+   if(!result.mounted)try{const file=await open(join(dirname(row.config_path),'rclone.log'),'r');try{const size=(await file.stat()).size,buffer=Buffer.alloc(Math.min(size,16384));const {bytesRead}=await file.read(buffer,0,buffer.length,Math.max(0,size-buffer.length));const text=buffer.subarray(0,bytesRead).toString();result.mountLogReason=reason(text);result.mountLogDetail=redact(text,Object.values(config));}finally{await file.close();}}catch{result.mountLogReason='NO_LOG';}
   }
   console.log(JSON.stringify(result));
  }

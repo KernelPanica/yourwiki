@@ -4,7 +4,7 @@ import {OfficeSaveCoordinator} from './office-save-coordinator.ts';
 import {blockSession,onSessionBlocked,sessionIsCurrent,sessionSnapshot} from './session-fence.ts';
 import type {Language} from './i18n.ts';
 type Frame=ConstructorParameters<typeof OfficeBridge>[0]['frame'];
-export type OfficeBootstrap={sessionId:string;baseRevision?:number;accessToken:string;expiresAt:number;write:boolean;export:boolean;actionUrl:string};
+export type OfficeBootstrap={engine?:'collabora'|'onlyoffice';sessionId:string;baseRevision?:number;accessToken:string;expiresAt:number;write:boolean;export:boolean;actionUrl:string};
 export type OfficeConnectionSnapshot={phase:'idle'|'opening'|'open'|'failed'|'paused'|'closing'|'closed';bootstrap:OfficeBootstrap|null;errorCode:string|null;readiness:'waiting'|'delayed'|'ready';reloadRequested?:boolean;sourceChanged?:boolean};
 type Options={documentId:string;csrf:string;language:Language;format:'docx'|'xlsx'|'pptx';readonly?:boolean;request?:(url:string,init?:RequestInit)=>Promise<unknown>;statusMs?:number;readinessMs?:number;now?:()=>number;onSessionLost?:()=>void};
 const record=(v:unknown):v is Record<string,unknown>=>!!v&&typeof v==='object'&&!Array.isArray(v);
@@ -14,7 +14,8 @@ export function parseOfficeBootstrap(value:unknown):OfficeBootstrap {
   const url=new URL(value.actionUrl);if(!['http:','https:'].includes(url.protocol)||url.username||url.password||url.hash||[...url.searchParams.keys()].some(key=>/^(access_token|access_token_ttl)$/i.test(key))||url.searchParams.getAll('WOPISrc').length!==1)throw 0;
   const source=new URL(url.searchParams.get('WOPISrc')!);if(!['http:','https:'].includes(source.protocol)||source.username||source.password||source.search||source.hash||!source.pathname.endsWith(`/wopi/files/${value.sessionId}`))throw 0;
   if(value.baseRevision!==undefined&&(!Number.isSafeInteger(value.baseRevision)||Number(value.baseRevision)<1))throw 0;
-  return {sessionId:value.sessionId,...(value.baseRevision===undefined?{}:{baseRevision:Number(value.baseRevision)}),accessToken:value.accessToken,expiresAt:Number(value.expiresAt),write:value.write,export:value.export,actionUrl:value.actionUrl};
+  if(value.engine!==undefined&&value.engine!=='collabora'&&value.engine!=='onlyoffice')throw 0;
+  return {...(value.engine?{engine:value.engine as 'collabora'|'onlyoffice'}:{}),sessionId:value.sessionId,...(value.baseRevision===undefined?{}:{baseRevision:Number(value.baseRevision)}),accessToken:value.accessToken,expiresAt:Number(value.expiresAt),write:value.write,export:value.export,actionUrl:value.actionUrl};
  }catch{throw new ApiError('INVALID_OFFICE_BOOTSTRAP');}
 }
 /** Owns one iframe capability. Call close() and await true before unmounting a live frame. */
@@ -57,8 +58,8 @@ export class OfficeConnection {
   if(this.expire())throw new ApiError('OFFICE_EXPIRED');
   if(this.bridge){if(frame!==this.frame)throw new Error('OFFICE_FRAME_CHANGED');return this.bridge;}
   this.frame=frame;const opened=this.state.bootstrap;
-  this.bridge=new OfficeBridge({origin:new URL(opened.actionUrl).origin,frame,write:opened.write,exportAllowed:opened.export,exportFormat:this.options.format});
-  this.save=new OfficeSaveCoordinator({bridge:this.bridge,sessionId:opened.sessionId,accessToken:opened.accessToken,csrf:this.options.csrf,request:this.request,onSessionLost:this.options.onSessionLost});this.scheduleStatus();return this.bridge;
+  this.bridge=new OfficeBridge({engine:opened.engine,origin:new URL(opened.actionUrl).origin,frame,write:opened.write,exportAllowed:opened.export,exportFormat:this.options.format});
+  if(opened.engine!=='onlyoffice')this.save=new OfficeSaveCoordinator({bridge:this.bridge,sessionId:opened.sessionId,accessToken:opened.accessToken,csrf:this.options.csrf,request:this.request,onSessionLost:this.options.onSessionLost});this.scheduleStatus();return this.bridge;
  }
  receive(event:{origin:string;source:unknown;data:unknown}){
   if(!this.current()||this.state.phase!=='open')return false;const accepted=this.bridge?.receive(event)??false;

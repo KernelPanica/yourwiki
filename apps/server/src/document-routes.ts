@@ -26,6 +26,7 @@ const idSchema = { type: 'object', required: ['id'], properties: { id: { type: '
 export function registerDocuments(app: FastifyInstance, db: Database, store: BlobStore, publicUrl: string, maxBytes = 4 * 1024 ** 3, officeConfigured = false, googleTrashConfigured = false, googleAccessConfigured = false): void {
   if (!Number.isSafeInteger(maxBytes) || maxBytes < 1) throw new Error('Invalid file size limit');
   const service = new DocumentService(db, store, { maxBytes });
+  db.function('yourwiki_title_matches',{deterministic:true},(title:unknown,query:unknown)=>typeof title==='string'&&typeof query==='string'&&title.normalize('NFKC').toLocaleLowerCase().includes(query.normalize('NFKC').toLocaleLowerCase())?1:0);
   const recent = new RecentDocuments(db, service);
   const sourceDelivery = new SourceDelivery(db,store);
   const sourceSync = new ProviderSync(db,store);
@@ -57,7 +58,7 @@ export function registerDocuments(app: FastifyInstance, db: Database, store: Blo
   };
 
   function visible(userId: string, id: string) {
-    const document = service.getPublished(userId, id);
+    const document = service.getAvailable(userId, id);
     const storagePending=!!db.prepare("SELECT 1 FROM google_storage_exports WHERE document_id=? AND state!='confirmed'").get(id);
     return document ? { ...document,...(storagePending?{storagePending:true}:{}), capabilities: { office: !storagePending && officeConfigured && officeFormats.has(document.format), ...(googleTrashConfigured&&db.prepare("SELECT 1 FROM users u,provider_source_bindings b JOIN provider_connections c ON c.id=b.connection_id WHERE u.id=? AND u.active=1 AND u.admin_role IN ('giga','simple') AND b.document_id=? AND c.provider='google' AND c.enabled=1").get(userId,id)?{googleTrash:true}:{}),write: !storagePending && access.allows(userId, id, 'write'), export: access.allows(userId, id, 'export') } } : null;
   }
@@ -71,20 +72,14 @@ export function registerDocuments(app: FastifyInstance, db: Database, store: Blo
     const actor=identity(request,reply,true);if(!actor)return;
     try{recent.record(actor.userId,request.params.id);return reply.code(204).send();}catch(error){return fail(error,request,reply);}
   });
-  app.get<{ Querystring: { after?: string; limit?: number } }>('/api/documents', { schema: { querystring: {
-    type: 'object', additionalProperties: false, properties: { after: { type: 'string', maxLength: 128 }, limit: { type: 'integer', minimum: 1, maximum: 200, default: 50 } },
+  app.get<{ Querystring: { after?: string; limit?: number; q?:string } }>('/api/documents', { schema: { querystring: {
+    type: 'object', additionalProperties: false, properties: { q:{type:'string',maxLength:200}, after: { type: 'string', maxLength: 128 }, limit: { type: 'integer', minimum: 1, maximum: 200, default: 50 } },
   } } }, async (request, reply) => {
     const actor = identity(request, reply); if (!actor) return;
-    const candidates = db.prepare('SELECT id FROM documents WHERE published_revision IS NOT NULL AND NOT EXISTS(SELECT 1 FROM dashboard_local_file x WHERE documents.id=x.document_id OR documents.id=x.previous_document_id) AND id>? ORDER BY id LIMIT 201').all(request.query.after ?? '') as { id: string }[];
-    const items = [];
-    let scanned = 0, last: string | null = null;
-    for (const row of candidates.slice(0,200)) {
-      last = row.id; scanned++;
-      const document = visible(actor.userId, row.id);
-      if (document) items.push(document);
-      if (items.length >= (request.query.limit ?? 50)) break;
-    }
-    return { items, nextCursor: scanned < candidates.length ? last : null };
+    const candidates=db.prepare(`SELECT d.id FROM documents d JOIN resources r ON r.id=d.id WHERE d.local_revision>0 AND r.trashed=0 AND NOT EXISTS(SELECT 1 FROM resource_tombstones t WHERE t.resource_id=d.id) AND NOT EXISTS(SELECT 1 FROM dashboard_local_file x WHERE d.id=x.document_id OR d.id=x.previous_document_id) AND d.id>? AND yourwiki_title_matches(d.title,?) ORDER BY d.id`).iterate(request.query.after??'',request.query.q?.trim()??'') as Iterable<{id:string}>;
+    const items=[];let nextCursor:string|null=null;
+    for(const row of candidates){const document=visible(actor.userId,row.id);if(!document)continue;if(items.length>=(request.query.limit??50)){nextCursor=items.at(-1)!.id;break;}items.push(document);}
+    return {items,nextCursor};
   });
 
   app.get<{ Params: { id: string } }>('/api/documents/:id', { schema: { params: idSchema } }, async (request, reply) => {
@@ -111,6 +106,9 @@ export function registerDocuments(app: FastifyInstance, db: Database, store: Blo
     const actor = identity(request, reply); if (!actor) return;
     const document = visible(actor.userId, request.params.id);
     if (!document) return notFound(request, reply);
+    if(!document.manifestDigest)return {document,manifest:{kind:'pending',primary:'',artifacts:[]},presentation:null,
+      googleActivity:googleActivity.status(actor.userId,document.id),...(originals?{googleOriginal:originals.describe(actor.userId,document.id)}:{}),
+      sourceDelivery:sourceDelivery.status(actor.userId,document.id),sourceSync:sourceSync.status(actor.userId,document.id),sourceSyncAction:sourceSyncActions.active(actor.userId,document.id)};
     const value = await manifest(request, reply, document.id, document.manifestDigest);
     if (!value) return;
     let presentation = null;

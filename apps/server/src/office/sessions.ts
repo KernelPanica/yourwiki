@@ -1,3 +1,4 @@
+import {documentSourceVisible} from '../document-visibility.ts';
 import {googleLifecyclePending} from '../providers/google-lifecycle-guard.ts';
 import {randomUUID,randomBytes} from 'node:crypto';
 import {hasIncomingSourceConflict} from '../providers/source-conflict.ts';
@@ -26,7 +27,7 @@ export class OfficeSessions {
    const now=this.clock(),actor=authenticateSession(this.db,browserToken,now);
    if(!actor)throw new OfficeError('SESSION_REQUIRED');
    const original=this.original(documentId);
-   if(!original||original.published_revision===null||!this.access.allows(actor.userId,documentId,'read'))throw new OfficeError('NOT_FOUND');
+   if(!original||!this.access.allows(actor.userId,documentId,'read')||!documentSourceVisible(this.db,actor.userId,documentId,original.published_revision))throw new OfficeError('NOT_FOUND');
    if(!officeFormats.has(original.format))throw new OfficeError('UNSUPPORTED_OFFICE_FORMAT');
    if(googleLifecyclePending(this.db,documentId)||hasIncomingSourceConflict(this.db,documentId))throw new OfficeError('CONFLICT');
    let row=this.db.prepare('SELECT * FROM office_sessions WHERE document_id=? AND superseded=0').get(documentId) as OfficeSession|undefined;
