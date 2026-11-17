@@ -16,8 +16,11 @@ case "${1:-up}" in
   compose up -d --wait --wait-timeout 300
   printf '\nYourWiki: http://127.0.0.1:3010\nOnlyOffice: http://127.0.0.1:8082\nCredentials: ./tools/release/onlyoffice-local.sh credentials\n';;
  credentials) compose exec -T web cat /data/onlyoffice-local-credentials.json;;
+ reader) compose run --rm --no-deps -v "$PWD/tools/release:/app/tools/release:ro" --entrypoint node web /app/tools/release/onlyoffice-local-reader.mjs;;
+ reader-credentials) compose exec -T web cat /data/onlyoffice-reader-credentials.json;;
+ check-reader) compose run --rm --no-deps -v "$PWD/tools/release:/app/tools/release:ro" --entrypoint node web /app/tools/release/check-onlyoffice-reader.mjs;;
  down) compose down;;
  status) compose ps;;
  logs) compose logs --tail=80;;
- *) echo 'Usage: onlyoffice-local.sh [up|down|status|logs|credentials]' >&2; exit 2;;
+ *) echo 'Usage: onlyoffice-local.sh [up|down|status|logs|credentials|reader|reader-credentials|check-reader]' >&2; exit 2;;
 esac

@@ -1,3 +1,4 @@
+import {onlyofficeConfig} from './onlyoffice-config.ts';
 import {officePresentation} from './office-presentation.ts';
 import {FileActionBar,FilePanelToggle,FileChromeContext} from './FileChrome.tsx';
 import {googleFileError} from './google-errors.ts';
@@ -74,7 +75,7 @@ export default function OfficeWorkspace({view,csrf,children,onSessionLost,source
    <div className="office-preview" hidden={loaded}>{state.phase==='failed'?<FileChromeContext.Provider value={null}>{children}</FileChromeContext.Provider>:presentation.loading?<p className="loading" role="status">{t.loading}</p>:null}</div>
    {state.bootstrap&&<>
     <iframe ref={frame} name={name} className={'office-frame'+(state.phase==='failed'?' office-frame-failed':'')+(loaded?' office-frame-ready':'')} title={view.document.title} referrerPolicy="no-referrer" inert={paused||closing} sandbox="allow-scripts allow-same-origin allow-forms allow-popups"/>
-    <form ref={form} action={state.bootstrap.actionUrl} method="post" target={name} hidden><input type="hidden" name="access_token" value={state.bootstrap.accessToken}/><input type="hidden" name="access_token_ttl" value={state.bootstrap.expiresAt}/>{state.bootstrap.engine==='onlyoffice'&&<input type="hidden" name="docs_api_config" value={JSON.stringify({editorConfig:{customization:{forcesave:true,autosave:true}}})}/>}</form>
+    <form ref={form} action={state.bootstrap.actionUrl} method="post" target={name} hidden><input type="hidden" name="access_token" value={state.bootstrap.accessToken}/><input type="hidden" name="access_token_ttl" value={state.bootstrap.expiresAt}/>{state.bootstrap.engine==='onlyoffice'&&<input type="hidden" name="docs_api_config" value={JSON.stringify(onlyofficeConfig(state.bootstrap.write))}/>}</form>
    </>}
   </div>
  </section>;

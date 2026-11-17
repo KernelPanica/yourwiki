@@ -57,3 +57,18 @@ test('standard WOPI saves without Collabora timestamps still require a live lock
  }
 
 });
+
+test('OnlyOffice read-only form config does not fall back to edit mode',async()=>{
+ const {onlyofficeConfig}=await import('../../apps/web/src/onlyoffice-config.ts');
+ assert.deepEqual(onlyofficeConfig(false),{editorConfig:{mode:'view',customization:{forcesave:false,autosave:false}}});
+ assert.deepEqual(onlyofficeConfig(true),{editorConfig:{mode:'edit',customization:{forcesave:true,autosave:true}}});
+});
+
+test('OnlyOffice discovery preserves the public virtual path without trusting unrelated paths',async()=>{
+ for(const path of ['/hosting/wopi/word/view','/onlyoffice/hosting/wopi/word/view']){
+  const service=new OfficeDiscovery({engine:'onlyoffice',publicUrl:'https://wiki.example/onlyoffice',internalUrl:'http://onlyoffice',fetch:async()=>new Response(`<wopi-discovery><net-zone><app><action ext="docx" name="view" urlsrc="http://internal${path}"/></app></net-zone></wopi-discovery>`)});
+  assert.equal(await service.action('docx',false),'https://wiki.example/onlyoffice/hosting/wopi/word/view');
+ }
+ const rejected=new OfficeDiscovery({engine:'onlyoffice',publicUrl:'https://wiki.example/onlyoffice',fetch:async()=>new Response('<wopi-discovery><net-zone><app><action ext="docx" name="view" urlsrc="http://internal/evil/hosting/wopi/word/view"/></app></net-zone></wopi-discovery>')});
+ await assert.rejects(rejected.action('docx',false));
+});

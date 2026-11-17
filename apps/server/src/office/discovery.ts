@@ -48,8 +48,10 @@ export class OfficeDiscovery {
   if(!selected)throw new OfficeError('UNSUPPORTED_OFFICE_FORMAT');
   let path:string;try{const url=new URL(selected.url);if(!['http:','https:'].includes(url.protocol))throw new Error();path=url.pathname;}catch{throw new OfficeError('INVALID_OFFICE_DISCOVERY');}
   const prefix=this.publicUrl.pathname.replace(/\/$/,'');
+  // ONLYOFFICE may be published under a virtual path while discovery is internal.
+  if(this.engine==='onlyoffice'&&prefix&&path.startsWith(prefix+'/'))path=path.slice(prefix.length);
   const allowed=this.engine==='onlyoffice'?/^\/hosting\/wopi\/(word|cell|slide|pdf)\/(edit|view)$/.test(path):path.startsWith(prefix+'/browser/')&&path.endsWith('/cool.html');
   if(!allowed||/[%\\]/.test(path)||path.split('/').some(part=>part==='.'||part==='..'))throw new OfficeError('INVALID_OFFICE_DISCOVERY');
-  return this.publicUrl.origin+path;
+  return this.publicUrl.origin+(this.engine==='onlyoffice'?prefix:'')+path;
  }
 }

@@ -35,7 +35,7 @@ services:
     depends_on:
       web: {condition: service_healthy}
   onlyoffice:
-    image: onlyoffice/documentserver:9.2.1@sha256:fd38f611f1127190be306fa1eb09d5f4ff7d1d2509aef3dd14aa56377915829d
+    image: onlyoffice/documentserver:10.0.0@sha256:ca17889f10b11141cc6441836aebdd2835cf3e1b49681b2fd6e155c94b7850b3
     restart: unless-stopped
     environment:
       WOPI_ENABLED: "true"
@@ -45,10 +45,12 @@ services:
       JWT_ENABLED: "true"
       JWT_SECRET: ${ONLYOFFICE_LOCAL_JWT_SECRET:?Run tools/release/onlyoffice-local.sh first}
     ports: ["127.0.0.1:8082:80"]
+    # Fresh vendor caches/database for v10; old v9 volumes remain available.
+    # YourWiki documents live separately in workspace and are not migrated.
     volumes:
       - ./docker/onlyoffice/start.sh:/onlyoffice-local-start.sh:ro
-      - onlyoffice-data:/var/www/onlyoffice/Data
-      - onlyoffice-lib:/var/lib/onlyoffice
+      - onlyoffice-v10-data:/var/www/onlyoffice/Data
+      - onlyoffice-v10-lib:/var/lib/onlyoffice
     entrypoint: ["/bin/bash", "/onlyoffice-local-start.sh"]
     shm_size: 256m
     healthcheck:
@@ -59,5 +61,5 @@ services:
       start_period: 90s
 volumes:
   workspace:
-  onlyoffice-data:
-  onlyoffice-lib:
+  onlyoffice-v10-data:
+  onlyoffice-v10-lib:

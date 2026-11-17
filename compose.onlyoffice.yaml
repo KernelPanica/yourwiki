@@ -1,0 +1,42 @@
+# Production overlay: compose.yaml + compose.rclone.yaml + compose.onlyoffice.yaml.
+# Keep the JWT secret outside Git. See README for HTTPS proxy and rollback.
+services:
+  web:
+    environment:
+      YOURWIKI_OFFICE_ENGINE: onlyoffice
+      ONLYOFFICE_URL: ${ONLYOFFICE_URL:?Set ONLYOFFICE_URL to your HTTPS URL with /onlyoffice}
+      ONLYOFFICE_INTERNAL_URL: http://onlyoffice
+      ONLYOFFICE_WOPI_URL: http://web:3100
+  onlyoffice:
+    image: onlyoffice/documentserver:10.0.0@sha256:ca17889f10b11141cc6441836aebdd2835cf3e1b49681b2fd6e155c94b7850b3
+    restart: unless-stopped
+    environment:
+      WOPI_ENABLED: "true"
+      PLUGINS_ENABLED: "false"
+      ALLOW_PRIVATE_IP_ADDRESS: "true"
+      ALLOW_META_IP_ADDRESS: "false"
+      JWT_ENABLED: "true"
+      ONLYOFFICE_JWT_SECRET_FILE: /run/secrets/onlyoffice-jwt
+    secrets: [onlyoffice-jwt]
+    ports: ["127.0.0.1:${ONLYOFFICE_PORT:-8082}:80"]
+    volumes:
+      - ./docker/onlyoffice/start.sh:/onlyoffice-start.sh:ro
+      - onlyoffice-v10-data:/var/www/onlyoffice/Data
+      - onlyoffice-v10-lib:/var/lib/onlyoffice
+    entrypoint: ["/bin/bash", "/onlyoffice-start.sh"]
+    shm_size: 256m
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}
+    healthcheck:
+      test: [CMD, curl, -fsS, http://localhost/healthcheck]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 90s
+volumes:
+  onlyoffice-v10-data:
+  onlyoffice-v10-lib:
+secrets:
+  onlyoffice-jwt:
+    file: ${ONLYOFFICE_JWT_FILE:-./instance/onlyoffice/jwt.secret}
