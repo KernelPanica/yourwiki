@@ -51,6 +51,15 @@ test('standard WOPI saves without Collabora timestamps still require a live lock
   const source=await readFile(new URL(`../../apps/server/src/office/templates/blank.${format}`,import.meta.url));
   const next=await docs.create({localOnly:true,userId:'u',groupId:'g',title:'Test.'+format,format,parentId:null},(async function*(){yield source;})());
   const session=sessions.open(browser.token,next.documentId);sessions.lock(session.sessionId,session.token,'LOCK','format-lock');
+  const info=await app.inject({method:'GET',url:`/wopi/files/${session.sessionId}?access_token=${session.token}`});
+  assert.equal(info.statusCode,200,info.body);
+  assert.equal(info.json().DisableExport,true,'OnlyOffice download must remain disabled even for an export-capable editor');
+  const viewer=sessions.open(browser.token,next.documentId,false);
+  const viewInfo=await app.inject({method:'GET',url:`/wopi/files/${viewer.sessionId}?access_token=${viewer.token}`});
+  assert.equal(viewInfo.statusCode,200,viewInfo.body);
+  assert.equal(viewInfo.json().DisableExport,true);
+  assert.equal(viewInfo.json().ReadOnly,true);
+  assert.equal(viewInfo.json().UserCanWrite,false);
   const url=`/wopi/files/${session.sessionId}/contents?access_token=${session.token}`,headers={'x-wopi-override':'PUT','x-wopi-lock':'format-lock','content-type':mime[format]};
   assert.equal((await app.inject({method:'POST',url,headers:{...headers,'content-type':'image/png'},payload:source})).statusCode,415);
   const response=await app.inject({method:'POST',url,headers,payload:source});assert.equal(response.statusCode,200,response.body);
