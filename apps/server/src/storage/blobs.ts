@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { createReadStream } from 'node:fs';
-import { link, mkdir, open, realpath, stat, unlink, rm, opendir } from 'node:fs/promises';
+import { link, mkdir, open, realpath, stat, unlink, rm, opendir, readFile, lstat } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import type { Readable } from 'node:stream';
 
@@ -41,8 +41,9 @@ async function* interruptible(source: AsyncIterable<Uint8Array>, signal?: AbortS
 
 /** Immutable private storage. The root is controlled by the administrator. */
 export class BlobStore {
+  readonly backend: "local" | "rclone" = "local";
   private root: string;
-  private constructor(root: string) { this.root = root; }
+  protected constructor(root: string) { this.root = root; }
 
   static async open(root: string): Promise<BlobStore> {
     await mkdir(root, { recursive: true, mode: 0o700 });
@@ -50,7 +51,16 @@ export class BlobStore {
     for (const name of ['blobs', 'staging']) await mkdir(join(resolved, name), { mode: 0o700, recursive: true });
     await syncDirectory(resolved);
     await syncDirectory(dirname(resolved));
-    return new BlobStore(resolved);
+    const local=new BlobStore(resolved);
+    try{
+      const marker=join(resolved,'rclone-originals.json'),info=await lstat(marker);
+      if(!info.isFile()||info.isSymbolicLink()||info.size>4096)throw Error('INVALID_RCLONE_ORIGINALS_CONFIG');
+      const mode=JSON.parse(await readFile(marker,'utf8'));
+      if(mode.version!==1||mode.kind!=='rclone-originals'||Object.keys(mode).length!==2)throw Error('INVALID_RCLONE_ORIGINALS_CONFIG');
+      const {RcloneOriginalStore,originalResolver}=await import('./rclone-originals.ts');
+      return new RcloneOriginalStore(resolved,local,originalResolver(join(dirname(resolved),'database.sqlite3')));
+    }catch(error){if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error;}
+    return local;
   }
 
   private uploadPath(id: string): string {

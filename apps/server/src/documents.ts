@@ -154,6 +154,7 @@ export class DocumentService {
 
   getPublished(userId: string, documentId: string) {
     if (!this.access.allows(userId, documentId, 'read')) return null;
+    if(this.store.backend==='rclone'&&this.db.prepare('SELECT 1 FROM documents WHERE id=? AND published_revision<>local_revision').get(documentId))return null;
     return this.db.prepare(`SELECT d.id,d.title,d.format,p.revision,p.manifest_digest AS manifestDigest,p.converter_version AS converterVersion,
       d.local_revision AS localRevision,d.provider_revision AS providerRevision
       FROM documents d JOIN previews p ON p.document_id=d.id AND p.revision=d.published_revision WHERE d.id=?`).get(documentId) as

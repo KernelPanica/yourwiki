@@ -9,7 +9,7 @@ export class HistorySettings{
  read(userId:string){this.admin(userId);const policy=historyPolicy(this.db);return {...policy,enabled:policy.enabled===1};}
  update(userId:string,input:{enabled:boolean;baseRevision:number}){
   if(typeof input.enabled!=='boolean'||!Number.isSafeInteger(input.baseRevision)||input.baseRevision<0)throw new DocumentError('INVALID_REQUEST');
-  return transaction(this.db,()=>{const actor=this.admin(userId),before=historyPolicy(this.db);if(before.revision!==input.baseRevision)throw new DocumentError('CONFLICT');if(before.enabled===(input.enabled?1:0))return {...before,enabled:input.enabled};
+  return transaction(this.db,()=>{const actor=this.admin(userId),before=historyPolicy(this.db);if(input.enabled&&(this.db.prepare('SELECT direct_originals_enabled AS enabled FROM app_state WHERE id=1').get() as {enabled:number}).enabled)throw new DocumentError('INVALID_REQUEST');if(before.revision!==input.baseRevision)throw new DocumentError('CONFLICT');if(before.enabled===(input.enabled?1:0))return {...before,enabled:input.enabled};
    this.db.prepare('UPDATE app_state SET history_enabled=?,history_settings_revision=history_settings_revision+1 WHERE id=1').run(input.enabled?1:0);
    this.db.prepare('INSERT INTO history_settings_changes(revision,enabled,author_id,author_name,created_at) VALUES(?,?,?,?,?)').run(before.revision+1,input.enabled?1:0,userId,actor.display_name,this.clock());return this.read(userId);
   });
