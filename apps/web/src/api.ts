@@ -1,5 +1,5 @@
 import { sessionSnapshot,sessionGenerationIsCurrent } from './session-fence.ts';
-export interface Account { features?: {providerStorage?:boolean;providerBackups?:boolean;googleConnect?:boolean;googleDiscovery?:boolean;googleImport?:boolean;googleTrash?:boolean;googleIdentity?:boolean;googleLifecycle?:boolean}; user: { id: string; username: string; displayName: string; adminRole: string; canInvite?:boolean; groups: {id:string;name:string}[] }; csrf: string }
+export interface Account { yourspace?:{issuer:string;profileUrl:string}; features?: {yourspace?:boolean;providerStorage?:boolean;providerBackups?:boolean;googleConnect?:boolean;googleDiscovery?:boolean;googleImport?:boolean;googleTrash?:boolean;googleIdentity?:boolean;googleLifecycle?:boolean}; user: { id: string; username: string; displayName: string; adminRole: string; canInvite?:boolean; groups: {id:string;name:string}[] }; csrf: string }
 export interface DocumentInfo { previewState?:string;previewError?:string|null;storagePending?:boolean; id: string; title: string; format: string; revision: number; manifestDigest: string|null; capabilities: {write:boolean;export:boolean;office?:boolean;googleTrash?:boolean} }
 export interface Artifact { name:string;digest:string;size:number;mimeType:string }
 export type GoogleOriginal={available:boolean;reason?:string;write?:boolean;url?:string};
@@ -10,7 +10,7 @@ export class ApiError extends Error {
   constructor(code: string, requestId='', operationId:string|null=null) { super(code); this.code=code; this.requestId=requestId; this.operationId=operationId; }
 }
 export async function api<T>(url:string, init:RequestInit={}):Promise<T> {
-  const fence=sessionSnapshot(),control=/^\/api\/(?:auth\/(?:login|logout|accept-invitation|office-revoke|office-opening-cancel)|account)(?:[?#]|$)/.test(url);
+  const fence=sessionSnapshot(),control=/^\/api\/(?:auth\/(?:options|login|logout|yourspace\/logout|accept-invitation|office-revoke|office-opening-cancel)|account)(?:[?#]|$)/.test(url);
   if(fence.blocked&&!control)throw new ApiError('SESSION_REQUIRED');
   const controller=new AbortController();
   const signals=control?[init.signal]:[init.signal,fence.signal];

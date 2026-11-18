@@ -15,13 +15,14 @@ type Settings = { session_hours: number; login_attempts: number; login_window_mi
 const dummy = 'pbkdf2_sha256$1000000$dummy-login-salt$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=';
 
 type User = { id: string; password_hash: string; auth_version: number; active: number };
+export const sessionCookieHeader=(origin:string,token:string,age:number)=>`${cookieName}=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${age}${origin.startsWith('https:')?'; Secure':''}`;
 export function sessionCookie(request: FastifyRequest): string {
   const values = (request.headers.cookie ?? '').split(';').map(value => value.trim())
     .filter(value => value.startsWith(cookieName + '='));
   return values.length === 1 ? values[0].slice(cookieName.length + 1) : '';
 }
 
-export function registerAuth(app: FastifyInstance, db: Database, publicUrl: string, features: {providerStorage?:boolean;providerBackups?:boolean;googleConnect?:boolean;googleDiscovery?:boolean;googleImport?:boolean;googleTrash?:boolean;googleIdentity?:boolean;googleLifecycle?:boolean} = {}): void {
+export function registerAuth(app: FastifyInstance, db: Database, publicUrl: string, features: {yourspace?:string;providerStorage?:boolean;providerBackups?:boolean;googleConnect?:boolean;googleDiscovery?:boolean;googleImport?:boolean;googleTrash?:boolean;googleIdentity?:boolean;googleLifecycle?:boolean} = {}): void {
   const url = new URL(publicUrl);
   if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash || url.pathname !== '/') throw new Error('Public URL must be an HTTP(S) origin');
   const origin = url.origin;
@@ -73,8 +74,9 @@ export function registerAuth(app: FastifyInstance, db: Database, publicUrl: stri
     const token = sessionCookie(request), session = authenticateSession(db, token);
     if (!session) return reply.code(401).send(errorEnvelope('SESSION_REQUIRED', request.id));
     const groups = db.prepare('SELECT g.id,g.name FROM groups g JOIN memberships m ON m.group_id=g.id WHERE m.user_id=? ORDER BY g.id').all(session.userId);
-    const visibleFeatures={...(features.googleIdentity?{googleIdentity:true}:{}),...(session.adminRole==='giga'?{...(features.providerStorage?{providerStorage:true}:{}),...(features.providerBackups?{providerBackups:true}:{}),...(features.googleLifecycle?{googleLifecycle:true}:{}),...(features.googleConnect?{googleConnect:true}:{}),...(features.googleDiscovery?{googleDiscovery:true}:{}),...(features.googleImport?{googleImport:true}:{})}:{}),...(['giga','simple'].includes(session.adminRole)&&features.googleTrash?{googleTrash:true}:{})};
-    return { user: { id: session.userId, username: session.username, displayName: session.displayName, adminRole: session.adminRole, canInvite:(db.prepare('SELECT can_invite FROM users WHERE id=?').get(session.userId) as {can_invite:number}).can_invite===1, groups }, csrf: csrfForToken(token), ...(Object.keys(visibleFeatures).length?{features:visibleFeatures}:{}) };
+    const visibleFeatures={...(features.yourspace?{yourspace:true}:{}),...(features.googleIdentity?{googleIdentity:true}:{}),...(session.adminRole==='giga'?{...(features.providerStorage?{providerStorage:true}:{}),...(features.providerBackups?{providerBackups:true}:{}),...(features.googleLifecycle?{googleLifecycle:true}:{}),...(features.googleConnect?{googleConnect:true}:{}),...(features.googleDiscovery?{googleDiscovery:true}:{}),...(features.googleImport?{googleImport:true}:{})}:{}),...(['giga','simple'].includes(session.adminRole)&&features.googleTrash?{googleTrash:true}:{})};
+    const identity=features.yourspace?db.prepare('SELECT subject FROM yourspace_sessions WHERE token_hash=?').get(session.tokenHash) as {subject:string}|undefined:undefined;
+    return { ...(identity?{yourspace:{issuer:features.yourspace!,profileUrl:features.yourspace!+'/people/'+encodeURIComponent(identity.subject)}}:{}),user: { id: session.userId, username: session.username, displayName: session.displayName, adminRole: session.adminRole, canInvite:(db.prepare('SELECT can_invite FROM users WHERE id=?').get(session.userId) as {can_invite:number}).can_invite===1, groups }, csrf: csrfForToken(token), ...(Object.keys(visibleFeatures).length?{features:visibleFeatures}:{}) };
   });
 
   app.post('/api/auth/logout', async (request, reply) => {

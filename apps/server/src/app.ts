@@ -1,3 +1,5 @@
+import {registerYourspaceLogin} from './auth/yourspace-login.ts';
+import type {YourspaceLoginOptions} from './auth/yourspace-oidc.ts';
 import {registerPlugins} from './plugins/routes.ts';
 import {registerMonitoring} from './monitoring/routes.ts';
 import {GoogleRegistration} from './auth/google-registration.ts';
@@ -46,6 +48,7 @@ import type { BlobStore } from './storage/blobs.ts';
 import { registerAuth } from './auth/routes.ts';
 
 export interface AppOptions {
+  yourspaceLogin?: YourspaceLoginOptions;
   officeFontsRoot?: string;
   contentSecrets?: SecretConfigs;
   drawioRoot?: string;
@@ -79,6 +82,7 @@ export function buildApp(options: AppOptions = {}) {
   if(options.googleImports&&(!options.database||!options.googleImports.belongsToDatabase(options.database)))throw new Error('Google imports require a matching workspace database');
   if(options.googleIdentities&&(!options.database||!options.googleIdentities.belongsToDatabase(options.database)))throw new Error('Google identities require matching database');
   if(options.googleLifecycle&&(!options.database||!options.googleLifecycle.belongsToDatabase(options.database)))throw new Error('Google lifecycle requires matching database');
+  if(options.yourspaceLogin&&(!options.database||!options.contentSecrets))throw Error('YourSpace login requires database and secret codec');
   const app = Fastify({
     logger: false,
     requestIdHeader: false,
@@ -87,6 +91,7 @@ export function buildApp(options: AppOptions = {}) {
     bodyLimit: 1024 * 1024,
     trustProxy: false,
   });
+  if(options.yourspaceLogin)registerYourspaceLogin(app,options.database!,options.contentSecrets!,new URL(options.publicUrl??'http://localhost:3100').origin,options.yourspaceLogin);
   if(options.database){registerMonitoring(app,options.database,options.workspacePath);registerPlugins(app,options.database,options.contentSecrets,options.publicUrl??'http://localhost:3100');}
   app.addHook('onRequest', async (request, reply) => {
     reply.header('x-request-id', request.id);
@@ -116,7 +121,7 @@ export function buildApp(options: AppOptions = {}) {
   if(options.database&&options.storage&&options.contentSecrets&&options.providerConnections){registerStorageRoutes(app,options.database,options.storage,options.contentSecrets,options.publicUrl??'http://localhost:3100');if(options.workspacePath)registerBackupRoutes(app,options.database,options.contentSecrets,options.workspacePath,options.publicUrl??'http://localhost:3100');}
   if(options.database&&options.providerConnections)registerProviderConnections(app,options.database,options.providerConnections);
   if(options.database&&options.googleConnect)registerGoogleConnect(app,options.database,options.googleConnect,options.publicUrl??'http://localhost:3100');
-  if (options.database) registerAuth(app, options.database, options.publicUrl ?? 'http://localhost:3100', {providerStorage:!!(options.contentSecrets&&options.providerConnections&&options.storage),providerBackups:!!(options.contentSecrets&&options.providerConnections&&options.storage&&options.workspacePath),googleConnect:!!options.googleConnect,googleDiscovery:!!options.googleDiscovery,googleImport:!!options.googleImports,googleTrash:!!options.googleTrash,googleIdentity:!!options.googleIdentities,googleLifecycle:!!options.googleLifecycle});
+  if (options.database) registerAuth(app, options.database, options.publicUrl ?? 'http://localhost:3100', {providerStorage:!!(options.contentSecrets&&options.providerConnections&&options.storage),providerBackups:!!(options.contentSecrets&&options.providerConnections&&options.storage&&options.workspacePath),googleConnect:!!options.googleConnect,googleDiscovery:!!options.googleDiscovery,googleImport:!!options.googleImports,googleTrash:!!options.googleTrash,googleIdentity:!!options.googleIdentities,googleLifecycle:!!options.googleLifecycle,...(options.yourspaceLogin?{yourspace:options.yourspaceLogin.issuer}:{})});
   if(options.database&&options.storage)registerMigrationRecovery(app,options.database,options.storage);
   if(options.database&&options.storage)registerTextDocuments(app,options.database,options.storage,options.publicUrl??'http://localhost:3100');
   if(options.database&&options.storage)registerContentParity(app,options.database,options.storage,options.publicUrl??'http://localhost:3100',{secrets:options.contentSecrets,drawioRoot:options.drawioRoot});

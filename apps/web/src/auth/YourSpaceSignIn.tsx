@@ -1,0 +1,11 @@
+import {useEffect,useState,type ReactNode} from 'react';
+import {api,ApiError} from '../api.ts';
+export default function YourSpaceSignIn({fallback}:{fallback:ReactNode}){
+ const [mode,setMode]=useState<'loading'|'local'|'yourspace'|'error'>('loading');
+ const ru=document.documentElement.lang==='ru',code=new URLSearchParams(location.search).get('sso');
+ useEffect(()=>{const c=new AbortController();void api<{mode?:string}>('/api/auth/options',{signal:c.signal}).then(v=>setMode(v.mode==='yourspace'?'yourspace':'local')).catch(e=>{if(!c.signal.aborted)setMode(e instanceof ApiError&&e.code==='NOT_FOUND'?'local':'error');});return()=>c.abort();},[]);
+ if(mode==='local')return fallback;
+ const messages:Record<string,string>={unlinked:ru?'Этот аккаунт YourSpace пока не подключён к YourWiki. Обратитесь к администратору.':'This YourSpace account is not linked to YourWiki. Contact an administrator.',invalid:ru?'Время входа истекло. Попробуйте ещё раз.':'The sign-in attempt expired. Try again.',unavailable:ru?'YourSpace временно недоступен. Повторите вход немного позже.':'YourSpace is temporarily unavailable. Try again shortly.',mfa_required:ru?'Для администратора нужна вторая проверка в YourSpace.':'Administrators need a second verification in YourSpace.'};
+ const next=location.pathname+(code?'':location.search)+location.hash;
+ return <main id="content" className="login"><a href="/" className="brand">YourWiki<span>·</span></a><h1>{ru?'Вход в YourWiki':'Sign in to YourWiki'}</h1>{mode==='loading'?<p role="status">{ru?'Загрузка…':'Loading…'}</p>:mode==='error'?<><p role="alert">{ru?'Не удалось проверить способ входа.':'Could not check sign-in settings.'}</p><button onClick={()=>location.reload()}>{ru?'Повторить':'Try again'}</button></>:<><p className="muted">{ru?'Используйте свой аккаунт YourSpace. Права на документы сохраняются в YourWiki.':'Use your YourSpace account. Document permissions are managed in YourWiki.'}</p>{code&&<p role="alert" className="notice">{messages[code]??messages.invalid}</p>}<a className="button primary" href={'/api/auth/yourspace/start?'+new URLSearchParams({return:next,...(code==='mfa_required'?{mfa:'1'}:{})})}>{ru?'Войти через YourSpace':'Sign in with YourSpace'}</a></>}</main>;
+}

@@ -612,3 +612,7 @@ YourWiki и пересоздайте `web`. Существующие редак�
 Collabora overlay и пересоздайте `web`. Не удаляйте тома. Скрипты `reader` и
 `check-reader` предназначены **только для отдельного локального стенда**;
 не запускайте создание тестового читателя в production.
+
+## YourSpace sign-in
+
+For OIDC-only sign-in and the paired server account migration, see [deployment and recovery](docs/yourspace-auth-migration.md). Keep identity-server source changes from `tools/release/yourspace-provider-refresh.patch` with the deployment; all Wiki runtime workers must use the matching append-only schema.
