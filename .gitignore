@@ -128,3 +128,36 @@ tempCodeRunnerFile.py
 /docs/google-trash-verification.md
 /docs/ui-*.md
 /docs/rclone/test-storage.md
+
+# Assistant instructions, scratch tasks and tool state (at any nesting level)
+**/.agents/
+**/.codex/
+**/.superpowers/
+**/.claude/
+**/.cursor/
+**/.gemini/
+**/.opencode/
+**/.aider*
+**/[Aa][Gg][Ee][Nn][Tt][Ss].[Mm][Dd]
+**/[Aa][Gg][Ee][Nn][Tt].[Mm][Dd]
+**/[Tt][Aa][Ss][Kk].[Mm][Dd]
+**/[Tt][Aa][Ss][Kk][Ss].[Mm][Dd]
+**/[Cc][Ll][Aa][Uu][Dd][Ee].[Mm][Dd]
+**/[Gg][Ee][Mm][Ii][Nn][Ii].[Mm][Dd]
+**/[Mm][Ee][Mm][Oo][Rr][Yy].[Mm][Dd]
+**/copilot-instructions.md
+**/.mcp.json
+**/.mcp.local.json
+
+# Machine-local authentication and cloud state; never part of a release
+**/.ssh/
+**/.aws/
+**/.kube/
+**/.terraform/
+*.tfstate
+*.tfstate.*
+.npmrc
+credentials.json
+credentials-*.json
+client_secret*.json
+*service-account*.json

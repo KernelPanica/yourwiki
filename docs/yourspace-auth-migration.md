@@ -19,11 +19,3 @@ Before cutover stop database writers and scheduled backup writers, keep private 
 ## Verification / Проверка
 
 Run Wiki `tools/release/yourspace-login.test.ts` and `yourspace-account-migration.test.ts` (the latter uses the adjacent YourSpace repository). Apply the companion patch to the matching YourSpace baseline and run its OIDC tests plus the refresh regression. Check old-password API returns 403, public options advertise YourSpace, start redirects to the correct issuer/callback, and a real migrated account can sign in and retain groups/permissions. Admins enroll/confirm their own MFA. Test revoked/disabled account, logout, refresh, replay and unavailable provider. Check the login screen at 1440×900 and 390×844. Do not treat seeing the central login page alone as a completed authenticated end-to-end check.
-
-## Deployment record — 2026-11-18
-
-Production release: `/opt/yourwiki-releases/yourspace-sso-20261118` on `wiki-new`. Existing identities were left separate because no person-to-person merge was approved: seven Wiki users imported alongside the existing central account. Seven verified personal Google bindings were copied. The final pre-switch backup path is recorded in `/root/yourspace-sso-latest-backup` on the server; keys/configurations and both database snapshots stay private there. Neither Drive payloads nor storage OAuth were migrated or removed.
-
-The first cold-backup attempt failed before changing databases because a read-only SQLite WAL source could not create its shared-memory file; old services resumed automatically. The corrected script creates final SQLite snapshots from private cold copies. Release directories created by the frontend builder have mode 0700; source-mounted deployments must make the public `dist` directory readable/traversable by UID 10001 before starting web. Both corrections are included in the server scripts.
-
-After the user explicitly selected `Admin`, central `kernelpanica` (`a7928bc9-377b-46bc-b69e-f7c1d6708985`) was linked to Wiki `Admin` (`011084bc-14ff-455e-b4b2-fc65842717ee`). Wiki role/ownership/ACLs and the central password/MFA were unchanged. A separate fresh pair of backups was saved under `/root/yourspace-admin-link-20261118T185948Z`; the linkage is recorded in both audit logs. Imported central accounts were not deleted. Do not infer further merges from matching display names.
