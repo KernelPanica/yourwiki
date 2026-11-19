@@ -1,0 +1,33 @@
+.wiki-metrics {
+  max-width: 36rem;
+  margin: 1.5em 0;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+}
+.wiki-metrics figcaption {
+  margin-bottom: 12px;
+  font-weight: 600;
+}
+.wiki-metrics-row {
+  display: grid;
+  grid-template-columns: minmax(0, 8em) minmax(0, 1fr) 3ch;
+  align-items: center;
+  gap: 8px;
+  margin-block: 4px;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+.wiki-metrics-row meter {
+  width: 100%;
+}
+.wiki-metrics-row meter::-webkit-meter-optimum-value {
+  background: var(--accent);
+}
+.wiki-metrics-row meter::-moz-meter-bar {
+  background: var(--accent);
+}
+.wiki-metrics-row > span:last-child {
+  text-align: right;
+}

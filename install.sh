@@ -21,7 +21,6 @@ collabora=1
 collabora_enabled=0
 install_document_fonts=0
 rclone_drive=1
-runtime_compose=0
 tls_email=${YOURWIKI_TLS_EMAIL:-}
 public_tls=0
 tls_ready=0
@@ -34,6 +33,22 @@ env_value() {
 file_public_url=$(env_value YOURWIKI_PUBLIC_URL)
 file_port=$(env_value YOURWIKI_PORT)
 file_transport=$(env_value YOURWIKI_DRIVE_TRANSPORT)
+file_compose=$(env_value COMPOSE_FILE)
+case $file_compose in
+ \'*\') file_compose=${file_compose#\'}; file_compose=${file_compose%\'} ;;
+ \"*\") file_compose=${file_compose#\"}; file_compose=${file_compose%\"} ;;
+esac
+extra_overlays=
+remaining=$file_compose
+while [ -n "$remaining" ]; do
+ candidate=${remaining%%:*}
+ case $candidate in
+  ''|compose.yaml|compose.rclone.yaml|compose.collabora.yaml|./compose.yaml|./compose.rclone.yaml|./compose.collabora.yaml|"$root"/compose.yaml|"$root"/compose.rclone.yaml|"$root"/compose.collabora.yaml) ;;
+  *) extra_overlays=${extra_overlays}:$candidate ;;
+ esac
+ if [ "$candidate" = "$remaining" ]; then break; fi
+ remaining=${remaining#*:}
+done
 case ${YOURWIKI_DRIVE_TRANSPORT:-$file_transport} in api|"'api'"|'"api"') rclone_drive=0 ;; esac
 rclone_data=${YOURWIKI_RCLONE_DATA:-$(env_value YOURWIKI_RCLONE_DATA)}
 rclone_runtime=${YOURWIKI_RCLONE_RUNTIME:-$(env_value YOURWIKI_RCLONE_RUNTIME)}
@@ -252,10 +267,20 @@ fi
 docker_cmd() {
  if [ "$use_sudo" -eq 1 ]; then sudo docker "$@"; else docker "$@"; fi
 }
+compose_with_files() {
+ files=$1
+ shift
+ while :; do
+  last_file=${files##*:}
+  set -- -f "$last_file" "$@"
+  if [ "$files" = "$last_file" ]; then break; fi
+  files=${files%:*}
+ done
+ docker_cmd compose "$@"
+}
+
 compose_cmd() {
- if [ "$runtime_compose" -eq 1 ] && [ "$rclone_drive" -eq 1 ]; then
-  if [ "$collabora_enabled" -eq 1 ]; then docker_cmd compose -f compose.yaml -f compose.rclone.yaml -f compose.collabora.yaml "$@"
-  else docker_cmd compose -f compose.yaml -f compose.rclone.yaml "$@"; fi
+ if [ "$1" != build ]; then compose_with_files "$compose_files" "$@"
  elif [ "$collabora_enabled" -eq 1 ]; then docker_cmd compose -f compose.yaml -f compose.collabora.yaml "$@"
  else docker_cmd compose -f compose.yaml "$@"; fi
 }
@@ -292,7 +317,12 @@ write_configuration() {
  compose_files=compose.yaml
  if [ "$rclone_drive" -eq 1 ]; then compose_files="$compose_files:compose.rclone.yaml"; fi
  if [ "$collabora_enabled" -eq 1 ]; then compose_files="$compose_files:compose.collabora.yaml"; fi
+ compose_files="$compose_files$extra_overlays"
  printf 'COMPOSE_FILE=%s\n' "$compose_files" >> "$temporary"
+ if [ -n "$extra_overlays" ] && ! compose_with_files "$compose_files" --env-file "$temporary" config --quiet; then
+  printf '%s\n' '[ERROR] Existing Compose overrides are invalid. Existing .env and services were kept.' >&2
+  exit 1
+ fi
  chmod 600 "$temporary"
  mv "$temporary" .env
  trap - EXIT HUP INT TERM
@@ -372,7 +402,6 @@ EOF
  else
   printf '%s\n' '[WARN] No systemd: after reboot, rerun ./install.sh --start-only before starting rclone containers.' >&2
  fi
- runtime_compose=1
 }
 
 stop_previous_rclone_supervisor() {
@@ -553,7 +582,7 @@ if [ "$start" -eq 1 ]; then stop_previous_rclone_supervisor; prepare_rclone_supe
 wait_for_readiness() {
  attempt=0
  while [ "$attempt" -lt 60 ]; do
-  if docker_cmd compose exec -T web node -e "fetch('http://127.0.0.1:3100/ready/').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))" >/dev/null 2>&1; then return 0; fi
+  if compose_cmd exec -T web node -e "fetch('http://127.0.0.1:3100/ready/').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))" >/dev/null 2>&1; then return 0; fi
   attempt=$((attempt+1))
   sleep 2
  done

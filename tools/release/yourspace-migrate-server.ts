@@ -4,11 +4,12 @@ import {pathToFileURL} from 'node:url';
 import {join} from 'node:path';
 import {createRequire} from 'node:module';
 const Sqlite=createRequire(new URL('../../apps/server/package.json',import.meta.url))('better-sqlite3');
+import {issuerOrigin} from '../../apps/server/src/auth/yourspace-oidc.ts';
 import {openDatabase} from '../../apps/server/src/database.ts';
 import {migrateYourwikiAccounts} from './yourspace-account-migration.ts';
 const root=process.env.YOURSPACE_MIGRATION_DIR!,source=process.env.YOURSPACE_MIGRATION_SOURCE!;
 if(!root?.startsWith('/')||!source?.startsWith('/'))throw Error('EXPLICIT_PRIVATE_STAGING_PATHS_REQUIRED');
-const issuer='https://space.ageofsilence.net',wikiOrigin='https://wiki.ageofsilence.net';
+const issuer=issuerOrigin(process.env.YOURWIKI_YOURSPACE_ISSUER??''),wikiOrigin=issuerOrigin(process.env.YOURWIKI_PUBLIC_URL??'');
 const {openDatabase:openSpace}=await import(pathToFileURL(join(source,'db.ts')).href),{cipherFromEnv,useCipher,sealedColumns,place}=await import(pathToFileURL(join(source,'crypto/data-cipher.ts')).href),{Accounts}=await import(pathToFileURL(join(source,'auth/accounts.ts')).href),{Oidc}=await import(pathToFileURL(join(source,'oidc/provider.ts')).href);
 for(const name of ['wiki','space']){const db=new Sqlite(join(root,name+'.before.sqlite3'),{readonly:true,fileMustExist:true});try{await db.backup(join(root,name+'.staged.sqlite3'));}finally{db.close();}}
 const wiki=openDatabase(join(root,'wiki.staged.sqlite3')),space=openSpace(join(root,'space.staged.sqlite3'));

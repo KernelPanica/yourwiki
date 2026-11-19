@@ -59,3 +59,30 @@ test('custom web port is applied to WOPI proxy as well as the main site',()=>che
 test('low disk blocks deployment before configuration or service changes',()=>check(async f=>{const r=run(f,['--start-only','--yes',...api],{MOCK_INITIAL:'complete',MOCK_DISK_AVAILABLE:'1024'});assert.notEqual(r.status,0);assert.match(r.stderr,/Not enough free disk space/);const calls=await readFile(f.calls,'utf8');assert(!calls.includes('up -d'));assert(!calls.includes('volume rm'));await assert.rejects(lstat(join(f.work,'.env')));}));
 test('high filesystem usage blocks startup even when absolute free bytes are sufficient',()=>check(async f=>{const r=run(f,['--start-only','--yes',...api],{MOCK_INITIAL:'complete',MOCK_DISK_USED:'96%'});assert.notEqual(r.status,0);assert.match(r.stderr,/96% used/);}));
 test('font installation is opt-in and runs inside the image with explicit license acceptance',()=>check(async f=>{const args=['--start-only','--yes','--public-url','https://wiki.test','--no-rclone','--no-system-setup','--no-proxy','--no-swap'];let r=run(f,args,{MOCK_INITIAL:'complete'});assert.equal(r.status,0,r.stderr);assert(!(await readFile(f.calls,'utf8')).includes('install_document_fonts.py'));r=run(f,[...args,'--accept-document-fonts-eula'],{MOCK_INITIAL:'complete'});assert.equal(r.status,0,r.stderr);assert((await readFile(f.calls,'utf8')).includes('install_document_fonts.py --accept-eula'));}));
+
+test('repeat install retains YourSpace SSO and custom Compose overlays for runtime',()=>check(async f=>{
+ const overrides=['compose.onlyoffice.yaml',join(f.work,'compose.yourspace-sso.yaml')];
+ const settings='YOURWIKI_YOURSPACE_ISSUER=https://space.test\nYOURWIKI_DRIVE_TRANSPORT=api\n';
+ await writeFile(join(f.work,'.env'),settings+'COMPOSE_FILE="compose.yaml:compose.rclone.yaml:'+overrides.join(':')+'"\n');
+ const r=run(f,['--start-only','--yes',...api],{MOCK_INITIAL:'complete'});
+ assert.equal(r.status,0,r.stdout+r.stderr);
+ const e=await readFile(join(f.work,'.env'),'utf8'),c=await readFile(f.calls,'utf8');
+ assert.ok(e.includes('YOURWIKI_YOURSPACE_ISSUER=https://space.test'));
+ assert.ok(e.includes('COMPOSE_FILE=compose.yaml:'+overrides.join(':')));
+ const flags='-f compose.yaml '+overrides.map(path=>'-f '+path).join(' ');
+ assert.ok(c.includes(flags+' up -d web provider conversion'));
+ assert.ok(c.includes(flags+' exec -T web'));
+}));
+
+test('an invalid existing Compose override leaves .env and running services alone',()=>check(async f=>{
+ const configuration='COMPOSE_FILE=compose.yaml:compose.yourspace-sso.yaml\n';
+ await writeFile(join(f.work,'.env'),configuration);
+ const docker=join(f.bin,'docker');
+ const original=await readFile(docker,'utf8');
+ await writeFile(docker,original.replace('exit 0\n', 'case "$*" in *"config --quiet") exit 1;; esac\nexit 0\n'));
+ const r=run(f,['--start-only','--yes',...api],{MOCK_INITIAL:'complete'});
+ assert.notEqual(r.status,0,r.stdout+r.stderr);
+ assert.match(r.stderr,/Compose overrides are invalid/);
+ assert.equal(await readFile(join(f.work,'.env'),'utf8'),configuration);
+ assert.doesNotMatch(await readFile(f.calls,'utf8'),/up -d|stop rclone/);
+}));

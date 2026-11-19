@@ -1,0 +1,48 @@
+.onboarding-hint {
+  margin: 8px 16px;
+  flex: none;
+}
+
+:root:not([data-theme=terminal]) .notice.onboarding-hint {
+  color: #592900;
+  background: #ffdfb8;
+  border-color: #d58339;
+}
+
+:root[data-theme=dark] .notice.onboarding-hint {
+  color: #ffe4c7;
+  background: #4a2b15;
+  border-color: #a96532;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root[data-theme=auto] .notice.onboarding-hint {
+    color: #ffe4c7;
+    background: #4a2b15;
+    border-color: #a96532;
+  }
+}
+
+:root:not([data-theme=terminal]) .onboarding-hint a {
+  color: inherit;
+  text-decoration: underline;
+}
+
+.onboarding-hint p {
+  margin: 0 0 8px;
+}
+
+.onboarding-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.onboarding-process {
+  margin: 8px 16px;
+}
+
+details.onboarding-process > summary {
+  cursor: pointer;
+}

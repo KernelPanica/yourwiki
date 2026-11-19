@@ -70,13 +70,38 @@ export function registerAuth(app: FastifyInstance, db: Database, publicUrl: stri
     try{const resets=new PasswordResets(db);resets.attempt(request.ip);const body=request.body as Record<string,unknown>;if(!body||typeof body!=='object'||Array.isArray(body)||Object.keys(body).some(key=>!['token','password','passwordConfirmation'].includes(key)))throw new DocumentError('INVALID_REQUEST');return await resets.redeem(body.token,body.password,body.passwordConfirmation);}catch(error){if(!(error instanceof DocumentError))throw error;return reply.code(error.code==='RATE_LIMITED'?429:400).send(errorEnvelope(error.code,request.id));}
   });
 
+  const processNotes = () => db.prepare('SELECT topic,ru,en,link FROM onboarding_process ORDER BY topic').all();
+  app.put<{Body:{topic:string;ru:string;en:string;link:string}}>('/api/admin/onboarding/process',{
+    bodyLimit:8192,
+    schema:{body:{type:'object',additionalProperties:false,required:['topic','ru','en','link'],properties:{
+      topic:{enum:['document','denied','permissions','trash']},
+      ru:{type:'string',maxLength:500},en:{type:'string',maxLength:500},link:{type:'string',maxLength:1024},
+    }}},
+  },(request,reply)=>{
+    const actor=authenticateSession(db,sessionCookie(request)),csrf=request.headers['x-csrf-token'];
+    if(!actor)return reply.code(401).send(errorEnvelope('SESSION_REQUIRED',request.id));
+    if(actor.adminRole==='member')return reply.code(403).send(errorEnvelope('ACCESS_DENIED',request.id));
+    if(!sameOrigin(request)||typeof csrf!=='string'||!validCsrf(actor,csrf))return reply.code(403).send(errorEnvelope('CSRF_REJECTED',request.id));
+    const {topic}=request.body,ru=request.body.ru.trim(),en=request.body.en.trim(),link=request.body.link.trim();
+    if(!ru&&!en&&!link)db.prepare('DELETE FROM onboarding_process WHERE topic=?').run(topic);
+    else {
+      let target:URL|undefined;
+      try{target=new URL(link,origin);}catch{/* Invalid links are rejected below. */}
+      if(!ru||!en||!target||target.origin!==origin||target.protocol!==url.protocol||target.username||target.password||!/^\/documents\/[^/]+$/.test(target.pathname))
+        return reply.code(400).send(errorEnvelope('INVALID_REQUEST',request.id));
+      db.prepare('INSERT INTO onboarding_process(topic,ru,en,link) VALUES(?,?,?,?) ON CONFLICT(topic) DO UPDATE SET ru=excluded.ru,en=excluded.en,link=excluded.link')
+        .run(topic,ru,en,target.pathname+target.search+target.hash);
+    }
+    return processNotes();
+  });
+
   app.get('/api/account', async (request, reply) => {
     const token = sessionCookie(request), session = authenticateSession(db, token);
     if (!session) return reply.code(401).send(errorEnvelope('SESSION_REQUIRED', request.id));
     const groups = db.prepare('SELECT g.id,g.name FROM groups g JOIN memberships m ON m.group_id=g.id WHERE m.user_id=? ORDER BY g.id').all(session.userId);
     const visibleFeatures={...(features.yourspace?{yourspace:true}:{}),...(features.googleIdentity?{googleIdentity:true}:{}),...(session.adminRole==='giga'?{...(features.providerStorage?{providerStorage:true}:{}),...(features.providerBackups?{providerBackups:true}:{}),...(features.googleLifecycle?{googleLifecycle:true}:{}),...(features.googleConnect?{googleConnect:true}:{}),...(features.googleDiscovery?{googleDiscovery:true}:{}),...(features.googleImport?{googleImport:true}:{})}:{}),...(['giga','simple'].includes(session.adminRole)&&features.googleTrash?{googleTrash:true}:{})};
     const identity=features.yourspace?db.prepare('SELECT subject FROM yourspace_sessions WHERE token_hash=?').get(session.tokenHash) as {subject:string}|undefined:undefined;
-    return { ...(identity?{yourspace:{issuer:features.yourspace!,profileUrl:features.yourspace!+'/people/'+encodeURIComponent(identity.subject)}}:{}),user: { id: session.userId, username: session.username, displayName: session.displayName, adminRole: session.adminRole, canInvite:(db.prepare('SELECT can_invite FROM users WHERE id=?').get(session.userId) as {can_invite:number}).can_invite===1, groups }, csrf: csrfForToken(token), ...(Object.keys(visibleFeatures).length?{features:visibleFeatures}:{}) };
+    return { onboardingProcess:processNotes(), ...(identity?{yourspace:{issuer:features.yourspace!,profileUrl:features.yourspace!+'/people/'+encodeURIComponent(identity.subject)}}:{}),user: { id: session.userId, username: session.username, displayName: session.displayName, adminRole: session.adminRole, canInvite:(db.prepare('SELECT can_invite FROM users WHERE id=?').get(session.userId) as {can_invite:number}).can_invite===1, groups }, csrf: csrfForToken(token), ...(Object.keys(visibleFeatures).length?{features:visibleFeatures}:{}) };
   });
 
   app.post('/api/auth/logout', async (request, reply) => {

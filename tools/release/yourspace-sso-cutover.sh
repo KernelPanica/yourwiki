@@ -1,9 +1,20 @@
 set -euo pipefail
 release=${YOURWIKI_SSO_RELEASE_DIR:-/opt/yourwiki-releases/yourspace-sso-20261118}
+# Use the same Compose interpolation as the runtime, without sourcing .env as shell.
+compose_env=$(cd /home/yourwiki && docker compose config --environment)
+issuer=$(printf '%s\n' "$compose_env" | sed -n 's/^YOURWIKI_YOURSPACE_ISSUER=//p')
+wiki_origin=$(printf '%s\n' "$compose_env" | sed -n 's/^YOURWIKI_PUBLIC_URL=//p')
+unset compose_env
+: "${issuer:?Set YOURWIKI_YOURSPACE_ISSUER in /home/yourwiki/.env}"
+: "${wiki_origin:?Set YOURWIKI_PUBLIC_URL in /home/yourwiki/.env}"
 chmod 755 "$release/apps/web/dist"
 backup=/root/yourspace-sso-backup-$(date -u +%Y%m%dT%H%M%SZ)
 install -d -m 700 "$backup"
 space_image=$(docker inspect yourspace-yourspace-1 --format '{{.Config.Image}}')
+issuer=$(docker run --rm --network none --entrypoint node -e YOURWIKI_YOURSPACE_ISSUER="$issuer" -e YOURWIKI_PUBLIC_URL="$wiki_origin" -v "$release":/app/wiki:ro "$space_image" --input-type=module -e '
+import {issuerOrigin} from "/app/wiki/apps/server/src/auth/yourspace-oidc.ts";
+issuerOrigin(process.env.YOURWIKI_PUBLIC_URL);
+console.log(issuerOrigin(process.env.YOURWIKI_YOURSPACE_ISSUER));')
 wiki_data=/var/lib/docker/volumes/yourwiki_workspace/_data/workspace
 space_data=/var/lib/docker/volumes/yourspace_data/_data
 cp -a /home/yourwiki/.env "$backup/wiki.env"
@@ -26,12 +37,12 @@ docker run --rm --network none --user 0:0 --entrypoint node -v yourwiki_workspac
 import D from "better-sqlite3";
 for(const [from,to] of [["/migration/wiki.raw.sqlite3","wiki"],["/migration/space.raw.sqlite3","space"]]){const d=new D(from,{fileMustExist:true});await d.backup("/migration/"+to+".before.sqlite3");d.close();}
 console.log("FINAL_SNAPSHOTS_CREATED");'
-docker run --rm --network none --user 0:0 --entrypoint node -e YOURSPACE_MIGRATION_DIR=/migration -e YOURSPACE_MIGRATION_SOURCE=/app/src -e YOURSPACE_DATA_KEY_FILE=/run/secrets/data_key -v "$backup":/migration -v "$release":/app/wiki:ro -v "$release/space-src":/app/src:ro -v /opt/yourspace/secrets/data.key:/run/secrets/data_key:ro "$space_image" /app/wiki/tools/release/yourspace-migrate-server.ts
+docker run --rm --network none --user 0:0 --entrypoint node -e YOURWIKI_YOURSPACE_ISSUER="$issuer" -e YOURWIKI_PUBLIC_URL="$wiki_origin" -e YOURSPACE_MIGRATION_DIR=/migration -e YOURSPACE_MIGRATION_SOURCE=/app/src -e YOURSPACE_DATA_KEY_FILE=/run/secrets/data_key -v "$backup":/migration -v "$release":/app/wiki:ro -v "$release/space-src":/app/src:ro -v /opt/yourspace/secrets/data.key:/run/secrets/data_key:ro "$space_image" /app/wiki/tools/release/yourspace-migrate-server.ts
 cat > /home/yourwiki/compose.yourspace-sso.yaml <<YAML
 services:
   web:
     environment:
-      YOURWIKI_YOURSPACE_ISSUER: https://space.ageofsilence.net
+      YOURWIKI_YOURSPACE_ISSUER: "\${YOURWIKI_YOURSPACE_ISSUER:?Set YOURWIKI_YOURSPACE_ISSUER in .env}"
       YOURWIKI_YOURSPACE_CLIENT_ID: yourwiki
       YOURWIKI_YOURSPACE_CLIENT_SECRET_FILE: /run/secrets/yourspace_client
     volumes:

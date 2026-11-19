@@ -1207,5 +1207,27 @@ CREATE TRIGGER direct_originals_history BEFORE UPDATE OF history_enabled,direct_
 const rcloneExternalPayloadsMigration=`
 CREATE TABLE rclone_external_payloads(digest TEXT PRIMARY KEY,size INTEGER NOT NULL,md5 TEXT NOT NULL,source_connection_id TEXT NOT NULL REFERENCES provider_connections(id),reference TEXT NOT NULL,access_connection_id TEXT NOT NULL REFERENCES provider_connections(id),parent_id TEXT,verified_at INTEGER NOT NULL);
 `;
-export const migrations = [core + epochTriggers, authInvalidation, authSettings, jobs, documents, workerSlots, uploads, pdfLayers, saveJournal, officeSessions, officeIngress, officeCleanup, officeRecovery, officePrepared, officePreparedBindings, officeSaveIntents, officeOpenings, officeHandoff, documentVisits, versionHistory, historyPreviews, historyRestores, legacyHistory, historyImports, historyCatalogue, providerConnections, providerSourceRequests, providerDeliveryAttempts, providerDeliveryRecoveryIndex, providerDeliveryRequestJob, providerVersionOrigins, providerIngressInbox, providerIngressScheduling, providerSyncActions, providerAcceptedJobIndex, providerOAuthRefreshes, providerGoogleGrantImports, providerIngressBounded, providerGoogleUploads, providerGoogleConnectStates, providerGoogleConnectResults, providerGoogleNativeCommands, providerGoogleDiscovery, providerGoogleImports, providerGoogleTrash, providerGoogleAccess, providerGoogleLifecycle, administrationMigration, contentParityMigration, presenceMigration, invitationPermissionsMigration, googleStorageMigration, googleStorageExportsMigration, textWorkspaceMigration, resourcePurgeCleanupMigration, backupMigration, googleFolderTrashMigration, googleReconciliationMigration, markdownEditorMigration, googleMarkdownRepairMigration, googleIngressPriorityMigration, googleWatchMigration, googleRegistrationMigration, monitoringMigration, localDashboardMigration, passwordResetMigration, pluginsMigration, userPurgeMigration, rcloneDriveMigration, rcloneFolderJournalMigration, rcloneNativeMigration, rcloneOriginalsMigration, rcloneOriginalReceiptsMigration, rcloneExternalPayloadsMigration, yourspaceLoginMigration] as const;
+const onboardingProcessMigration = `
+CREATE TABLE onboarding_process (
+  topic TEXT PRIMARY KEY CHECK(topic IN ('document','denied','permissions','trash')),
+  ru TEXT NOT NULL,
+  en TEXT NOT NULL,
+  link TEXT NOT NULL
+);
+`;
+const terminalThemeMigration = `
+CREATE TABLE user_preferences_with_terminal (
+  user_id TEXT PRIMARY KEY REFERENCES users(id),
+  language TEXT NOT NULL DEFAULT 'auto' CHECK(language IN ('auto','ru','en')),
+  theme TEXT NOT NULL DEFAULT 'auto' CHECK(theme IN ('auto','light','dark','terminal')),
+  animations INTEGER NOT NULL DEFAULT 0 CHECK(animations IN (0,1)),
+  avatar TEXT,
+  revision INTEGER NOT NULL DEFAULT 0
+);
+INSERT INTO user_preferences_with_terminal(user_id,language,theme,animations,avatar,revision)
+  SELECT user_id,language,theme,animations,avatar,revision FROM user_preferences;
+DROP TABLE user_preferences;
+ALTER TABLE user_preferences_with_terminal RENAME TO user_preferences;
+`;
+export const migrations = [core + epochTriggers, authInvalidation, authSettings, jobs, documents, workerSlots, uploads, pdfLayers, saveJournal, officeSessions, officeIngress, officeCleanup, officeRecovery, officePrepared, officePreparedBindings, officeSaveIntents, officeOpenings, officeHandoff, documentVisits, versionHistory, historyPreviews, historyRestores, legacyHistory, historyImports, historyCatalogue, providerConnections, providerSourceRequests, providerDeliveryAttempts, providerDeliveryRecoveryIndex, providerDeliveryRequestJob, providerVersionOrigins, providerIngressInbox, providerIngressScheduling, providerSyncActions, providerAcceptedJobIndex, providerOAuthRefreshes, providerGoogleGrantImports, providerIngressBounded, providerGoogleUploads, providerGoogleConnectStates, providerGoogleConnectResults, providerGoogleNativeCommands, providerGoogleDiscovery, providerGoogleImports, providerGoogleTrash, providerGoogleAccess, providerGoogleLifecycle, administrationMigration, contentParityMigration, presenceMigration, invitationPermissionsMigration, googleStorageMigration, googleStorageExportsMigration, textWorkspaceMigration, resourcePurgeCleanupMigration, backupMigration, googleFolderTrashMigration, googleReconciliationMigration, markdownEditorMigration, googleMarkdownRepairMigration, googleIngressPriorityMigration, googleWatchMigration, googleRegistrationMigration, monitoringMigration, localDashboardMigration, passwordResetMigration, pluginsMigration, userPurgeMigration, rcloneDriveMigration, rcloneFolderJournalMigration, rcloneNativeMigration, rcloneOriginalsMigration, rcloneOriginalReceiptsMigration, rcloneExternalPayloadsMigration, yourspaceLoginMigration, onboardingProcessMigration, terminalThemeMigration] as const;
 export const applicationId = 0x5957494b; // YWIK; legacy Django uses no marker.

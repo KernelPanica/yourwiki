@@ -23,13 +23,13 @@ if(!pdfStyle)throw new Error('Missing PDF styles');
 const archiveWorker=await build({absWorkingDir:root,entryPoints:['src/archive-hash-worker.ts'],outdir,bundle:true,minify:true,format:'esm',target:'es2022',metafile:true,entryNames:'archive-hash-[hash]'});
 const archiveWorkerPath=Object.keys(archiveWorker.metafile.outputs).find(name=>name.endsWith('.js'));
 if(!archiveWorkerPath)throw new Error('Missing archive hash worker');
-const result=await build({absWorkingDir:root,entryPoints:['src/main.tsx'],plugins:[mermaidCsp],outdir,bundle:true,minify:true,splitting:true,format:'esm',target:'es2022',jsx:'automatic',metafile:true,entryNames:'[name]-[hash]',chunkNames:'chunk-[hash]',assetNames:'[name]-[hash]',publicPath:'/assets',loader:{'.woff2':'file','.woff':'file','.ttf':'file','.svg':'dataurl','.gif':'dataurl','.png':'dataurl'},define:{'process.env.NODE_ENV':'"production"',__PDF_ASSET_BASE__:JSON.stringify('/assets/'+pdfDirectory+'/'),__PDF_STYLESHEET__:JSON.stringify('/assets/'+basename(pdfStyle)),__ARCHIVE_HASH_WORKER__:JSON.stringify('/assets/'+basename(archiveWorkerPath))}});
+const result=await build({absWorkingDir:root,entryPoints:['src/main.tsx'],plugins:[mermaidCsp],outdir,bundle:true,minify:true,splitting:true,format:'esm',target:'es2022',jsx:'automatic',metafile:true,entryNames:'[name]-[hash]',chunkNames:'chunk-[hash]',assetNames:'[name]-[hash]',publicPath:'/assets',loader:{'.woff2':'file','.woff':'file','.ttf':'file','.svg':'dataurl','.gif':'dataurl','.png':'file'},define:{'process.env.NODE_ENV':'"production"',__PDF_ASSET_BASE__:JSON.stringify('/assets/'+pdfDirectory+'/'),__PDF_STYLESHEET__:JSON.stringify('/assets/'+basename(pdfStyle)),__ARCHIVE_HASH_WORKER__:JSON.stringify('/assets/'+basename(archiveWorkerPath))}});
 Object.assign(result.metafile.outputs,pdfCss.metafile.outputs,archiveWorker.metafile.outputs);
 const assets={};
 let script='',css='',font='';
 for(const [name,meta] of Object.entries(result.metafile.outputs)) {
   const file=basename(name),content=await readFile(resolve(root,name));
-  const type=file.endsWith('.js')?'text/javascript':file.endsWith('.css')?'text/css':file.endsWith('.ttf')?'font/ttf':file.endsWith('.woff')?'font/woff':'font/woff2';
+  const type=file.endsWith('.js')?'text/javascript':file.endsWith('.css')?'text/css':file.endsWith('.png')?'image/png':file.endsWith('.ttf')?'font/ttf':file.endsWith('.woff')?'font/woff':'font/woff2';
   const gzip=gzipSync(content),br=brotliCompressSync(content,{params:{[constants.BROTLI_PARAM_QUALITY]:9}});
   await writeFile(resolve(dist,'assets',file+'.gz'),gzip);await writeFile(resolve(dist,'assets',file+'.br'),br);
   assets[file]={type,size:content.length,gzipSize:gzip.length,brSize:br.length};

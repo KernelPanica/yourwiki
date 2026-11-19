@@ -19,3 +19,16 @@ Connection values are encrypted with the existing workspace encryption key. Secr
 Enable/disable/configuration changes use revisions to reject stale writes. Disable prevents new actions; already-running external requests cannot be undone. Their results are discarded if the plugin was changed, disabled or removed during execution. Deletion requires disabling first and removes its source/configuration. Lifecycle and execution events appear in the administration audit without configuration or response bodies.
 
 Start with [http-service.ts](http-service.ts), or the matching Download example button. For custom schemes replace its `execute` implementation and fields. Existing built-in Drive/storage integrations remain independent.
+
+## Bundled Markdown metrics
+
+Add an empty fenced block to the Markdown source:
+
+````markdown
+```yourwiki-metrics
+```
+````
+
+The first such block renders as a bar chart in the document preview and on a Markdown dashboard. The chart groups the viewer’s personal recent documents by format, with a maximum of 200 distinct entries. It counts only documents the viewer can still access and includes no names, titles, or site-wide activity. The values are calculated when YourWiki renders the preview. The Markdown source stores only the marker, so shared documents show each reader their own counts. A static or exported preview retains the code block.
+
+This built-in Markdown plugin ships with YourWiki and requires no upload, connection, or admin configuration.

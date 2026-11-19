@@ -1,0 +1,124 @@
+:root .ui-icon-terminal,
+:root .terminal-brand {
+  display: none;
+}
+
+:root[data-theme=terminal] {
+  color-scheme: dark;
+  --font-ui: var(--font-code);
+  --canvas: #090909;
+  --surface: #111111;
+  --surface-raised: #191919;
+  --surface-inset: #0d0d0d;
+  --text: #f4f4f4;
+  --muted: #b0b0b0;
+  --line: #424242;
+  --control-line: #808080;
+  --accent: #454545;
+  --accent-strong: #505050;
+  --accent-ink: #eeeeee;
+  --accent-wash: #282828;
+  --danger: #ffffff;
+  --danger-wash: #272727;
+  --success: #eeeeee;
+  --success-wash: #252525;
+  --warning: #dedede;
+  --glass: var(--surface);
+  --glow: transparent;
+  --shadow-sm: none;
+  --shadow-md: none;
+  --shadow-float: none;
+  --radius-sm: 0;
+  --radius-md: 0;
+  --radius-lg: 0;
+  background: var(--canvas);
+}
+
+:root[data-theme=terminal] body {
+  background: var(--canvas);
+}
+
+:root[data-theme=terminal] body :where(:not(.katex, .katex *), :not(.katex, .katex *)::before, :not(.katex, .katex *)::after) {
+  font-family: var(--font-code) !important;
+}
+
+:root[data-theme=terminal] body :where(button, .button, input, textarea, select, dialog, main, article, section, aside, nav, table, header, footer, a, .notice, .avatar, .header-avatar, .account-popover, .file-format, .profile-card, .telegraph-paper, .file-tree, .file-tree-row, .settings-panels) {
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+
+:root[data-theme=terminal] :is(.site-header, .document-toolbar) {
+  border-bottom-style: dashed;
+}
+:root[data-theme=terminal] .site-header::before {
+  display: none;
+}
+:root[data-theme=terminal] #site-navigation > a[aria-current=page] {
+  border-color: var(--accent-ink);
+  background: var(--accent-wash);
+  color: var(--accent-ink);
+}
+:root[data-theme=terminal] .site-header .brand {
+  letter-spacing: 0;
+  font-size: 18px;
+}
+:root[data-theme=terminal] :is(.site-header .brand-symbol, .site-header .brand-dot, .site-header .brand-name, .ui-icon-vector) {
+  display: none;
+}
+:root[data-theme=terminal] .terminal-brand {
+  display: block;
+  width: clamp(112px, 17vw, 152px);
+  height: auto;
+}
+
+:root[data-theme=terminal] .ui-icon-terminal {
+  display: inline-grid;
+  place-items: center;
+  font-weight: 600;
+  line-height: 1;
+}
+
+:root[data-theme=terminal] .file-tree {
+  border-color: var(--control-line);
+}
+:root[data-theme=terminal] .file-tree-row {
+  border-bottom-style: dashed;
+}
+:root[data-theme=terminal] .file-tree :is(a, button):focus-visible {
+  outline-color: var(--accent-ink);
+}
+:root[data-theme=terminal] .file-tree-folder > .ui-icon-terminal {
+  color: var(--warning);
+}
+
+:root[data-theme=terminal] .loading-caption > .loading-indicator {
+  display: inline-grid;
+  place-items: center;
+  color: var(--accent-ink);
+  border: 0;
+  border-radius: 0;
+  font-weight: 700;
+}
+:root[data-theme=terminal] .loading-indicator::before {
+  content: "⠋";
+}
+:root[data-theme=terminal] .skeleton-lines {
+  display: none;
+}
+@media (prefers-reduced-motion: no-preference) {
+  :root[data-theme=terminal][data-animations=off] .loading-indicator::before {
+    animation: terminal-spinner 900ms step-end infinite !important;
+  }
+}
+@keyframes terminal-spinner {
+  0% { content: "⠋"; }
+  10% { content: "⠙"; }
+  20% { content: "⠹"; }
+  30% { content: "⠸"; }
+  40% { content: "⠼"; }
+  50% { content: "⠴"; }
+  60% { content: "⠦"; }
+  70% { content: "⠧"; }
+  80% { content: "⠇"; }
+  90% { content: "⠏"; }
+}
