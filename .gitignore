@@ -53,6 +53,7 @@ htmlcov/
 *.sqlite-*
 *.sqlite3
 *.sqlite3-*
+*.db
 *.db-journal
 *.db-wal
 *.db-shm
@@ -109,7 +110,8 @@ tempCodeRunnerFile.py
 /.github/
 /frontend/
 /tests/
-/apps/server/test/
+/apps/server/test/*
+!/apps/server/test/site-switcher.test.ts
 /apps/web/test/
 /apps/server/README.md
 /apps/web/README.md
@@ -137,6 +139,9 @@ tempCodeRunnerFile.py
 **/.cursor/
 **/.gemini/
 **/.opencode/
+**/.kimi/
+**/.continue/
+**/.serena/
 **/.aider*
 **/[Aa][Gg][Ee][Nn][Tt][Ss].[Mm][Dd]
 **/[Aa][Gg][Ee][Nn][Tt].[Mm][Dd]
@@ -146,6 +151,9 @@ tempCodeRunnerFile.py
 **/[Gg][Ee][Mm][Ii][Nn][Ii].[Mm][Dd]
 **/[Mm][Ee][Mm][Oo][Rr][Yy].[Mm][Dd]
 **/copilot-instructions.md
+**/[Ss][Kk][Ii][Ll][Ll].[Mm][Dd]
+**/[Tt][Aa][Ss][Kk]-*.md
+**/[Tt][Aa][Ss][Kk]_*.md
 **/.mcp.json
 **/.mcp.local.json
 
@@ -161,3 +169,12 @@ credentials.json
 credentials-*.json
 client_secret*.json
 *service-account*.json
+
+# Generated local tooling artifacts
+*.tsbuildinfo
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.eslintcache
+.cache/
+.turbo/
